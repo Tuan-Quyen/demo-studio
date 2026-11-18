@@ -184,7 +184,7 @@ CATALOG: dict[str, dict] = {
         "agents": ["sound-mixer"],
     },
     "blur": {
-        "effect": "Blur/redact sensitive regions (emails, tokens, profile photos) in recorded frames",
+        "effect": "Blur/redact sensitive regions (emails, tokens, faces) in recorded frames",
         "reqs": "blur.txt",
         "modules": ["cv2", "numpy"],
         "post": [],

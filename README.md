@@ -4,8 +4,6 @@ A [Claude Code](https://claude.com/claude-code) plugin: a team of 17 agents that
 
 You describe what to demo. The team writes the brief, storyboard and narration, records the app, blurs sensitive data, syncs the voice-over, adds motion and captions, mixes audio, renders 16:9 / 9:16 / 1:1 and checks the result. You approve at three gates.
 
-**Scope:** screen-only product demos. No on-camera presenter, talking head, avatar, actor or animated character; narration is voice-over only. Show the problem with product screens, text and title cards.
-
 This repo is a plugin marketplace (`demo-record-teams`) that ships one plugin: `plugins/demo-studio/` (v0.1.0).
 
 ## Install
@@ -152,7 +150,7 @@ python scripts/setup_tools.py --list | --check [features] | --plan <features> | 
 | `voice-elevenlabs` | ElevenLabs voices; paid API | ~5 MB |
 | `captions` | Word timing (faster-whisper), SRT/ASS | ~150 MB |
 | `mix` | Music ducking, loudness normalisation | ~30 MB |
-| `blur` | Blur emails, tokens, profile photos in frames | ~60 MB |
+| `blur` | Blur emails, tokens, faces in frames | ~60 MB |
 | `motion-basic` | Zoom/pan, overlays, fades via ffmpeg | ~0 MB |
 | `motion-cinematic` | Titles, transitions, animated captions via Remotion | ~400 MB |
 | `qa-ocr` | OCR the finished video to verify text and redactions | ~120 MB |

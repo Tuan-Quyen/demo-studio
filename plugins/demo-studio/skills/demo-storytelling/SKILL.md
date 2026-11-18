@@ -5,8 +5,6 @@ description: Load when writing or reviewing a demo's brief, storyboard or narrat
 
 # Demo storytelling
 
-**Scope:** screen-only product demos. No on-camera presenter, talking head, avatar, actor or animated character; narration is voice-over only. Show the problem with product screens, text and title cards.
-
 ## Structure: Problem -> Solution -> Outcome
 1. **Problem** (10-20%): one concrete pain of the target user, in their words. Not a feature list.
 2. **Solution** (60-70%): the shortest path in the product that removes that pain. Show only the flow that serves the outcome; skip settings, onboarding and anything "also you can".

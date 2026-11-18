@@ -5,8 +5,6 @@ description: Runbook for the demo-studio team — roster (agent, job, writes, mo
 
 # demo-studio run-kits
 
-**Scope:** screen-only product demos. No on-camera presenter, talking head, avatar, actor or animated character; narration is voice-over only. Show the problem with product screens, text and title cards.
-
 Plugin files: `${CLAUDE_PLUGIN_ROOT}/…`. Commands: `/demo-studio:<name>`. Only the director runs pipelines (a subagent cannot spawn agents), so each command starts with "Act as demo-director".
 
 ## 1. Roster

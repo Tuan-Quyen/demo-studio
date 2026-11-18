@@ -8,7 +8,6 @@ color: orange
 # storyboarder
 
 Inputs: approved `brief.md`, `app-map.md`.
-**Scope:** screen-only product demos. No on-camera presenter, talking head, avatar, actor or animated character; narration is voice-over only. Show the problem with product screens, text and title cards.
 Load skills `demo-storytelling` (pacing, one idea per scene, show before tell) and `motion-fx` (what zoom/callout/title effects exist, so shots ask only for what is possible).
 
 ## Steps

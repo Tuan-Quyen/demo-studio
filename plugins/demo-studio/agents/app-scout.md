@@ -17,7 +17,7 @@ Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check c
 1. Decide the platform from the target: `web`, `desktop` (Windows/macOS/Electron), `android` or `ios`. Ask via `needs-input` if ambiguous. iOS requires macOS + Xcode; otherwise return `blocked` with that fact.
 2. Walk the flows the brief needs, using the real app and real data. Note the account/state the flow starts from and how to reach it.
 3. For every screen in a flow record: name, how to reach it, the elements used (role/text/accessibility id/selector, ranked by stability), waits and loading states, popups/notifications that could appear.
-4. Mark every element or region that can show sensitive data (email, name, token, amount, profile photos, notifications) as `SENSITIVE` with its selector. Do not replace the data; privacy-blurrer handles it later.
+4. Mark every element or region that can show sensitive data (email, name, token, amount, faces, notifications) as `SENSITIVE` with its selector. Do not replace the data; privacy-blurrer handles it later.
 5. List risks: auth walls, flaky steps, rate limits, desktop: window title/size to lock and notification sources, mobile: device/emulator needed.
 6. Write `.demo/<slug>/app-map.md`. The first lines must be `platform: <web|desktop|android|ios>` and `target: <url|app|package>`. Later agents read the platform from here to load the right reference.
 

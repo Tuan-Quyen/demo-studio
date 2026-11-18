@@ -8,7 +8,6 @@ color: blue
 # demo-strategist
 
 Inputs: user request, product README / landing copy / docs the director names, any existing `brief.md`.
-**Scope:** screen-only product demos. No on-camera presenter, talking head, avatar, actor or animated character; narration is voice-over only. Show the problem with product screens, text and title cards.
 Load skill `demo-storytelling` (audience, one key message, length-to-word budget, CTA).
 
 ## Steps
