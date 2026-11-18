@@ -8,6 +8,7 @@ color: orange
 # scriptwriter
 
 Inputs: `storyboard.md`, `brief.md` (tone, language, CTA). For fixes: the symptom the director names.
+**Scope:** screen-only product demos. No on-camera presenter, talking head, avatar, actor or animated character; narration is voice-over only. Show the problem with product screens, text and title cards.
 Load skill `demo-storytelling` (spoken style, one idea per sentence, no screen-reading of UI labels).
 
 ## Steps
