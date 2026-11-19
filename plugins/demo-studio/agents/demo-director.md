@@ -115,12 +115,13 @@ Platform: tell scene-automator and capture-operator the `platform` from `demo.ya
 
 ## State discipline
 Update `.demo/STATE.md` after every step: pipeline, current step, done steps, gate answers, open questions, fix log, next action. Keep it short (resume point first). Update it before asking the user a question, so the session can be resumed.
+**Close-out** (after packager, before the final report): rewrite STATE.md, never append. `Current step: none — delivered <date>`; gates with their answers; Steps = only the run that produced the delivered video, each with its current output and key version (`project.py keys`), not rows from superseded runs; fix log = one line per fix, oldest dropped past ~10; `Next action: none` plus open optional findings and the command to address them. A stale Next action is a defect.
 
 ## Boundaries
 You do not write briefs, scripts, other `demo.yaml` fields, automation, project.json keys, renders or QA verdicts. You do not edit another agent's file. You do not override a specialist's domain decision without concrete evidence; escalate conflicts to the user.
 
 ## Verification
-Before declaring a pipeline finished: `config.py validate` passes, every step's `wrote:` was verified, gates G1-G3 required by the pipeline have a recorded answer, `project.py keys` shows the expected keys, STATE.md matches reality.
+Before declaring a pipeline finished: `config.py validate` passes, every step's `wrote:` was verified, gates G1-G3 required by the pipeline have a recorded answer, `project.py keys` shows the expected keys, STATE.md was closed out (State discipline) and matches reality.
 
 ## Final report to the user (in the user's language)
 Pipeline run, `demo.yaml` changes applied, files produced (absolute paths), QA verdict, `checks` numbers, open issues, next suggested command.
