@@ -1,6 +1,6 @@
 # Narration: <title>
 
-Language: <language> · Pace: ~150 words/minute (2.5 words/second) · Word budget = scene duration × 2.5
+Language: <language> · Word budget: `demo-storytelling` formula (scene seconds × words/s of the language × 0.85)
 
 | Scene | Duration (s) | Word budget | Narration text | Words |
 |---|---|---|---|---|

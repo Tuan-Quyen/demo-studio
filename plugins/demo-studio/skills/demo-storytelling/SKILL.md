@@ -21,11 +21,11 @@ Exactly one, last, specific and doable ("Start a free trial at example.com"). No
 |---|---|---|---|
 | short / social | 60-90 s | 4-6 | one job, one outcome |
 | full demo | 2-3 min | 6-10 | one workflow, end to end |
-Brief states the target length in seconds; render check allows +-10% (see media-specs). Over 3 min: split into two videos, do not stretch.
+`demo.yaml` `length_s` states the target length in seconds; render check allows +-10% (see media-specs). Over 3 min: split into two videos, do not stretch.
 
 ## Narration budget
-- ~150 words per minute = 2.5 words/s. Budget `words <= seconds x 2.5 x 0.85` (the 15% is air for on-screen action and holds). 60 s -> ~125 words, 90 s -> ~190, 3 min -> ~380.
-- This is a first estimate. Real duration comes from `project.json#voice` (TTS output); languages/voices differ. If the measured VO exceeds the scene budget by >10%, cut words (scriptwriter), do not speed up audio.
+- **One formula:** `words <= length_s x rate(lang) x 0.85` with rate `en` 2.4, `vi` 2.6, any other language 2.5 words/s (the 15% is air for on-screen action and holds; natural ranges in `voice-over`). Per scene use the scene's seconds. `en`: 50 s -> ~102 words, 90 s -> ~184; `vi`: 50 s -> ~110, 90 s -> ~199. Strategist and scriptwriter use this, they do not restate it.
+- This is a first estimate. Real duration comes from `project.json#voice` (TTS output); languages/voices differ, and some (e.g. Vietnamese) speak faster, so the **measured VO decides**. If the measured VO exceeds the scene budget by >10%, cut words (scriptwriter), do not speed up audio. If total VO is >15% under `length_s`, the director lowers `length_s` (storyboarder retimes the scenes) rather than leaving silence.
 
 ## Scene count rules
 - One idea and one on-screen goal per scene. 8-20 s per scene (hook <= 8 s). A scene with more than ~3 user actions gets split.

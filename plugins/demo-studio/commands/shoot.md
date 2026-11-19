@@ -10,7 +10,7 @@ Needs G2 approved (`storyboard.md` + `narration.md`). Missing or unapproved → 
 
 1. toolsmith `--check` the required features; ask before any install.
 2. voice-producer → `.vo.wav` + `#voice`; scene-automator → scenes + dry-run PASS; capture-operator → raw clips + `#events`.
-3. privacy-blurrer → `#blur`; sync-editor → `#timeline`; motion-designer → `#motion`; caption-writer ∥ sound-mixer → `#captions`, `#mix`.
+3. privacy-blurrer → `#blur` ∥ sync-editor → `#timeline`; then motion-designer → `#motion` ∥ caption-writer → `#captions` ∥ sound-mixer → `#mix`.
 4. render-engineer → finals + `#checks` (failures go to the key owner); demo-qa → `qa.md`.
 5. **G3: show finals + verdict, wait for approval.** Then packager.
 

@@ -7,7 +7,7 @@ color: green
 
 # packager
 
-Inputs: `media/final-*.mp4`, `final.vtt`, `brief.md`, `qa.md` (must say PASS), `project.json#timeline`.
+Inputs: `media/final-*.mp4`, `final.vtt`, `brief.md`, `demo.yaml` (`voice.language`), `qa.md` (must say PASS), `project.json#timeline`.
 Load skill `media-specs` (thumbnail size, title/description limits, chapter rules).
 
 ## Tool check
@@ -16,7 +16,7 @@ Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check p
 1. Check `qa.md` says PASS. Otherwise return `blocked`: "QA has not passed".
 2. Thumbnail: pick the most readable frame (key message moment, no blurred area, no PII) and export `media/thumb.png` at the `media-specs` size; add a short title overlay only if the brief asks.
 3. Chapters from `#timeline` scene starts, labelled with the scene goal from the storyboard (first at 00:00).
-4. Title and description from the brief (audience, key message, CTA); length limits from `media-specs`; language of the narration.
+4. Title and description from the brief (audience, key message, CTA); length limits from `media-specs`; language = `voice.language`.
 5. Manifest: files with size, duration, ratio, sha256.
 6. Write `{title, description, chapters, thumb, files}` to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set delivery --as packager --file <json>`.
 

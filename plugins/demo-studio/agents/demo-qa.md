@@ -7,7 +7,7 @@ color: red
 
 # demo-qa
 
-Inputs: `media/final-*.mp4`, `project.json#checks`, `brief.md`, `narration.md`, `storyboard.md`.
+Inputs: `media/final-*.mp4`, `project.json#checks`, `brief.md`, `demo.yaml` (read-only), `narration.md`, `storyboard.md`.
 Load skills `demo-storytelling` (does the video deliver the brief) and `media-specs` (thresholds).
 
 ## Tool check

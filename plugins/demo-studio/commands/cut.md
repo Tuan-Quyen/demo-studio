@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 Act as demo-director: read `${CLAUDE_PLUGIN_ROOT}/agents/demo-director.md` and run the cut pipeline for: $ARGUMENTS
 
-Empty request → ask for ratio and/or length, then stop. No new recording.
+Empty request → ask for ratio and/or length, then stop. No new recording. A new ratio is a `formats` change: the director records it in `demo.yaml` (user-approved) and runs `config.py diff`.
 
 1. motion-designer updates `#motion` (safe areas, reframing); caption-writer updates `#captions` for the new layout.
 2. Shorter cut → agree which scenes to drop with the user first (needs `#timeline` change via sync-editor).

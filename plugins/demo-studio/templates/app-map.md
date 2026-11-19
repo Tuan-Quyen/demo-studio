@@ -1,6 +1,5 @@
 # App map: <app name>
 
-platform: <web | desktop | android | ios>
 entry: <URL, installed app path, APK/IPA or build id>
 login: <how to reach a signed-in state, test account notes; never store passwords here>
 

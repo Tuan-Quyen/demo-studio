@@ -46,7 +46,7 @@ OWNERS = {
 DOWNSTREAM = {
     "voice": ["timeline", "captions", "mix"],
     "events": ["blur", "timeline"],
-    "timeline": ["motion"],
+    "timeline": ["motion", "captions", "mix"],
     "blur": ["checks"],
     "motion": ["checks"],
     "captions": ["checks"],

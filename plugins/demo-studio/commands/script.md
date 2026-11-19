@@ -8,9 +8,9 @@ Act as demo-director: read `${CLAUDE_PLUGIN_ROOT}/agents/demo-director.md` and r
 
 Empty request → ask what to demo, then stop.
 
-1. demo-strategist → `brief.md`. **G1: wait for approval.**
-2. app-scout → `app-map.md` (with `platform:` and sensitive elements).
-3. storyboarder → `storyboard.md`; scriptwriter → `narration.md` (word budget at ~150 wpm vs scene durations).
+1. demo-strategist → `brief.md` + `demo.yaml`. **G1: wait for approval.**
+2. app-scout → `app-map.md` (with `target:` and sensitive elements).
+3. storyboarder → `storyboard.md`; scriptwriter → `narration.md` (word budget per `demo-storytelling` vs scene durations).
 4. **G2: show storyboard + narration, wait for approval.** Stop. Next step is `/demo-studio:shoot`.
 
 No recording, voice or render here.
