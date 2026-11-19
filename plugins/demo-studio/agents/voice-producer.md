@@ -11,7 +11,7 @@ Inputs: `narration.<voice.language>.md` when it exists (localizer), else `narrat
 Load skill `voice-over` (engines, lexicon, pacing, own-voice recording, measurement) and `media-specs` (audio format, loudness, #voice schema).
 
 ## Tool check
-Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check voice-edge` (add `captions` when `voice.lexicon` is not empty: needed for the round-trip check). Use the feature for `voice.engine`: `edge` → `voice-edge` (default), `kokoro` → `voice-kokoro`, `elevenlabs` → `voice-elevenlabs` (needs `ELEVENLABS_API_KEY`; ask the user, never print the key). If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
+Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check <feature>` for the selected `voice.engine` only: `edge` → `voice-edge` (default), `kokoro` → `voice-kokoro`, `elevenlabs` → `voice-elevenlabs` (needs `ELEVENLABS_API_KEY`; ask the user, never print the key), `recorded` → `capture` (ffmpeg only, no TTS feature). Add `captions` when `voice.lexicon` is not empty and the engine is not `recorded` (needed for the round-trip check). Never check or install another engine's feature. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
 
 Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
 ## Steps
