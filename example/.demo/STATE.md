@@ -1,6 +1,6 @@
 # Demo studio state
 
-- Slug: ai-video-trends-v2 (re-run on fixed plugin; v1 = ai-video-trends-tour, see STATE.v1.md)
+- Slug: ai-video-trends-v2 (base; v1 deleted by user request)
 - Pipeline: new
 - Current step: done — pipeline new finished (v2)
 - Gates: G1 approved (auto) · G2 approved (auto) · G3 approved (auto; QA PASS, Q-1..Q-7 logged)

@@ -7,7 +7,7 @@ color: cyan
 
 # caption-writer
 
-Inputs: `narration.md`, `media/sNN.vo.wav`, `project.json#timeline` (scene start offsets).
+Inputs: the narration in `voice.language` (`narration.<voice.language>.md` when it exists, else `narration.md`), `media/sNN.vo.wav`, `project.json#timeline` (scene start offsets).
 Settings from demo.yaml (`config.py --slug <slug> get captions`, `get targets.caption_offset_ms`, `get voice.language`): `captions.max_chars` (default 42), `captions.burn_in` (default false), `targets.caption_offset_ms` (default 200). Load skill `media-specs` (2 lines, reading speed, formats).
 
 ## Tool check

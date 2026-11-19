@@ -25,11 +25,16 @@ diff mapping (field -> pre agents; first project.json keys; downstream follows p
                            NOT voice/events; needs_user. scriptwriter only if the new word budget is
                            below the current narration word count; voice only if narration changes
   formats                  motion, captions (+ checks, delivery)
-  voice.language           pre scriptwriter (G2); voice + downstream (narration is rewritten)
+  language                 source language (null = voice.language). pre scriptwriter, localizer (G2);
+                           voice + downstream; needs_user. No-op if the effective source language
+                           (language or voice.language) is unchanged
+  voice.language           pre localizer if language is set and differs from the new voice.language,
+                           else scriptwriter (G2); voice + downstream; needs_user
   voice.lexicon.<term>     voice + downstream; no pre, no G2; diff lists terms added/changed/removed
   voice.engine / .name     voice + downstream (the only non-language fields that re-run voice)
   motion.*                 motion (+ checks, delivery)
   music.*                  mix (+ checks, delivery)
+  captions.burn_in         checks only (+ delivery): burn-in happens in the render
   captions.*               captions (+ checks, delivery)
   targets.lufs/true_peak   mix (+ checks, delivery)
   targets.max_drift_ms     timeline (+ motion, captions, mix, checks, delivery)
@@ -79,12 +84,14 @@ def leaf(kind, default, **kw):
 
 
 FORMATS = ["16:9", "9:16", "1:1"]
+LANG_RE = re.compile(r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$")
 FEATURE_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 # Defaults mirror skills/media-specs, skills/motion-fx and run-kits.
 SCHEMA = {
     "platform": leaf("enum", None, enum=["web", "desktop", "android", "ios"], nullable=True),
     "length_s": leaf("int", None, min=5, max=600, nullable=True),
+    "language": leaf("str", None, nullable=True, pattern=LANG_RE),
     "formats": leaf("list", ["16:9"], enum=FORMATS, min_items=1, unique=True),
     "voice": {
         "engine": leaf("enum", "edge", enum=["edge", "kokoro", "elevenlabs", "recorded"]),
@@ -93,7 +100,7 @@ SCHEMA = {
                      hint="+0%, -10%, +15%"),
         "pitch": leaf("str", "+0Hz", pattern=re.compile(r"^[+-]\d{1,3}Hz$"), range=(-50, 50),
                       hint="+0Hz, -5Hz, +20Hz"),
-        "language": leaf("str", "en", pattern=re.compile(r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$")),
+        "language": leaf("str", "en", pattern=LANG_RE),
         "lexicon": leaf("map", {}, max_len=60),
     },
     "motion": {
@@ -610,14 +617,16 @@ FIELD_MAP = [
                           "scriptwriter re-runs only if the new word budget is below the current "
                           "narration word count; voice re-runs only if narration changes"}),
     ("formats", {"keys": ["motion", "captions"]}),
-    ("voice.language", {"pre": ["scriptwriter"], "gates": ["G2"], "keys": ["voice"],
-                        "note": "language changed: narration must be rewritten (G2)"}),
+    ("language", {"dynamic": "localization"}),
+    ("voice.language", {"dynamic": "localization"}),
     ("voice.lexicon.*", {"keys": ["voice"],
                          "note": "lexicon changed: voice re-synthesised with the new spellings "
                                  "(narration text unchanged, no G2)"}),
     ("voice.*", {"keys": ["voice"]}),
     ("motion.*", {"keys": ["motion"]}),
     ("music.*", {"keys": ["mix"]}),
+    ("captions.burn_in", {"keys": ["checks"],
+                          "note": "burn-in only changes the render, captions are not rewritten"}),
     ("captions.*", {"keys": ["captions"]}),
     ("targets.lufs", {"keys": ["mix"]}),
     ("targets.true_peak", {"keys": ["mix"]}),
@@ -633,6 +642,17 @@ def lookup_rule(path):
         if pat == path or (pat.endswith(".*") and path.startswith(pat[:-1])):
             return rule
     raise CliError(2, "internal: no diff rule for %s" % path)  # guarded by a test
+
+
+def localization_pre(path, old, new):
+    """Pre agents for a language / voice.language change, or None when nothing is invalidated."""
+    vo, vn = (old.get("voice") or {}).get("language"), (new.get("voice") or {}).get("language")
+    lo, ln = old.get("language"), new.get("language")
+    if path == "language":
+        if (lo or vo) == (ln or vn):
+            return None  # same effective source language
+        return ["scriptwriter", "localizer"]
+    return ["localizer"] if ln and ln != vn else ["scriptwriter"]
 
 
 def flatten(cfg, prefix=""):
@@ -660,6 +680,16 @@ def compute_diff(old, new):
             continue
         res["changed"].append({"path": path, "old": a, "new": b})
         rule = lookup_rule(path)
+        if rule.get("dynamic") == "localization":
+            lpre = localization_pre(path, old, new)
+            src, tgt = new.get("language") or new["voice"]["language"], new["voice"]["language"]
+            res["localization"] = {"source": src, "target": tgt, "needed": src != tgt}
+            if lpre is None:
+                note = "language set to its effective value: nothing to re-run"
+                if note not in res["notes"]:
+                    res["notes"].append(note)
+                continue
+            rule = {"pre": lpre, "gates": ["G2"], "keys": ["voice"], "needs_user": True}
         if rule.get("all"):
             keys.update(project.RUN_ORDER)
         for k in rule.get("keys", []):
@@ -682,7 +712,15 @@ def compute_diff(old, new):
            "removed": {t: lo[t] for t in lo if t not in ln}}
     if any(lex.values()):
         res["lexicon"] = lex
-    order = ["app-scout", "storyboarder", "scriptwriter"]
+    loc = res.get("localization")
+    if loc and any(c["path"] in ("language", "voice.language") for c in res["changed"]) and (
+            "scriptwriter" in pre or "localizer" in pre):
+        res["notes"].append(
+            "localization: narration is written in %s, voice speaks %s: localizer translates "
+            "narration, captions and on-screen text" % (loc["source"], loc["target"])
+            if loc["needed"] else
+            "localization: none needed (source language = voice language %s)" % loc["target"])
+    order = ["app-scout", "storyboarder", "scriptwriter", "localizer"]
     res["pre"] = [a for a in order if a in pre]
     res["gates"] = sorted(gates)
     res["rerun"] = [{"key": k, "owner": project.OWNERS[k]} for k in project.RUN_ORDER if k in keys]

@@ -7,7 +7,7 @@ color: red
 
 # demo-qa
 
-Inputs: `media/final-*.mp4`, `project.json#checks`, `brief.md`, `demo.yaml` (read-only), `narration.md`, `storyboard.md`.
+Inputs: `media/final-*.mp4`, `project.json#checks`, `brief.md`, `demo.yaml` (read-only), `narration.md` (and `narration.<voice.language>.md` when it exists), `storyboard.md`.
 Load skills `demo-storytelling` (does the video deliver the brief) and `media-specs` (thresholds).
 
 ## Tool check
@@ -17,7 +17,7 @@ Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --pyth
 1. Read `#checks`. If `pass` is false, FAIL immediately and list the failed rows with their owners; stop.
 2. Sample frames (at least 3 per scene: start, middle, end) and view them. Check: spelling of on-screen text and captions, broken or cut-off UI, wrong state, leftover real data (emails, names, amounts, tokens, notifications, other windows), black bars, cursor jumps.
 3. Run OCR on the samples to find readable sensitive strings; compare against the `SENSITIVE` list.
-4. Watch pacing via frames and the timeline: does each scene earn its length, does the narration match what is on screen, is the CTA present, does it match the brief's audience and message.
+4. Dead air: a gap of more than 800 ms at a scene join with no picture change (and no speech) is a finding (owner: sync-editor for holds, voice-producer for padded VO), never "no action". Watch pacing via frames and the timeline: does each scene earn its length, does the narration match what is on screen, is the CTA present, does it match the brief's audience and message.
 5. Write `qa.md`: verdict (PASS/FAIL), list of findings each with severity (blocker / minor), time code, evidence (frame path), and the **owner agent** to fix it using the /fix routing in the director.
 6. Blockers = FAIL. Only minor findings = PASS with notes.
 

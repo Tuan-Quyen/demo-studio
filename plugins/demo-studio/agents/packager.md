@@ -7,7 +7,7 @@ color: green
 
 # packager
 
-Inputs: `media/final-*.mp4`, `final.vtt`, `brief.md`, `demo.yaml` (`voice.language`), `qa.md` (must say PASS), `project.json#timeline`.
+Inputs: `media/final-*.mp4`, `final.vtt`, `brief.md`, `demo.yaml` (`voice.language`), `localization.md` (chapter titles, strings; when it exists), `qa.md` (must say PASS), `project.json#timeline`.
 Load skill `media-specs` (thumbnail size, title/description limits, chapter rules).
 
 ## Tool check

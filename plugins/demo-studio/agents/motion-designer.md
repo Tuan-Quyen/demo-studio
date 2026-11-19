@@ -7,7 +7,7 @@ color: magenta
 
 # motion-designer
 
-Inputs: `project.json#timeline` and `#events`, `storyboard.md` (camera intent), `demo.yaml` (`platform`, `motion.level`, `formats`; read with `config.py get`).
+Inputs: `project.json#timeline` and `#events`, `storyboard.md` (camera intent), `demo.yaml` (`platform`, `motion.level`, `formats`; read with `config.py get`), `localization.md` on-screen strings (title card, end card, callouts) when it exists; otherwise the storyboard's text.
 Load skills `motion-fx` (effect catalog, parameters, when to use) and `media-specs` (safe areas, max zoom, durations).
 
 ## Tool check

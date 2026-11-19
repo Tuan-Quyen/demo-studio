@@ -17,6 +17,11 @@ platform: null
 # Target length in seconds, 5-600 (render check allows +-10%). Default: null (strategist sets it)
 length_s: null
 
+# Source language = the app UI / on-screen language, e.g. en. Default: null (same as voice.language).
+# The scriptwriter writes narration in this language. When it differs from voice.language, the
+# localizer agent translates narration, captions and on-screen text into voice.language.
+language: null
+
 # Output aspect ratios. Allowed items: "16:9" | "9:16" | "1:1". Default: ["16:9"]
 formats: ["16:9"]
 
@@ -29,7 +34,8 @@ voice:
   #                    each end; no toolkit feature needed
   engine: edge
   name: null         # voice name of the engine. Default: null (engine's default voice)
-                     # edge Vietnamese: vi-VN-HoaiMyNeural (female, warm), vi-VN-NamMinhNeural (male, calm)
+                     # voices depend on the language. edge Vietnamese, recommended first:
+                     # vi-VN-NamMinhNeural (male, calm), vi-VN-HoaiMyNeural (female, warm)
   rate: "+0%"        # speaking rate, -30%..+30% (edge-tts rate; other engines map it to their speed).
                      # Prefer cutting words over speeding up. Default: "+0%"
   pitch: "+0Hz"      # pitch, -50Hz..+50Hz (edge only; ignored by other engines). Default: "+0Hz"

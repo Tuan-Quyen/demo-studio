@@ -10,7 +10,7 @@ Empty request → ask what to demo, then stop.
 
 1. demo-strategist → `brief.md` + `demo.yaml`. **G1: wait for approval.**
 2. app-scout → `app-map.md` (with `target:` and sensitive elements).
-3. storyboarder → `storyboard.md`; scriptwriter → `narration.md` (word budget per `demo-storytelling` vs scene durations).
+3. storyboarder → `storyboard.md`; scriptwriter → `narration.md` (word budget per `demo-storytelling` vs scene durations); localizer → `localization.md` + `narration.<voice.language>.md` when `language` differs from `voice.language`.
 4. **G2: show storyboard + narration, wait for approval.** Stop. Next step is `/demo-studio:shoot`.
 
 No recording, voice or render here.

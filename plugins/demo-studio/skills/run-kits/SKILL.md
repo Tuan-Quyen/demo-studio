@@ -16,7 +16,8 @@ Plugin files: `${CLAUDE_PLUGIN_ROOT}/…`. Commands: `/demo-studio:<name>`. Only
 | `demo-strategist` | audience, goal, message, CTA (prose) and the initial video properties | `brief.md`, `demo.yaml` (create) | inherit |
 | `app-scout` | explore app, check it matches `platform` in `demo.yaml`, map flows/selectors, flag sensitive elements | `app-map.md` | inherit |
 | `storyboarder` | scenes and shots: on-screen action, camera intent, duration | `storyboard.md` | opus |
-| `scriptwriter` | per-scene narration within the `demo-storytelling` word budget | `narration.md` | opus |
+| `scriptwriter` | per-scene narration in `language` within the `demo-storytelling` word budget | `narration.md` | opus |
+| `localizer` | only when `language` ≠ `voice.language`: translate narration, UI-term glossary, lexicon proposals, on-screen strings | `localization.md`, `narration.<voice.language>.md` | inherit |
 | `voice-producer` | TTS or own-voice VO per scene (skill `voice-over`: engines, lexicon, pacing), measure duration | `media/sNN.vo.wav`, `#voice` | haiku |
 | `scene-automator` | action-only scene scripts, VO pauses, `mark()`, dry-run | `scenes.<platform>.*`, `demo_ctx.py` | inherit |
 | `capture-operator` | recorder wrapper, run script unmodified (prepare → start), collect markers, save raw clips, full-frame check | `media/sNN.raw.*`, `#events` | haiku |
@@ -38,18 +39,18 @@ Plugin files: `${CLAUDE_PLUGIN_ROOT}/…`. Commands: `/demo-studio:<name>`. Only
 | Command | For | Pipeline | Gates |
 |---|---|---|---|
 | `run` | any request; empty = resume | director classifies, then runs one below | per pipeline |
-| `new` | video from scratch | toolsmith → strategist → scout → storyboarder → scriptwriter → voice-producer → scene-automator → capture-operator → (blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa → packager | G1, G2, G3 |
-| `script` | pre-production only | strategist → scout → storyboarder → scriptwriter | G1, G2 |
+| `new` | video from scratch | toolsmith → strategist → scout → storyboarder → scriptwriter → (localizer) → voice-producer → scene-automator → capture-operator → (blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa → packager | G1, G2, G3 |
+| `script` | pre-production only | strategist → scout → storyboarder → scriptwriter → (localizer) | G1, G2 |
 | `shoot` | approved script → render | toolsmith → voice-producer → scene-automator → capture-operator → (blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa | G3 (needs G2) |
 | `rerecord` | UI changed in a scene | scene-automator → capture-operator → (blurrer ∥ sync-editor) → motion-designer → render-engineer → demo-qa | G3 |
-| `revoice` | new text, voice or language | scriptwriter → voice-producer → sync-editor → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa | G2 (text), G3 |
+| `revoice` | new text, voice or language | scriptwriter → (localizer) → voice-producer → sync-editor → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa | G2 (text), G3 |
 | `cut` | new aspect ratio or shorter cut | (sync-editor if scenes are dropped) → (motion-designer ∥ caption-writer) → render-engineer → demo-qa | G3 |
 | `fix` | symptom text; empty = read `qa.md` + `#checks` | director diagnoses → owner → dependent keys → render → qa | G3 |
 | `tools` | view/install toolkit | `--list`/`--check` → ask → toolsmith | install approval |
 | `review` | inspect existing video, no edits | demo-qa | — |
 | `status` | where are we | read `STATE.md` only | — |
 
-Order is the dependency order of §6: caption-writer and sound-mixer need `#timeline`, so they never run before sync-editor. Loops: render check failure → owner of that key. QA FAIL → owner of the finding, re-render, QA. Same finding 3 rounds → ask the user. VO is produced **before** scenes so pauses fit real durations.
+Order is the dependency order of §6: caption-writer and sound-mixer need `#timeline`, so they never run before sync-editor. (localizer) runs only when `language` is set and differs from `voice.language`. Loops: render check failure → owner of that key. QA FAIL → owner of the finding, re-render, QA. Same finding 3 rounds → ask the user. VO is produced **before** scenes so pauses fit real durations.
 
 ## 3. scene-automator ↔ capture-operator boundary
 
@@ -108,7 +109,7 @@ Director checks `wrote:` against the agent's allowed outputs. **Evidence rule:**
 
 Only two kinds of video file: raw clips and finals. Blur, motion, captions and mix are instructions in `project.json`, not intermediate videos. Templates in `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
-**Files → owner:** `brief.md` demo-strategist (prose; user approves at G1) · `demo.yaml` **the user** (demo-strategist creates it at G1; demo-director records the user's decisions in it: motion level, voice, install choices; every other agent reads only) · `.demo.applied.json` snapshot written by `config.py apply` (director: after G1 as baseline, after every G3) · `app-map.md` app-scout · `storyboard.md` storyboarder · `narration.md` scriptwriter · `qa.md` demo-qa.
+**Files → owner:** `brief.md` demo-strategist (prose; user approves at G1) · `demo.yaml` **the user** (demo-strategist creates it at G1; demo-director records the user's decisions in it: motion level, voice, install choices; every other agent reads only) · `.demo.applied.json` snapshot written by `config.py apply` (director: after G1 as baseline, after every G3) · `app-map.md` app-scout · `storyboard.md` storyboarder · `narration.md` scriptwriter (in `language`) · `localization.md`, `narration.<voice.language>.md` localizer (only when `language` ≠ `voice.language`; voice-producer reads the latter when it exists) · `qa.md` demo-qa.
 
 **`demo.yaml`** controls the video's properties: `platform`, `length_s`, `formats`, `voice {engine, name, language, lexicon}`, `motion {level}`, `music {style, duck_db}`, `captions {burn_in, max_chars}`, `targets {lufs, true_peak, max_drift_ms, caption_offset_ms}`, `privacy {blur, real_data}`, `install {approved, declined}`. Template with allowed values and defaults: `${CLAUDE_PLUGIN_ROOT}/templates/demo.yaml`. A value lives only there; agents read it, never copy it.
 
@@ -124,6 +125,13 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> get <key>
 python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set <key> --as <agent> --file <json>
 ```
 
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/vo.py trim IN OUT [--lead-ms 200 --trail-ms 150]
+python ${CLAUDE_PLUGIN_ROOT}/scripts/vo.py join OUT IN... [--gap-ms 300 --edge-ms 50]
+python ${CLAUDE_PLUGIN_ROOT}/scripts/vo.py check IN [--lead-max 200 --trail-max 150 --gap-max 500 --pause-ms N...]   # exit 1 on fail
+```
+`vo.py` (voice-producer builds scenes with it; render-engineer and sound-mixer check with it) prints JSON; never hand-roll audio trimming.
+
 Locked and owner-checked, so parallel agents do not overwrite each other. Never edit `project.json` by hand.
 
 **Dependency order:** voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. A `length_s` change re-runs storyboarder (G2) → timeline → motion, captions, mix → checks → delivery; voice only if narration changes.
@@ -138,7 +146,8 @@ Locked and owner-checked, so parallel agents do not overwrite each other. Never 
 | Email, name, amount still visible | privacy-blurrer | render → qa |
 | Wrong click, UI changed, scene broken | scene-automator | capture → (blur ∥ timeline) → motion → render → qa |
 | Black frame, freeze, bad recording | capture-operator | (blur ∥ timeline) → motion → render → qa |
-| Wrong or awkward narration | scriptwriter → voice-producer | timeline → (motion ∥ captions ∥ mix) → render → qa |
+| Wrong translation, UI term, on-screen text language | localizer → voice-producer | timeline → (motion ∥ captions ∥ mix) → render → qa |
+| Wrong or awkward narration | scriptwriter → (localizer) → voice-producer | timeline → (motion ∥ captions ∥ mix) → render → qa |
 | Caption wrong or off | caption-writer | render → qa |
 | Music too loud, voice too quiet, LUFS off | sound-mixer | render → qa |
 | Zoom in wrong place, missing callout | motion-designer | render → qa |

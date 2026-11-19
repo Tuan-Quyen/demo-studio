@@ -36,7 +36,7 @@ Exactly one, last, specific and doable ("Start a free trial at example.com"). No
 Per scene: id, goal (one sentence), on-screen actions in order (using app-map names), start/end screen, camera intent (where to zoom/highlight, or "none"), target duration (s), narration ref, sensitive elements visible (from app-map), motion hint. Uses only flows that exist in app-map.md; if a flow is missing, ask app-scout, do not invent UI.
 
 ## Narration rules (scriptwriter -> narration.md)
-- Write for the ear: present tense, second person ("you"), <= 20 words/sentence, contractions, numerals as people say them.
+- Write for the ear: present tense, second person ("you"), sentences <= ~14 words (a longer one needs a comma or a split; never over 20; a long comma-less sentence is read too fast), contractions, numerals as people say them.
 - Say the outcome of an action, not the click ("Your invoice is on its way"), unless the click is the point. Never read button labels or URLs aloud.
 - Narration leads the action by ~0.3-0.5 s: the line starts, then the pointer moves.
 - One scene = one block of text with its word count and a target duration; no stage directions inside the spoken text. Keep brand names, numbers and acronyms with a pronunciation hint if the TTS may fail.

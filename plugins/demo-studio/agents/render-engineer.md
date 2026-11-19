@@ -14,6 +14,7 @@ Read `demo.yaml` with `config.py --slug <slug> get formats|targets|captions` (ra
 Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check capture,qa-ocr`. Add `motion-cinematic` when `#motion.engine` is Remotion. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
 Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
 ## Steps
+0. Before mixing run `scripts/vo.py check media/sNN.vo.wav [--pause-ms 400 per [pause]]` on every scene (and confirm `#voice` has `lead_ms`, `trail_ms`, `sentences`, `words_per_s`); a failure is a `vo` result in `#checks` with owner `voice-producer` and you return `blocked`.
 1. Confirm the five keys exist (`python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> keys`); missing key: return `blocked` naming the owner.
 2. Render in **one pass** at the source fps (never duplicate frames to reach 60): blur + motion + captions + mix into `final-16x9.mp4`; derive `final-9x16.mp4` and `final-1x1.mp4` only for the ratios in `formats` (demo.yaml) (reframe per `media-specs`, keep sensitive regions covered; map `#blur` scene-relative regions and `#motion` through `#timeline`/`media-specs` Spaces and time). Export `final.vtt`.
 3. Measure the output and write all numbers:

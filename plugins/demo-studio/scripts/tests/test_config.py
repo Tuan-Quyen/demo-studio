@@ -378,6 +378,31 @@ class VoiceProps(Workspace):
         self.bad('voice:\n  pitch: "-51Hz"\n', "voice.pitch")
 
 
+class SourceLanguage(Workspace):
+    def test_default_null_and_valid(self):
+        self.write("")
+        self.assertIsNone(config.load_config(self.path)["language"])
+        self.assertIsNone(json.loads(self.cli("get", "language")[1]))
+        self.write("language: pt-BR\n")
+        self.assertEqual(config.load_config(self.path)["language"], "pt-BR")
+        self.write('language: "no"\n')
+        self.assertEqual(config.load_config(self.path)["language"], "no")
+
+    def test_invalid(self):
+        for text in ("language: english language\n", "language: e\n", "language: 5\n", 'language: ""\n'):
+            self.write(text)
+            code, _, err = self.cli("validate")
+            self.assertEqual(code, 2, text)
+            self.assertIn("language", err)
+
+    def test_template_has_language_and_recommended_voice(self):
+        with open(config.TEMPLATE, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIsNone(config.parse_builtin(text)["language"])
+        self.assertLess(text.index("vi-VN-NamMinhNeural"), text.index("vi-VN-HoaiMyNeural"))
+        self.assertIsNone(config.defaults()["voice"]["name"])
+
+
 class Get(Workspace):
     def test_get_paths(self):
         self.write("voice:\n  engine: elevenlabs\n")
@@ -543,6 +568,58 @@ class DiffMapping(Workspace):
             self.assertEqual((res["pre"], res["gates"]), ([], []), text)
         res = self.diff("voice:\n  engine: recorded\n", "voice:\n  engine: edge\n")
         self.assertEqual(self.keys(res)[0], "voice")
+
+    def test_language_reopens_script_and_localization(self):
+        res = self.diff("", "language: vi\n")
+        self.assertEqual(res["pre"], ["scriptwriter", "localizer"])
+        self.assertEqual(res["gates"], ["G2"])
+        self.assertTrue(res["needs_user"])
+        self.assertEqual(self.keys(res), ["voice", "timeline", "motion", "captions", "mix",
+                                          "checks", "delivery"])
+        self.assertEqual(res["localization"], {"source": "vi", "target": "en", "needed": True})
+        self.assertTrue(any(n.startswith("localization:") and "localizer translates" in n
+                            for n in res["notes"]))
+        self.assertIn("re-run first: scriptwriter, localizer (reopens G2)", self.cli("diff")[1])
+
+    def test_language_change_between_values(self):
+        res = self.diff("language: en\nvoice:\n  language: vi\n", "language: de\nvoice:\n  language: vi\n")
+        self.assertEqual(res["pre"], ["scriptwriter", "localizer"])
+        self.assertTrue(res["needs_user"])
+
+    def test_language_set_to_effective_value_is_noop(self):
+        res = self.diff("voice:\n  language: vi\n", "language: vi\nvoice:\n  language: vi\n")
+        self.assertEqual(len(res["changed"]), 1)
+        self.assertEqual((res["pre"], res["rerun"], res["needs_user"]), ([], [], False))
+        res = self.diff("language: vi\nvoice:\n  language: vi\n", "voice:\n  language: vi\n")
+        self.assertEqual((res["pre"], res["rerun"]), ([], []))
+
+    def test_voice_language_with_source_language_uses_localizer(self):
+        res = self.diff("language: en\n", "language: en\nvoice:\n  language: vi\n")
+        self.assertEqual(res["pre"], ["localizer"])
+        self.assertEqual(res["gates"], ["G2"])
+        self.assertTrue(res["needs_user"])
+        self.assertEqual(self.keys(res)[0], "voice")
+        self.assertEqual(res["localization"], {"source": "en", "target": "vi", "needed": True})
+
+    def test_voice_language_without_source_language_uses_scriptwriter(self):
+        res = self.diff("", "voice:\n  language: vi\n")
+        self.assertEqual(res["pre"], ["scriptwriter"])
+        self.assertEqual(res["gates"], ["G2"])
+        self.assertTrue(res["needs_user"])
+        self.assertEqual(res["localization"]["needed"], False)
+        self.assertTrue(any("none needed" in n for n in res["notes"]))
+
+    def test_voice_language_back_to_source_uses_scriptwriter(self):
+        res = self.diff("language: en\nvoice:\n  language: vi\n", "language: en\nvoice:\n  language: en\n")
+        self.assertEqual(res["pre"], ["scriptwriter"])
+
+    def test_burn_in_only_reruns_render(self):
+        res = self.diff("", "captions:\n  burn_in: true\n")
+        self.assertEqual(self.keys(res), ["checks", "delivery"])
+        self.assertEqual(res["pre"], [])
+        self.assertFalse(res["needs_user"])
+        self.assertEqual(self.keys(self.diff("", "captions:\n  max_chars: 30\n")),
+                         ["captions", "checks", "delivery"])
 
     def test_install_only(self):
         res = self.diff("", "install:\n  approved: [mix]\n")

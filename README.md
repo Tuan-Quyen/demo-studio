@@ -1,6 +1,6 @@
 # Demo Studio
 
-A [Claude Code](https://claude.com/claude-code) plugin: a team of 17 agents that plans, records, edits and packages narrated, captioned, privacy-safe demo videos for **web, desktop, Android and iOS** apps.
+A [Claude Code](https://claude.com/claude-code) plugin: a team of 18 agents that plans, records, edits and packages narrated, captioned, privacy-safe demo videos for **web, desktop, Android and iOS** apps.
 
 You describe what to demo. The team writes the brief, storyboard and narration, records the app, blurs sensitive data, syncs the voice-over, adds motion and captions, mixes audio, renders 16:9 / 9:16 / 1:1 and checks the result. You approve at three gates.
 
@@ -71,7 +71,8 @@ Only `demo-director` runs pipelines; the others each do one job and write only t
 | `demo-strategist` | Audience, goal, message, CTA; creates `demo.yaml` | inherit |
 | `app-scout` | Explore the app, check platform, map flows and selectors, flag sensitive elements | inherit |
 | `storyboarder` | Scenes and shots: on-screen action, camera intent, duration | opus |
-| `scriptwriter` | Narration per scene within a word budget (`demo-storytelling` formula) | opus |
+| `scriptwriter` | Narration per scene within a word budget (`demo-storytelling` formula), in the source `language` | opus |
+| `localizer` | When `language` differs from `voice.language`: translated narration, UI-term glossary, lexicon proposals, on-screen strings | inherit |
 | `voice-producer` | Text-to-speech per scene; measure durations | haiku |
 | `scene-automator` | Action-only scene scripts with voice-over pauses; dry-run | inherit |
 | `capture-operator` | Run the scripts unmodified under the recorder; save raw clips | haiku |
@@ -185,7 +186,8 @@ python scripts/setup_tools.py --list | --check [features] | --plan <features> | 
 | Email, name or amount still visible | privacy-blurrer |
 | Wrong click, UI changed, scene broken | scene-automator |
 | Black frame, freeze, bad recording | capture-operator |
-| Awkward narration | scriptwriter, then voice-producer |
+| Wrong translation, UI term, on-screen text language | localizer, then voice-producer |
+| Awkward narration | scriptwriter, (localizer), then voice-producer |
 | Caption wrong or off | caption-writer |
 | Music too loud, voice too quiet | sound-mixer |
 | Zoom in the wrong place, missing callout | motion-designer |

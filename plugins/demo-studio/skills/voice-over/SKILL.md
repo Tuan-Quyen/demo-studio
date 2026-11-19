@@ -18,11 +18,12 @@ Settings live in `demo.yaml` (`config.py --slug <slug> get voice`): `engine`, `n
 `rate` ("+0%", -30..+30%) is global; `pitch` ("+0Hz", -50..+50) is `edge` only. Cloning a voice only with the owner's written consent. OpenAI and Google TTS are not supported yet (no toolkit feature): do not offer them. API keys live only in environment variables, never in files, `demo.yaml`, briefs or chat; never print them.
 
 ## 2. Choosing
-- Default by brief: no-budget Vietnamese demo -> `edge` (HoaiMy, or NamMinh for a calm technical tone); premium or emotional launch -> `elevenlabs`; founder/personal story -> `recorded`.
+- Default by brief: no-budget Vietnamese demo -> `edge` with `vi-VN-NamMinhNeural` (male, calm; recommended default), HoaiMy (female, warm) as the alternative; premium or emotional launch -> `elevenlabs`; founder/personal story -> `recorded`.
 - One voice per video. Match gender and tone to the brief's audience and tone.
 - Ask the user (options, recommended default), then the director records the answer in `demo.yaml`; a paid engine also needs the install-approval flow in `run-kits`.
 
 ## 3. Pronunciation lexicon
+When `language` ≠ `voice.language` the localizer proposes entries for kept source-language terms; the narration read here is `narration.<voice.language>.md`.
 `voice.lexicon` maps a written term to its spoken spelling. It changes the **TTS input only**: whole word, case-sensitive, longest match first, done by `config.py --slug <slug> apply-lexicon (--text|--file|stdin) [--json]` (returns the text and an `applied` list; never substitute by hand). `narration.md` and captions keep the written text; caption-writer aligns to it.
 - Before TTS scan the narration for terms likely mispronounced in `voice.language`: English words and brands in a non-English narration, acronyms, numbers, money, dates, domains, abbreviations. A term not in the lexicon -> `needs-input` with proposed entries (term -> spelling) and a default; the director asks the user (auto mode may approve) and records them. Never invent spellings silently.
 - Examples (`vi`): `AI` -> `ây ai`, `YouTube` -> `du túp`, `UI` -> `diu ai`, `URL` -> `diu a eo`, `1.250.000 ₫` -> `một triệu hai trăm năm mươi nghìn đồng`, `example.com` -> `example chấm com`. Suggestions only, never auto-applied.
@@ -35,13 +36,13 @@ Settings live in `demo.yaml` (`config.py --slug <slug> get voice`): `engine`, `n
 | `en` | 2.4-2.6 |
 | `vi` | 2.8-3.0 (measured: `edge` HoaiMy ~2.9-3.0 incl. pauses) |
 
-Budget: `demo-storytelling` (rate en 2.5, vi 3.0, else 2.5; calibrate from `#voice` after the first scene). A scene whose **measured** words/s > 1.3x natural is rushed: flag it. Cut words (scriptwriter) rather than speed up. `voice.rate` is global: change it in steps of +-5% and re-measure. `[pause]` in `narration.md` inserts ~400 ms of silence between TTS chunks; captions ignore it. The measured VO decides lengths (rules in `demo-storytelling`).
+Budget: `demo-storytelling` (rate en 2.5, vi 3.0, else 2.5; calibrate from `#voice` after the first scene). A scene whose **measured** `words_per_s` (words / speech seconds) > 1.3x natural is rushed (e.g. a 19-word comma-less sentence read at 4.7 words/s): `needs-input` to scriptwriter/localizer with the line; cut or split words, never change speed per scene. `voice.rate` is global: change it in steps of +-5% and re-measure. `[pause]` in `narration.md` is a 400 ms gap between sentence clips (`vo.py join`); captions ignore it. The measured VO decides lengths (rules in `demo-storytelling`).
 
 ## 5. Recording your own voice (`engine: recorded`)
 Quiet room, close mic, pop filter, same distance and energy for every take. One 48 kHz WAV per scene at `.demo/<slug>/vo-src/sNN.wav`, about 0.3 s of silence at both ends. voice-producer cleans each file (`ffmpeg -af highpass=f=80,afftdn=nf=-25`), then normalises loudness to the `media-specs` targets, writes `media/sNN.vo.wav` and measures it like TTS. No lexicon (the speaker reads the written text); missing or unusable takes -> `needs-input` listing scene ids.
 
 ## 6. Output and measurement
-`media/sNN.vo.wav` in the format of `media-specs`; `project.json#voice` shape in `media-specs` (project.json schemas, incl. `scenes[].lexicon_applied`). Durations come from `ffprobe`, not from the engine. Trim each file to leading <= 200 ms and trailing <= 150 ms silence (long tails force silent joins), record `lead_ms`/`trail_ms` in `#voice`, check clipping (peaks <= -3 dBFS).
+`media/sNN.vo.wav` in the format of `media-specs`; `project.json#voice` shape in `media-specs` (project.json schemas, incl. `scenes[].lexicon_applied`). Durations come from `ffprobe`, not from the engine. Raw TTS has ~0.85 s tails and ~0.9 s gaps inside one request, so: **one sentence per TTS call**, then `vo.py join <out> <wavs...> --gap-ms 300 --edge-ms 50` (a `[pause]` = gap 400 ms), `vo.py trim <in> <out> --lead-ms 200 --trail-ms 150`, `vo.py check <file> --pause-ms 400` (one per `[pause]`; exit 1 = fail, blocks the handoff). Never hand-roll trimming. Record `lead_ms`, `trail_ms`, `sentences`, `words_per_s` in `#voice`; check clipping (peaks <= -3 dBFS). render-engineer and sound-mixer re-run `vo.py check` before mixing.
 
 ## 7. Sync consequences
 VO length drives scene length (`platform-automation` VO-pause rule). A narration, voice or lexicon change -> `config.py diff` -> voice -> timeline -> motion, captions, mix -> render (dependency order: `run-kits` §6; a lexicon change needs no G2). Do not re-record video because the VO changed unless a scene length moves beyond the storyboard's holds.
