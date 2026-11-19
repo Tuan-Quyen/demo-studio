@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Video Trends</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="#top" aria-label="AI Video Trends home"><span class="brand-dot"></span>AI Video Trends</a>
+  <nav class="nav" aria-label="Primary">
+    <a href="#trending">Trending</a><a href="#trends">Trends</a><a href="#genres">Genres</a>
+  </nav>
+  <div class="pill" data-testid="signed-in-pill" data-sensitive="true">Signed in as <strong id="user-email"></strong></div>
+</header>
+
+<main id="top">
+  <section class="hero" data-testid="section-hero">
+    <p class="eyebrow">Weekly snapshot</p>
+    <h1>What's trending in AI video creation</h1>
+    <p class="sub">Popular videos, rising techniques and the genres worth betting on, all in one place.</p>
+    <a class="btn" href="#trends" id="cta" data-testid="hero-cta">Explore trends</a>
+  </section>
+
+  <section id="trending" class="section" data-testid="section-trending">
+    <h2>Trending now</h2>
+    <div class="chips" role="group" aria-label="Filter by genre" id="chips"></div>
+    <p class="count" id="count" aria-live="polite"></p>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section id="trends" class="section" data-testid="section-trends">
+    <h2>Trends</h2>
+    <div class="trend-grid" id="trend-cards"></div>
+    <figure class="chart" data-testid="genre-chart">
+      <figcaption>Genre growth, last 90 days (sample)</figcaption>
+      <svg id="chart" viewBox="0 0 640 280" role="img" aria-label="Bar chart of genre growth"></svg>
+    </figure>
+    <aside class="panel" data-testid="creator-dashboard">
+      <h3>Creator dashboard</h3>
+      <p class="muted">Your API key for the sample generator:</p>
+      <code id="api-key" data-testid="api-key" data-sensitive="true"></code>
+    </aside>
+  </section>
+
+  <section id="genres" class="section" data-testid="section-genres">
+    <h2>Promising genres</h2>
+    <ol class="rank" id="rank"></ol>
+  </section>
+</main>
+
+<footer class="site-footer" data-testid="section-footer">
+  <span>&copy; AI Video Trends demo</span>
+  <span class="note" data-testid="sample-note">Sample data for demo</span>
+</footer>
+
+<div class="modal-backdrop" id="modal" data-testid="modal" role="dialog" aria-modal="true" aria-labelledby="m-title" hidden>
+  <div class="modal-card">
+    <button class="close" id="modal-close" data-testid="modal-close" aria-label="Close">&times;</button>
+    <div class="m-thumb" id="m-thumb"></div>
+    <h3 id="m-title"></h3>
+    <p class="meta" id="m-meta"></p>
+    <p id="m-desc"></p>
+    <h4>Prompt example</h4><pre id="m-prompt"></pre>
+    <h4>Tool category</h4><p id="m-tool"></p>
+    <h4>Why it trends</h4><p id="m-why"></p>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

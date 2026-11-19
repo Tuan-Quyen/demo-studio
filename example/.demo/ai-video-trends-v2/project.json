@@ -1,0 +1,2743 @@
+{
+  "_meta": {
+    "schema": 1,
+    "keys": {
+      "voice": {
+        "version": 9,
+        "owner": "voice-producer",
+        "updated": "2026-11-19T03:51:10Z"
+      },
+      "events": {
+        "version": 2,
+        "owner": "capture-operator",
+        "updated": "2026-11-19T04:05:00Z"
+      },
+      "blur": {
+        "version": 2,
+        "owner": "privacy-blurrer",
+        "updated": "2026-11-19T05:48:40Z"
+      },
+      "timeline": {
+        "version": 6,
+        "owner": "sync-editor",
+        "updated": "2026-11-19T04:08:56Z"
+      },
+      "mix": {
+        "version": 6,
+        "owner": "sound-mixer",
+        "updated": "2026-11-19T04:10:09Z"
+      },
+      "captions": {
+        "version": 7,
+        "owner": "caption-writer",
+        "updated": "2026-11-19T04:10:49Z"
+      },
+      "motion": {
+        "version": 8,
+        "owner": "motion-designer",
+        "updated": "2026-11-19T05:58:12Z"
+      },
+      "checks": {
+        "version": 10,
+        "owner": "render-engineer",
+        "updated": "2026-11-19T05:58:39Z"
+      },
+      "delivery": {
+        "version": 2,
+        "owner": "packager",
+        "updated": "2026-11-19T06:11:50Z"
+      }
+    }
+  },
+  "voice": {
+    "engine": "edge",
+    "voice": "en-US-AndrewNeural",
+    "language": "en",
+    "scenes": [
+      {
+        "id": "s01",
+        "file": "media/s01.vo.wav",
+        "duration_s": 5.88,
+        "words": 13,
+        "lead_ms": 50,
+        "trail_ms": 60,
+        "sentences": [
+          {
+            "words": 13,
+            "start_ms": 50,
+            "end_ms": 5830
+          }
+        ],
+        "words_per_s": 2.25,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s02",
+        "file": "media/s02.vo.wav",
+        "duration_s": 7.92,
+        "words": 21,
+        "lead_ms": 60,
+        "trail_ms": 60,
+        "sentences": [
+          {
+            "words": 8,
+            "start_ms": 50,
+            "end_ms": 2460
+          },
+          {
+            "words": 13,
+            "start_ms": 2860,
+            "end_ms": 7870
+          }
+        ],
+        "words_per_s": 2.83,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s03",
+        "file": "media/s03.vo.wav",
+        "duration_s": 9.8,
+        "words": 24,
+        "lead_ms": 50,
+        "trail_ms": 60,
+        "sentences": [
+          {
+            "words": 8,
+            "start_ms": 50,
+            "end_ms": 3110
+          },
+          {
+            "words": 10,
+            "start_ms": 3510,
+            "end_ms": 6950
+          },
+          {
+            "words": 6,
+            "start_ms": 7350,
+            "end_ms": 9750
+          }
+        ],
+        "words_per_s": 2.7,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s04",
+        "file": "media/s04.vo.wav",
+        "duration_s": 5.02,
+        "words": 16,
+        "lead_ms": 60,
+        "trail_ms": 140,
+        "sentences": [
+          {
+            "words": 7,
+            "start_ms": 50,
+            "end_ms": 2470
+          },
+          {
+            "words": 9,
+            "start_ms": 2870,
+            "end_ms": 4970
+          }
+        ],
+        "words_per_s": 3.54,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s05",
+        "file": "media/s05.vo.wav",
+        "duration_s": 5.46,
+        "words": 17,
+        "lead_ms": 60,
+        "trail_ms": 60,
+        "sentences": [
+          {
+            "words": 10,
+            "start_ms": 50,
+            "end_ms": 3430
+          },
+          {
+            "words": 7,
+            "start_ms": 3830,
+            "end_ms": 5410
+          }
+        ],
+        "words_per_s": 3.43,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s06",
+        "file": "media/s06.vo.wav",
+        "duration_s": 9.27,
+        "words": 18,
+        "lead_ms": 50,
+        "trail_ms": 50,
+        "sentences": [
+          {
+            "words": 3,
+            "start_ms": 50,
+            "end_ms": 1310
+          },
+          {
+            "words": 7,
+            "start_ms": 1710,
+            "end_ms": 3880
+          },
+          {
+            "words": 8,
+            "start_ms": 4280,
+            "end_ms": 9220
+          }
+        ],
+        "words_per_s": 2.15,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s07",
+        "file": "media/s07.vo.wav",
+        "duration_s": 4.9,
+        "words": 14,
+        "lead_ms": 50,
+        "trail_ms": 120,
+        "sentences": [
+          {
+            "words": 14,
+            "start_ms": 50,
+            "end_ms": 4850
+          }
+        ],
+        "words_per_s": 2.92,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s08",
+        "file": "media/s08.vo.wav",
+        "duration_s": 11.98,
+        "words": 25,
+        "lead_ms": 50,
+        "trail_ms": 60,
+        "sentences": [
+          {
+            "words": 3,
+            "start_ms": 50,
+            "end_ms": 1180
+          },
+          {
+            "words": 10,
+            "start_ms": 1580,
+            "end_ms": 6530
+          },
+          {
+            "words": 12,
+            "start_ms": 6930,
+            "end_ms": 11930
+          }
+        ],
+        "words_per_s": 2.26,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s09",
+        "file": "media/s09.vo.wav",
+        "duration_s": 13.89,
+        "words": 28,
+        "lead_ms": 50,
+        "trail_ms": 60,
+        "sentences": [
+          {
+            "words": 8,
+            "start_ms": 50,
+            "end_ms": 4680
+          },
+          {
+            "words": 9,
+            "start_ms": 5080,
+            "end_ms": 9160
+          },
+          {
+            "words": 11,
+            "start_ms": 9560,
+            "end_ms": 13840
+          }
+        ],
+        "words_per_s": 2.16,
+        "lexicon_applied": [
+          {
+            "term": "UGC",
+            "spoken": "U G C"
+          }
+        ]
+      },
+      {
+        "id": "s10",
+        "file": "media/s10.vo.wav",
+        "duration_s": 6.36,
+        "words": 19,
+        "lead_ms": 50,
+        "trail_ms": 60,
+        "sentences": [
+          {
+            "words": 9,
+            "start_ms": 50,
+            "end_ms": 2130
+          },
+          {
+            "words": 10,
+            "start_ms": 3030,
+            "end_ms": 6310
+          }
+        ],
+        "words_per_s": 3.54,
+        "lexicon_applied": [],
+        "pause_ms": 1000
+      }
+    ]
+  },
+  "events": {
+    "schema": 1,
+    "platform": "web",
+    "bbox_space": {
+      "unit": "px",
+      "frame": [
+        1280,
+        720
+      ],
+      "scale": 1.0,
+      "origin": [
+        0,
+        0
+      ]
+    },
+    "clips": {
+      "s01": {
+        "file": "media/s01.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 610,
+        "duration_ms": 7560
+      },
+      "s02": {
+        "file": "media/s02.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 593,
+        "duration_ms": 14040
+      },
+      "s03": {
+        "file": "media/s03.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 641,
+        "duration_ms": 14600
+      },
+      "s04": {
+        "file": "media/s04.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 641,
+        "duration_ms": 8600
+      },
+      "s05": {
+        "file": "media/s05.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 1453,
+        "duration_ms": 10400
+      },
+      "s06": {
+        "file": "media/s06.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 1000,
+        "duration_ms": 11440
+      },
+      "s07": {
+        "file": "media/s07.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 640,
+        "duration_ms": 8720
+      },
+      "s08": {
+        "file": "media/s08.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 641,
+        "duration_ms": 14560
+      },
+      "s09": {
+        "file": "media/s09.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 656,
+        "duration_ms": 18600
+      },
+      "s10": {
+        "file": "media/s10.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 656,
+        "duration_ms": 12600
+      }
+    },
+    "markers": [
+      {
+        "t": 0,
+        "scene": "s01",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s01",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 7000,
+        "scene": "s01",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s02",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s02",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 968,
+        "scene": "s02",
+        "type": "click",
+        "bbox": [
+          759,
+          20,
+          62,
+          24
+        ],
+        "label": "nav \"Trending\""
+      },
+      {
+        "t": 10000,
+        "scene": "s02",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s03",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s03",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 1406,
+        "scene": "s03",
+        "type": "click",
+        "bbox": [
+          257,
+          189,
+          108,
+          39
+        ],
+        "label": "Music video chip"
+      },
+      {
+        "t": 5406,
+        "scene": "s03",
+        "type": "click",
+        "bbox": [
+          886,
+          189,
+          74,
+          39
+        ],
+        "label": "Anime chip"
+      },
+      {
+        "t": 9406,
+        "scene": "s03",
+        "type": "click",
+        "bbox": [
+          60,
+          189,
+          50,
+          39
+        ],
+        "label": "All chip"
+      },
+      {
+        "t": 14000,
+        "scene": "s03",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s04",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s04",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 1000,
+        "scene": "s04",
+        "type": "click",
+        "bbox": [
+          475,
+          189,
+          141,
+          39
+        ],
+        "label": "Faceless YouTube chip"
+      },
+      {
+        "t": 3000,
+        "scene": "s04",
+        "type": "click",
+        "bbox": [
+          60,
+          282,
+          275,
+          282
+        ],
+        "label": "card: 10 Habits of Calm Productive People"
+      },
+      {
+        "t": 8000,
+        "scene": "s04",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s05",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 16,
+        "scene": "s05",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 5235,
+        "scene": "s05",
+        "type": "click",
+        "bbox": [
+          909,
+          33,
+          36,
+          36
+        ],
+        "label": "Close button"
+      },
+      {
+        "t": 9000,
+        "scene": "s05",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s06",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 15,
+        "scene": "s06",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 953,
+        "scene": "s06",
+        "type": "click",
+        "bbox": [
+          840,
+          20,
+          46,
+          24
+        ],
+        "label": "nav \"Trends\""
+      },
+      {
+        "t": 10500,
+        "scene": "s06",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s07",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s07",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 7500,
+        "scene": "s07",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s08",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s08",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 969,
+        "scene": "s08",
+        "type": "click",
+        "bbox": [
+          906,
+          20,
+          49,
+          24
+        ],
+        "label": "nav \"Genres\""
+      },
+      {
+        "t": 1094,
+        "scene": "s08",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          591,
+          176,
+          42
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 1141,
+        "scene": "s08",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          285,
+          176,
+          42
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 1187,
+        "scene": "s08",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          142,
+          176,
+          42
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 1234,
+        "scene": "s08",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          65,
+          176,
+          42
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 1281,
+        "scene": "s08",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          31,
+          176,
+          42
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 1328,
+        "scene": "s08",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          0,
+          176,
+          39
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 1375,
+        "scene": "s08",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          0,
+          176,
+          19
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 1406,
+        "scene": "s08",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          0,
+          176,
+          12
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 1453,
+        "scene": "s08",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          0,
+          176,
+          7
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 14000,
+        "scene": "s08",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s09",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s09",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 0,
+        "scene": "s09",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          0,
+          176,
+          7
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 18000,
+        "scene": "s09",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s10",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 15,
+        "scene": "s10",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 15,
+        "scene": "s10",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          0,
+          176,
+          7
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 515,
+        "scene": "s10",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          195,
+          176,
+          42
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 625,
+        "scene": "s10",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          425,
+          176,
+          42
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 765,
+        "scene": "s10",
+        "type": "sensitive",
+        "bbox": [
+          81,
+          655,
+          176,
+          42
+        ],
+        "label": "API key"
+      },
+      {
+        "t": 875,
+        "scene": "s10",
+        "type": "sensitive",
+        "bbox": null,
+        "label": "API key"
+      },
+      {
+        "t": 4906,
+        "scene": "s10",
+        "type": "click",
+        "bbox": [
+          60,
+          432,
+          156,
+          52
+        ],
+        "label": "Explore trends button"
+      },
+      {
+        "t": 10500,
+        "scene": "s10",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      }
+    ],
+    "retries": {
+      "s01": 0,
+      "s02": 0,
+      "s03": 0,
+      "s04": 0,
+      "s05": 0,
+      "s06": 0,
+      "s07": 0,
+      "s08": 0,
+      "s09": 0,
+      "s10": 0
+    }
+  },
+  "blur": {
+    "schema": 1,
+    "space": "source",
+    "time": "scene",
+    "regions": [
+      {
+        "scene": "s01",
+        "t_start": 0,
+        "t_end": 6950,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": null,
+        "id": "b1"
+      },
+      {
+        "scene": "s02",
+        "t_start": 0,
+        "t_end": 10150,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": null,
+        "id": "b2"
+      },
+      {
+        "scene": "s03",
+        "t_start": 0,
+        "t_end": 13959,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": null,
+        "id": "b3"
+      },
+      {
+        "scene": "s04",
+        "t_start": 0,
+        "t_end": 7959,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": null,
+        "id": "b4"
+      },
+      {
+        "scene": "s05",
+        "t_start": 0,
+        "t_end": 8947,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": null,
+        "id": "b5"
+      },
+      {
+        "scene": "s06",
+        "t_start": 0,
+        "t_end": 10440,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": null,
+        "id": "b6"
+      },
+      {
+        "scene": "s07",
+        "t_start": 0,
+        "t_end": 7650,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": null,
+        "id": "b7"
+      },
+      {
+        "scene": "s08",
+        "t_start": 0,
+        "t_end": 13919,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": null,
+        "id": "b8"
+      },
+      {
+        "scene": "s09",
+        "t_start": 0,
+        "t_end": 17944,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": null,
+        "id": "b9"
+      },
+      {
+        "scene": "s10",
+        "t_start": 0,
+        "t_end": 10650,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": null,
+        "id": "b10"
+      },
+      {
+        "scene": "s08",
+        "t_start": 1019,
+        "t_end": 1219,
+        "bbox": [
+          81,
+          86,
+          176,
+          42
+        ],
+        "pad": 12,
+        "margin_ms": 20,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:API key (tracked per frame)",
+        "keyframes": [
+          {
+            "t": 1039,
+            "bbox": [
+              81,
+              678,
+              176,
+              42
+            ]
+          },
+          {
+            "t": 1079,
+            "bbox": [
+              81,
+              471,
+              176,
+              42
+            ]
+          },
+          {
+            "t": 1119,
+            "bbox": [
+              81,
+              285,
+              176,
+              42
+            ]
+          },
+          {
+            "t": 1159,
+            "bbox": [
+              81,
+              142,
+              176,
+              42
+            ]
+          },
+          {
+            "t": 1199,
+            "bbox": [
+              81,
+              86,
+              176,
+              42
+            ]
+          }
+        ],
+        "preview": null,
+        "id": "b11"
+      },
+      {
+        "scene": "s10",
+        "t_start": 364,
+        "t_end": 484,
+        "bbox": [
+          81,
+          195,
+          176,
+          42
+        ],
+        "pad": 12,
+        "margin_ms": 20,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:API key (tracked per frame)",
+        "keyframes": null,
+        "preview": null,
+        "id": "b12"
+      },
+      {
+        "scene": "s10",
+        "t_start": 484,
+        "t_end": 644,
+        "bbox": [
+          81,
+          425,
+          176,
+          42
+        ],
+        "pad": 12,
+        "margin_ms": 20,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:API key (tracked per frame)",
+        "keyframes": null,
+        "preview": null,
+        "id": "b13"
+      },
+      {
+        "scene": "s10",
+        "t_start": 644,
+        "t_end": 764,
+        "bbox": [
+          81,
+          655,
+          176,
+          42
+        ],
+        "pad": 12,
+        "margin_ms": 20,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:API key (tracked per frame)",
+        "keyframes": null,
+        "preview": null,
+        "id": "b14"
+      },
+      {
+        "scene": "s08",
+        "t_start": 1219,
+        "t_end": 13919,
+        "bbox": [
+          81,
+          0,
+          176,
+          7
+        ],
+        "pad": 12,
+        "margin_ms": 20,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:API key (behind header strip)",
+        "keyframes": null,
+        "preview": null,
+        "id": "b15"
+      },
+      {
+        "scene": "s09",
+        "t_start": 0,
+        "t_end": 17944,
+        "bbox": [
+          81,
+          0,
+          176,
+          7
+        ],
+        "pad": 12,
+        "margin_ms": 20,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:API key (behind header strip)",
+        "keyframes": null,
+        "preview": null,
+        "id": "b16"
+      },
+      {
+        "scene": "s10",
+        "t_start": 0,
+        "t_end": 364,
+        "bbox": [
+          81,
+          0,
+          176,
+          7
+        ],
+        "pad": 12,
+        "margin_ms": 20,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:API key (behind header strip)",
+        "keyframes": null,
+        "preview": null,
+        "id": "b17"
+      }
+    ]
+  },
+  "timeline": {
+    "scenes": [
+      {
+        "id": "s01",
+        "clip": "media/s01.raw.webm",
+        "in": 600,
+        "out": 7560,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s01.vo.wav",
+          "start": 0,
+          "end": 5880,
+          "speech": [
+            50,
+            5820
+          ]
+        },
+        "start": 0,
+        "end": 6960,
+        "drift_ms": 0
+      },
+      {
+        "id": "s02",
+        "clip": "media/s02.raw.webm",
+        "in": 600,
+        "out": 10560,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s02.vo.wav",
+          "start": 7380,
+          "end": 15300,
+          "speech": [
+            7440,
+            15240
+          ]
+        },
+        "start": 6960,
+        "end": 16920,
+        "drift_ms": 0
+      },
+      {
+        "id": "s03",
+        "clip": "media/s03.raw.webm",
+        "in": 640,
+        "out": 12000,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s03.vo.wav",
+          "start": 16920,
+          "end": 26720,
+          "speech": [
+            16970,
+            26660
+          ]
+        },
+        "start": 16920,
+        "end": 28280,
+        "drift_ms": 70
+      },
+      {
+        "id": "s04",
+        "clip": "media/s04.raw.webm",
+        "in": 640,
+        "out": 7720,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s04.vo.wav",
+          "start": 28880,
+          "end": 33900,
+          "speech": [
+            28940,
+            33760
+          ]
+        },
+        "start": 28280,
+        "end": 35360,
+        "drift_ms": 64
+      },
+      {
+        "id": "s05",
+        "clip": "media/s05.raw.webm",
+        "in": 1440,
+        "out": 8840,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s05.vo.wav",
+          "start": 35760,
+          "end": 41220,
+          "speech": [
+            35820,
+            41160
+          ]
+        },
+        "start": 35360,
+        "end": 42760,
+        "drift_ms": 10
+      },
+      {
+        "id": "s06",
+        "clip": "media/s06.raw.webm",
+        "in": 1000,
+        "out": 11440,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s06.vo.wav",
+          "start": 42800,
+          "end": 52070,
+          "speech": [
+            42850,
+            52020
+          ]
+        },
+        "start": 42760,
+        "end": 53200,
+        "drift_ms": 38
+      },
+      {
+        "id": "s07",
+        "clip": "media/s07.raw.webm",
+        "in": 640,
+        "out": 7640,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s07.vo.wav",
+          "start": 53670,
+          "end": 58570,
+          "speech": [
+            53720,
+            58450
+          ]
+        },
+        "start": 53200,
+        "end": 60200,
+        "drift_ms": 0
+      },
+      {
+        "id": "s08",
+        "clip": "media/s08.raw.webm",
+        "in": 640,
+        "out": 14280,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s08.vo.wav",
+          "start": 60300,
+          "end": 72280,
+          "speech": [
+            60350,
+            72220
+          ]
+        },
+        "start": 60200,
+        "end": 73840,
+        "drift_ms": 39
+      },
+      {
+        "id": "s09",
+        "clip": "media/s09.raw.webm",
+        "in": 640,
+        "out": 16440,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s09.vo.wav",
+          "start": 74200,
+          "end": 88090,
+          "speech": [
+            74250,
+            88030
+          ]
+        },
+        "start": 73840,
+        "end": 89640,
+        "drift_ms": 43
+      },
+      {
+        "id": "s10",
+        "clip": "media/s10.raw.webm",
+        "in": 640,
+        "out": 11040,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s10.vo.wav",
+          "start": 92164,
+          "end": 98524,
+          "speech": [
+            92214,
+            98464
+          ]
+        },
+        "start": 89640,
+        "end": 100040,
+        "drift_ms": 0
+      }
+    ],
+    "total_s": 100.04
+  },
+  "mix": {
+    "schema": 1,
+    "voice": {
+      "gain_db": 5.97,
+      "chain": "inputs: media/s01..s10.vo.wav (48k mono, checked by vo.py; s10 --pause-ms 1000) | adelay 0|7380|16920|28880|35760|42800|53670|60300|74200|92164 ms (all=1) | amix=inputs=10:duration=longest:normalize=0 | atrim=0:100.04 | apad=whole_dur=100.04 | volume=5.97dB (= gain_db) | alimiter=limit=0.8414:attack=5:release=50:level=disabled | -ac 2 -ar 48000 -t 100.04"
+    },
+    "music": null,
+    "ducking": null,
+    "target": {
+      "lufs": -14,
+      "tp_db": -1.5
+    },
+    "preview": {
+      "lufs": -14.0,
+      "tp_db": -1.5
+    }
+  },
+  "captions": {
+    "schema": 1,
+    "lang": "en",
+    "burn_in": true,
+    "max_chars": 42,
+    "max_lines": 2,
+    "cues": [
+      {
+        "i": 1,
+        "scene": "s01",
+        "t_start": 50,
+        "t_end": 6050,
+        "lines": [
+          "Meet AI Video Trends: what's trending",
+          "in AI video, all in one place."
+        ]
+      },
+      {
+        "i": 2,
+        "scene": "s02",
+        "t_start": 7440,
+        "t_end": 10180,
+        "lines": [
+          "Jump between sections",
+          "from the menu up top."
+        ]
+      },
+      {
+        "i": 3,
+        "scene": "s02",
+        "t_start": 10240,
+        "t_end": 15750,
+        "lines": [
+          "The trending grid lays out this week's",
+          "standout AI videos, side by side."
+        ]
+      },
+      {
+        "i": 4,
+        "scene": "s03",
+        "t_start": 16970,
+        "t_end": 20370,
+        "lines": [
+          "Tap a genre,",
+          "and the grid narrows instantly."
+        ]
+      },
+      {
+        "i": 5,
+        "scene": "s03",
+        "t_start": 20430,
+        "t_end": 24210,
+        "lines": [
+          "Music video leaves a single clip,",
+          "and so does Anime."
+        ]
+      },
+      {
+        "i": 6,
+        "scene": "s03",
+        "t_start": 24270,
+        "t_end": 27170,
+        "lines": [
+          "Reset, and every video comes back."
+        ]
+      },
+      {
+        "i": 7,
+        "scene": "s04",
+        "t_start": 28960,
+        "t_end": 31700,
+        "lines": [
+          "Pick Faceless YouTube and open a video."
+        ]
+      },
+      {
+        "i": 8,
+        "scene": "s04",
+        "t_start": 31760,
+        "t_end": 34350,
+        "lines": [
+          "You see the prompt and the tool behind it."
+        ]
+      },
+      {
+        "i": 9,
+        "scene": "s05",
+        "t_start": 35830,
+        "t_end": 39540,
+        "lines": [
+          "Further down, it explains why",
+          "this video is taking off."
+        ]
+      },
+      {
+        "i": 10,
+        "scene": "s05",
+        "t_start": 39600,
+        "t_end": 41670,
+        "lines": [
+          "Close it to return to the grid."
+        ]
+      },
+      {
+        "i": 11,
+        "scene": "s06",
+        "t_start": 42850,
+        "t_end": 44450,
+        "lines": [
+          "Next, the trends."
+        ]
+      },
+      {
+        "i": 12,
+        "scene": "s06",
+        "t_start": 44510,
+        "t_end": 47040,
+        "lines": [
+          "These cards show which techniques",
+          "are rising."
+        ]
+      },
+      {
+        "i": 13,
+        "scene": "s06",
+        "t_start": 47100,
+        "t_end": 52520,
+        "lines": [
+          "Think image-to-video, lip-sync,",
+          "faceless channels and music visuals."
+        ]
+      },
+      {
+        "i": 14,
+        "scene": "s07",
+        "t_start": 53730,
+        "t_end": 55010,
+        "lines": [
+          "Scroll a little further,"
+        ]
+      },
+      {
+        "i": 15,
+        "scene": "s07",
+        "t_start": 55250,
+        "t_end": 59020,
+        "lines": [
+          "and the growth chart shows which genres",
+          "are climbing fastest."
+        ]
+      },
+      {
+        "i": 16,
+        "scene": "s08",
+        "t_start": 60350,
+        "t_end": 61850,
+        "lines": [
+          "Now, the ranking."
+        ]
+      },
+      {
+        "i": 17,
+        "scene": "s08",
+        "t_start": 61910,
+        "t_end": 67180,
+        "lines": [
+          "Faceless YouTube leads: cheap,",
+          "repeatable, and strong on ad revenue."
+        ]
+      },
+      {
+        "i": 18,
+        "scene": "s08",
+        "t_start": 67240,
+        "t_end": 72730,
+        "lines": [
+          "Short-form ads follow, with fast testing",
+          "and clear returns for small brands."
+        ]
+      },
+      {
+        "i": 19,
+        "scene": "s09",
+        "t_start": 74250,
+        "t_end": 79230,
+        "lines": [
+          "Then UGC avatars, localizing at scale",
+          "without presenters."
+        ]
+      },
+      {
+        "i": 20,
+        "scene": "s09",
+        "t_start": 79290,
+        "t_end": 83700,
+        "lines": [
+          "Cinematic shorts are improving fast,",
+          "as festivals open up."
+        ]
+      },
+      {
+        "i": 21,
+        "scene": "s09",
+        "t_start": 83760,
+        "t_end": 88540,
+        "lines": [
+          "Anime rounds it out, with passionate fans",
+          "animating their own art."
+        ]
+      },
+      {
+        "i": 22,
+        "scene": "s10",
+        "t_start": 92214,
+        "t_end": 94794,
+        "lines": [
+          "Now you know which genre to bet on next."
+        ]
+      },
+      {
+        "i": 23,
+        "scene": "s10",
+        "t_start": 95194,
+        "t_end": 98974,
+        "lines": [
+          "Explore trends, and pick the genre",
+          "for your next video."
+        ]
+      }
+    ]
+  },
+  "motion": {
+    "schema": 1,
+    "engine": "ffmpeg",
+    "level": "basic",
+    "space": "source",
+    "time": "timeline",
+    "allow": {
+      "black": [
+        [
+          0,
+          2600
+        ],
+        [
+          95200,
+          100040
+        ]
+      ],
+      "freeze": [
+        [
+          0,
+          2600
+        ],
+        [
+          4000,
+          6960
+        ],
+        [
+          8640,
+          16920
+        ],
+        [
+          18600,
+          22080
+        ],
+        [
+          22600,
+          26120
+        ],
+        [
+          32200,
+          35360
+        ],
+        [
+          36120,
+          39840
+        ],
+        [
+          40600,
+          43760
+        ],
+        [
+          44240,
+          53200
+        ],
+        [
+          54680,
+          60200
+        ],
+        [
+          63280,
+          73120
+        ],
+        [
+          74280,
+          74480
+        ],
+        [
+          74480,
+          88520
+        ],
+        [
+          95600,
+          100040
+        ]
+      ]
+    },
+    "effects": [
+      {
+        "scene": "s01",
+        "type": "title_card",
+        "t_start": 0,
+        "t_end": 2500,
+        "params": {
+          "title": "AI Video Trends",
+          "subtitle": "Trending AI videos, rising techniques, genres to bet on",
+          "bg": "#0B1020",
+          "source": "narration.md#on-screen-strings-en"
+        }
+      },
+      {
+        "scene": "s01",
+        "type": "fade",
+        "t_start": 2400,
+        "t_end": 2600,
+        "params": {
+          "mode": "dip",
+          "from": "title_card",
+          "to": "s01",
+          "black_at": 2500
+        }
+      },
+      {
+        "scene": "s01",
+        "type": "zoom",
+        "t_start": 2600,
+        "t_end": 6960,
+        "params": {
+          "center": [
+            534,
+            395
+          ],
+          "scale": 1.2,
+          "ease_in_ms": 1500,
+          "ease_out_ms": 0,
+          "header_clamp_top": 74,
+          "source_event": "storyboard:s01 slow zoom to h1 + sub-line; held to the cut"
+        }
+      },
+      {
+        "scene": "s02",
+        "type": "zoom",
+        "t_start": 6960,
+        "t_end": 7600,
+        "params": {
+          "center": [
+            534,
+            395
+          ],
+          "scale": 1.2,
+          "ease_in_ms": 0,
+          "ease_out_ms": 500,
+          "header_clamp_top": 74,
+          "source_event": "continuity: s01 zoom eases out before the nav click"
+        }
+      },
+      {
+        "scene": "s02",
+        "type": "cursor_highlight",
+        "t_start": 7671,
+        "t_end": 8321,
+        "params": {
+          "bbox": [
+            772,
+            14,
+            37,
+            37
+          ],
+          "center": [
+            790,
+            32
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "s02@968 nav Trending"
+        }
+      },
+      {
+        "scene": "s03",
+        "type": "zoom",
+        "t_start": 17827,
+        "t_end": 27200,
+        "params": {
+          "center": [
+            510,
+            362
+          ],
+          "scale": 1.4,
+          "ease_in_ms": 500,
+          "ease_out_ms": 400,
+          "header_clamp_top": 74,
+          "source_event": "s03@1406/5406/9406 chips (one window holds all three chips + result); ease out to the full grid after All"
+        }
+      },
+      {
+        "scene": "s03",
+        "type": "cursor_highlight",
+        "t_start": 18077,
+        "t_end": 18727,
+        "params": {
+          "bbox": [
+            298,
+            195,
+            27,
+            27
+          ],
+          "center": [
+            311,
+            208.5
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "s03@1406 Music video chip"
+        }
+      },
+      {
+        "scene": "s03",
+        "type": "cursor_highlight",
+        "t_start": 22077,
+        "t_end": 22727,
+        "params": {
+          "bbox": [
+            910,
+            195,
+            27,
+            27
+          ],
+          "center": [
+            923,
+            208.5
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "s03@5406 Anime chip"
+        }
+      },
+      {
+        "scene": "s03",
+        "type": "cursor_highlight",
+        "t_start": 26077,
+        "t_end": 26727,
+        "params": {
+          "bbox": [
+            72,
+            195,
+            27,
+            27
+          ],
+          "center": [
+            85,
+            208.5
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "s03@9406 All chip"
+        }
+      },
+      {
+        "scene": "s04",
+        "type": "zoom",
+        "t_start": 28781,
+        "t_end": 31700,
+        "params": {
+          "center": [
+            430,
+            340
+          ],
+          "scale": 1.6,
+          "ease_in_ms": 500,
+          "ease_out_ms": 0,
+          "header_clamp_top": 74,
+          "source_event": "s04@1000 Faceless YouTube chip; held through the card click"
+        }
+      },
+      {
+        "scene": "s04",
+        "type": "cursor_highlight",
+        "t_start": 29031,
+        "t_end": 29681,
+        "params": {
+          "bbox": [
+            534,
+            197,
+            23,
+            23
+          ],
+          "center": [
+            545.5,
+            208.5
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "s04@1000 Faceless YouTube chip"
+        }
+      },
+      {
+        "scene": "s04",
+        "type": "cursor_highlight",
+        "t_start": 31031,
+        "t_end": 31681,
+        "params": {
+          "bbox": [
+            186,
+            412,
+            23,
+            23
+          ],
+          "center": [
+            197.5,
+            423
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "s04@3000 card-v5"
+        }
+      },
+      {
+        "scene": "s04",
+        "type": "pan",
+        "t_start": 31700,
+        "t_end": 32200,
+        "params": {
+          "from": {
+            "center": [
+              430,
+              340
+            ],
+            "scale": 1.6
+          },
+          "to": {
+            "center": [
+              640,
+              505
+            ],
+            "scale": 1.8
+          },
+          "ease": "inout_cubic",
+          "header_clamp_top": 74,
+          "source_event": "storyboard:s04 move to the popup fields as it settles (~31.9 s)"
+        }
+      },
+      {
+        "scene": "s04",
+        "type": "zoom",
+        "t_start": 32200,
+        "t_end": 35360,
+        "params": {
+          "center": [
+            640,
+            505
+          ],
+          "scale": 1.8,
+          "ease_in_ms": 0,
+          "ease_out_ms": 0,
+          "header_clamp_top": 74,
+          "source_event": "storyboard:s04 popup Prompt example / Tool category; held to the cut"
+        }
+      },
+      {
+        "scene": "s05",
+        "type": "zoom",
+        "t_start": 35360,
+        "t_end": 40200,
+        "params": {
+          "center": [
+            640,
+            505
+          ],
+          "scale": 1.8,
+          "ease_in_ms": 0,
+          "ease_out_ms": 400,
+          "header_clamp_top": 74,
+          "source_event": "storyboard:s05 Why it trends after in-popup scroll 35800-36120; ease out before Close"
+        }
+      },
+      {
+        "scene": "s05",
+        "type": "cursor_highlight",
+        "t_start": 40358,
+        "t_end": 41008,
+        "params": {
+          "bbox": [
+            908,
+            32,
+            37,
+            37
+          ],
+          "center": [
+            927,
+            51
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "s05@5235 Close button"
+        }
+      },
+      {
+        "scene": "s06",
+        "type": "cursor_highlight",
+        "t_start": 43463,
+        "t_end": 44113,
+        "params": {
+          "bbox": [
+            844,
+            14,
+            37,
+            37
+          ],
+          "center": [
+            863,
+            32
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "s06@953 nav Trends"
+        }
+      },
+      {
+        "scene": "s07",
+        "type": "zoom",
+        "t_start": 54100,
+        "t_end": 60200,
+        "params": {
+          "center": [
+            568,
+            392
+          ],
+          "scale": 1.3,
+          "ease_in_ms": 600,
+          "ease_out_ms": 0,
+          "header_clamp_top": 74,
+          "source_event": "storyboard:s07 chart after jump 53720 settles; held to the cut"
+        }
+      },
+      {
+        "scene": "s08",
+        "type": "zoom",
+        "t_start": 60200,
+        "t_end": 60800,
+        "params": {
+          "center": [
+            568,
+            392
+          ],
+          "scale": 1.3,
+          "ease_in_ms": 0,
+          "ease_out_ms": 500,
+          "header_clamp_top": 74,
+          "source_event": "continuity: s07 chart zoom eases out before the nav click"
+        }
+      },
+      {
+        "scene": "s08",
+        "type": "cursor_highlight",
+        "t_start": 60920,
+        "t_end": 61570,
+        "params": {
+          "bbox": [
+            912,
+            14,
+            37,
+            37
+          ],
+          "center": [
+            930.5,
+            32
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "s08@969 nav Genres"
+        }
+      },
+      {
+        "scene": "s08",
+        "type": "cursor_highlight",
+        "t_start": 62030,
+        "t_end": 62680,
+        "params": {
+          "bbox": [
+            82,
+            216,
+            37,
+            37
+          ],
+          "center": [
+            101,
+            234
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "storyboard:s08 cursor reaches rank 1"
+        }
+      },
+      {
+        "scene": "s08",
+        "type": "zoom",
+        "t_start": 62800,
+        "t_end": 73840,
+        "params": {
+          "center": [
+            440,
+            300
+          ],
+          "scale": 1.6,
+          "ease_in_ms": 500,
+          "ease_out_ms": 0,
+          "header_clamp_top": 74,
+          "source_event": "storyboard:s08 zoom to ranks 1-2 after the wide look; held to the cut"
+        }
+      },
+      {
+        "scene": "s08",
+        "type": "cursor_highlight",
+        "t_start": 67230,
+        "t_end": 67880,
+        "params": {
+          "bbox": [
+            90,
+            324,
+            23,
+            23
+          ],
+          "center": [
+            101,
+            336
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "storyboard:s08 cursor reaches rank 2"
+        }
+      },
+      {
+        "scene": "s09",
+        "type": "pan",
+        "t_start": 73840,
+        "t_end": 74240,
+        "params": {
+          "from": {
+            "center": [
+              440,
+              300
+            ],
+            "scale": 1.6
+          },
+          "to": {
+            "center": [
+              440,
+              495
+            ],
+            "scale": 1.6
+          },
+          "ease": "inout_cubic",
+          "header_clamp_top": 74,
+          "source_event": "storyboard:s09 follow the cursor down to ranks 3-5"
+        }
+      },
+      {
+        "scene": "s09",
+        "type": "zoom",
+        "t_start": 74240,
+        "t_end": 88900,
+        "params": {
+          "center": [
+            440,
+            495
+          ],
+          "scale": 1.6,
+          "ease_in_ms": 0,
+          "ease_out_ms": 400,
+          "header_clamp_top": 74,
+          "source_event": "storyboard:s09 ranks 3-5 window held; ease out to the full list at the end"
+        }
+      },
+      {
+        "scene": "s09",
+        "type": "cursor_highlight",
+        "t_start": 74590,
+        "t_end": 75240,
+        "params": {
+          "bbox": [
+            90,
+            426,
+            23,
+            23
+          ],
+          "center": [
+            101,
+            438
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "storyboard:s09 cursor reaches rank 3"
+        }
+      },
+      {
+        "scene": "s09",
+        "type": "cursor_highlight",
+        "t_start": 78990,
+        "t_end": 79640,
+        "params": {
+          "bbox": [
+            90,
+            528,
+            23,
+            23
+          ],
+          "center": [
+            101,
+            540
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "storyboard:s09 cursor reaches rank 4"
+        }
+      },
+      {
+        "scene": "s09",
+        "type": "cursor_highlight",
+        "t_start": 83470,
+        "t_end": 84120,
+        "params": {
+          "bbox": [
+            90,
+            630,
+            23,
+            23
+          ],
+          "center": [
+            101,
+            642
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "storyboard:s09 cursor reaches rank 5"
+        }
+      },
+      {
+        "scene": "s10",
+        "type": "zoom",
+        "t_start": 92800,
+        "t_end": 95160,
+        "params": {
+          "center": [
+            400,
+            400
+          ],
+          "scale": 1.6,
+          "ease_in_ms": 500,
+          "ease_out_ms": 400,
+          "header_clamp_top": 74,
+          "source_event": "s10@4906 Explore trends; zoom after scroll-up, ease out as the page glides"
+        }
+      },
+      {
+        "scene": "s10",
+        "type": "cursor_highlight",
+        "t_start": 94312,
+        "t_end": 94962,
+        "params": {
+          "bbox": [
+            126,
+            446,
+            23,
+            23
+          ],
+          "center": [
+            138,
+            458
+          ],
+          "diameter_px_1080p": 56,
+          "stroke_px": 3,
+          "fill_opacity": 0.5,
+          "source_event": "s10@4906 Explore trends button"
+        }
+      },
+      {
+        "scene": "s10",
+        "type": "title_card",
+        "t_start": 95200,
+        "t_end": 100040,
+        "params": {
+          "title": "Explore trends",
+          "subtitle": "AI Video Trends · sample data",
+          "bg": "#0B1020",
+          "source": "narration.md#on-screen-strings-en"
+        }
+      },
+      {
+        "scene": "s10",
+        "type": "fade",
+        "t_start": 95200,
+        "t_end": 95600,
+        "params": {
+          "mode": "dip",
+          "target": "title_card",
+          "video_out": [
+            95200,
+            95400
+          ],
+          "card_in": [
+            95400,
+            95600
+          ],
+          "note": "starts at CTA onset 95200 (director-accepted)"
+        }
+      }
+    ]
+  },
+  "checks": {
+    "schema": 1,
+    "outputs": {
+      "16x9": {
+        "file": "media/final-16x9.mp4",
+        "w": 1920,
+        "h": 1080,
+        "fps": 25,
+        "duration_s": 100.04,
+        "video_kbps": 885,
+        "renderer": "opencv",
+        "picture_scale": 0.8333,
+        "picture_px": [
+          1600,
+          900
+        ],
+        "picture_offset": [
+          160,
+          0
+        ],
+        "band_h": 180,
+        "band_bg": "#080d18",
+        "layout": "picture top-centred at 1600x900, caption band y 900-1080, sides and band filled with sampled app bg; titles/end cards full-frame"
+      }
+    },
+    "allow": {
+      "black": [
+        [
+          0,
+          2600
+        ],
+        [
+          95200,
+          100040
+        ]
+      ],
+      "freeze": [
+        [
+          0,
+          2600
+        ],
+        [
+          4000,
+          6960
+        ],
+        [
+          8640,
+          16920
+        ],
+        [
+          18600,
+          22080
+        ],
+        [
+          22600,
+          26120
+        ],
+        [
+          32200,
+          35360
+        ],
+        [
+          36120,
+          39840
+        ],
+        [
+          40600,
+          43760
+        ],
+        [
+          44240,
+          53200
+        ],
+        [
+          54680,
+          60200
+        ],
+        [
+          63280,
+          73120
+        ],
+        [
+          74280,
+          74480
+        ],
+        [
+          74480,
+          88520
+        ],
+        [
+          95600,
+          100040
+        ]
+      ]
+    },
+    "results": {
+      "vo": {
+        "pass": true,
+        "scenes_checked": 10,
+        "failures": [],
+        "owner": "voice-producer",
+        "detail": "vo.py check exit 0 on s01-s09 and s10 with --pause-ms 1000 (its 970 ms gap at 2060 ms is the declared pause)"
+      },
+      "sync": {
+        "pass": true,
+        "measured_ms_max": 10,
+        "threshold_ms": 80,
+        "owner": "sync-editor",
+        "detail": "VO onset in final audio vs #timeline vo.speech[0], max |drift| 10 ms"
+      },
+      "loudness": {
+        "pass": true,
+        "lufs": -14.7,
+        "tp_db": -4.4,
+        "threshold_lufs": 14,
+        "threshold_tp_db": -1,
+        "owner": "sound-mixer",
+        "detail": "#mix.voice.chain reproduced exactly (adelay x10, amix, atrim, apad, volume 5.97 dB, alimiter 0.8414). Measured -14.7 LUFS (within +-1), -4.4 dBTP (under -1). No re-normalisation (check passes). #mix.preview says -14.0 / -1.5, which the chain does not reproduce; sound-mixer to confirm."
+      },
+      "blur": {
+        "pass": true,
+        "regions_checked": 17,
+        "text_found": 0,
+        "owner": "privacy-blurrer",
+        "detail": "108 mapped samples (keyframed b11 uses its interpolated bbox) through the zoom window and picture offset, pad 12 applied on all sides; 0 readable. Positive control on the unblurred source reads the sensitive text in 14/17 regions; b15-b17 (header strip, 7 px tall) show no readable text in source either, so their 0 result is not a real test. API-key transit frames checked visually: media/preview/transit_*.png."
+      },
+      "black": {
+        "pass": true,
+        "hits": [],
+        "owner": "capture-operator",
+        "detail": "black only at 95.36-100.00 s (end card dip), inside allow.black; title dip 0-2.52 s also allowed"
+      },
+      "freeze": {
+        "pass": true,
+        "hits": [],
+        "owner": "capture-operator",
+        "detail": "freezedetect d=3 spans re-checked against #motion v8 allow.freeze (incl. [74280,74480]). Hits: none. Measured on the existing final-16x9.mp4, not re-rendered."
+      },
+      "captions": {
+        "pass": true,
+        "max_chars": 42,
+        "cues": 23,
+        "cues_over_offset": 0,
+        "max_offset_ms": 10,
+        "owner": "caption-writer",
+        "detail": "burn_in true: 23 cues in the bottom band (180 px), <=2 lines, max 42 chars per line. Burned-caption OCR read 1.0 per cue. Soft limit: cues 12 (17.8 chars/s) and 14 (18.8 chars/s) exceed 17."
+      },
+      "length": {
+        "pass": true,
+        "target_s": 105,
+        "actual_s": 100.04,
+        "delta_pct": -4.7,
+        "owner": "storyboarder",
+        "detail": "length_s 105, +-10%"
+      }
+    },
+    "pass": true
+  },
+  "delivery": {
+    "title": "AI Video Trends: see what's trending and which genres to bet on (sample data)",
+    "description": "See what's trending in AI video and which genres are worth betting on, all in one place.\n\nA full tour of AI Video Trends: filter the trending grid by genre, open a video's detail popup to see why it trends, then explore rising techniques, genre growth and the full genre ranking.\n\nNote: all figures shown are sample data.\n\nChapters:\n00:00 Meet AI Video Trends\n00:06 Trending videos\n00:16 Filter by genre\n00:28 Open a video\n00:35 Why it trends\n00:42 Rising techniques\n00:53 Genre growth\n01:00 Top genres\n01:13 The full ranking\n01:29 Explore trends",
+    "language": "en",
+    "chapters": [
+      {
+        "start_ms": 0,
+        "time": "00:00",
+        "title": "Meet AI Video Trends"
+      },
+      {
+        "start_ms": 6960,
+        "time": "00:06",
+        "title": "Trending videos"
+      },
+      {
+        "start_ms": 16920,
+        "time": "00:16",
+        "title": "Filter by genre"
+      },
+      {
+        "start_ms": 28280,
+        "time": "00:28",
+        "title": "Open a video"
+      },
+      {
+        "start_ms": 35360,
+        "time": "00:35",
+        "title": "Why it trends"
+      },
+      {
+        "start_ms": 42760,
+        "time": "00:42",
+        "title": "Rising techniques"
+      },
+      {
+        "start_ms": 53200,
+        "time": "00:53",
+        "title": "Genre growth"
+      },
+      {
+        "start_ms": 60200,
+        "time": "01:00",
+        "title": "Top genres"
+      },
+      {
+        "start_ms": 73840,
+        "time": "01:13",
+        "title": "The full ranking"
+      },
+      {
+        "start_ms": 89640,
+        "time": "01:29",
+        "title": "Explore trends"
+      }
+    ],
+    "thumb": "media/thumb.png",
+    "files": [
+      {
+        "path": "media/final-16x9.mp4",
+        "bytes": 13030824,
+        "sha256": "c6adff1da6f8a572d3c9775599e8d9e72b9966dfe6435660fd1f60f20ca09bd1",
+        "duration_s": 100.04,
+        "ratio": "16:9",
+        "resolution": "1920x1080",
+        "lang": "en"
+      },
+      {
+        "path": "media/final.vtt",
+        "bytes": 1936,
+        "sha256": "b51d42d662dad06d05e1506ca75e008ad1761cf4f0ba3a2ef4e85d6967979835",
+        "cues": 23,
+        "lang": "en"
+      },
+      {
+        "path": "media/thumb.png",
+        "bytes": 473730,
+        "sha256": "1c06f509d3ebe84d996d13718d0b38151a1ba843d2a3592b518d93da1d1cb66f",
+        "resolution": "1280,720",
+        "ratio": "16:9"
+      }
+    ]
+  }
+}

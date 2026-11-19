@@ -3,14 +3,16 @@
 Video: <media/final-*.mp4 reviewed>
 
 ## Machine checks (project.json#checks)
+Source: `#checks v<N>` pass=<true|false> (rewrite on every QA run, never keep an older one)
+
 | Check | Threshold | Result | Pass |
 |---|---|---|---|
-| Sync drift | ≤80 ms/scene | <value> | <yes/no> |
-| Loudness | −14±1 LUFS, ≤−1 dBTP | <value> | <yes/no> |
+| Sync drift | ≤`targets.max_drift_ms`/scene (80) | <value> | <yes/no> |
+| Loudness | `targets.lufs`±1 LUFS (−14), ≤`targets.true_peak` dBTP (−1) | <value> | <yes/no> |
 | Blur coverage (OCR) | 0 readable text | <value> | <yes/no> |
 | Black / freeze | none unintended | <value> | <yes/no> |
-| Captions | ≤42 chars/line, ≤200 ms off | <value> | <yes/no> |
-| Total length | brief ±10% | <value> | <yes/no> |
+| Captions | ≤`captions.max_chars`/line (42), ≤`targets.caption_offset_ms` off (200) | <value> | <yes/no> |
+| Total length | `length_s` ±10% | <value> | <yes/no> |
 
 ## Human-eye checklist
 - [ ] Spelling and wording match narration and on-screen text

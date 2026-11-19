@@ -26,10 +26,10 @@ class Ctx { constructor(scene, target, voMs, scale=1, origin=[0,0], dry=false){O
 ```js
 const { _electron: electron } = require('playwright');
 const app = await electron.launch({ args: ['main.js'],
-  recordVideo: { dir: 'tmp', size: { width: 2560, height: 1440 } } });   // option exists in ElectronLaunchParams
+  recordVideo: { dir: 'tmp', size: { width: 1280, height: 720 } } });   // size MUST equal the window size (a larger size pads, see web.md)
 await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({x:0,y:0,width:1280,height:720}));
 const page = await app.firstWindow();
-const ctx = new Ctx('s02', page, voMs, 2.0); ctx.start();
+const ctx = new Ctx('s02', page, voMs, 1.0); ctx.start();
 const el = page.getByRole('button', { name: 'Export' });
 const b = await el.boundingBox(); ctx.mark('click', b, 'Export button'); await el.click();
 await ctx.end(); await app.close();            // finalize video, then move page.video().path() -> media/s02.raw.webm

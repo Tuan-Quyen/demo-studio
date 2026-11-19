@@ -1,6 +1,6 @@
 # Demo Studio
 
-A [Claude Code](https://claude.com/claude-code) plugin: a team of 17 agents that plans, records, edits and packages narrated, captioned, privacy-safe demo videos for **web, desktop, Android and iOS** apps.
+A [Claude Code](https://claude.com/claude-code) plugin: a team of 18 agents that plans, records, edits and packages narrated, captioned, privacy-safe demo videos for **web, desktop, Android and iOS** apps.
 
 You describe what to demo. The team writes the brief, storyboard and narration, records the app, blurs sensitive data, syncs the voice-over, adds motion and captions, mixes audio, renders 16:9 / 9:16 / 1:1 and checks the result. You approve at three gates.
 
@@ -34,9 +34,11 @@ The director picks the steps and pauses at three gates:
 
 | Gate | You approve | Before |
 |---|---|---|
-| **G1** | the brief (audience, goal, message, length, CTA, motion level, voice) | anything is planned |
+| **G1** | the brief (audience, goal, message, CTA) and `demo.yaml` (length, platform, formats, voice, motion level) | anything is planned |
 | **G2** | storyboard + narration | any recording |
 | **G3** | the final renders and the QA verdict | packaging |
+
+Pipeline order after recording: capture → (privacy-blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render → QA. Captions and mix need the timeline, so they never run before sync-editor. Web recordings are 25 fps at the viewport size (a Playwright limit); the render upscales and keeps the source fps.
 
 Already have a script? `/demo-studio:shoot`. Lost your place? `/demo-studio:run` with no argument resumes from `.demo/STATE.md`.
 
@@ -66,10 +68,11 @@ Only `demo-director` runs pipelines; the others each do one job and write only t
 |---|---|---|
 | `demo-director` | Classify the request, pick the pipeline, delegate, gate you, keep the resume point | opus |
 | `toolsmith` | Install only the toolkit features you approved | haiku |
-| `demo-strategist` | Audience, goal, message, length, CTA | inherit |
-| `app-scout` | Explore the app, detect platform, map flows and selectors, flag sensitive elements | inherit |
+| `demo-strategist` | Audience, goal, message, CTA; creates `demo.yaml` | inherit |
+| `app-scout` | Explore the app, check platform, map flows and selectors, flag sensitive elements | inherit |
 | `storyboarder` | Scenes and shots: on-screen action, camera intent, duration | opus |
-| `scriptwriter` | Narration per scene within a word budget (~150 wpm) | opus |
+| `scriptwriter` | Narration per scene within a word budget (`demo-storytelling` formula), in the source `language` | opus |
+| `localizer` | When `language` differs from `voice.language`: translated narration, UI-term glossary, lexicon proposals, on-screen strings | inherit |
 | `voice-producer` | Text-to-speech per scene; measure durations | haiku |
 | `scene-automator` | Action-only scene scripts with voice-over pauses; dry-run | inherit |
 | `capture-operator` | Run the scripts unmodified under the recorder; save raw clips | haiku |
@@ -77,7 +80,7 @@ Only `demo-director` runs pipelines; the others each do one job and write only t
 | `sync-editor` | Align clips with voice-over: pad, trim, speed | inherit |
 | `motion-designer` | Zoom/pan on clicks, highlights, callouts, title cards, device frames | inherit |
 | `caption-writer` | Word-timed captions | haiku |
-| `sound-mixer` | Music, ducking, loudness (-14 LUFS, -1 dBTP) | haiku |
+| `sound-mixer` | Music, ducking, loudness (default -14 LUFS, -1 dBTP; set in `demo.yaml`) | haiku |
 | `render-engineer` | One-pass render to 16:9, 9:16, 1:1; measure the result | haiku |
 | `demo-qa` | What machines cannot measure: spelling, broken UI, pacing, leaked personal data; PASS/FAIL | inherit |
 | `packager` | Thumbnail, chapters, title, description, delivery manifest | haiku |
@@ -91,6 +94,7 @@ Loaded by agents as needed; you do not call them.
 | Skill | Holds |
 |---|---|
 | `run-kits` | Roster, pipelines and gates, briefs, handoffs, workspace, `/fix` routing, toolkit approval, resume rules |
+| `voice-over` | Voice engines and choice, pronunciation lexicon, natural speech rates, `[pause]`, recording your own voice |
 | `demo-storytelling` | Story structure, hook, CTA, length and word budgets, scene-count rules |
 | `platform-automation` | `mark()` contract, VO-pause and dry-run rules, per-platform references (web, desktop, mobile) |
 | `motion-fx` | Motion levels none / basic / cinematic, effect recipes, safe areas, schema |
@@ -104,14 +108,25 @@ Everything lives in `.demo/` in your project:
 .demo/
   STATE.md  toolkit.json  .venv/
   <slug>/
-    brief.md  app-map.md  storyboard.md  narration.md  qa.md
+    brief.md  demo.yaml  app-map.md  storyboard.md  narration.md  qa.md
     scenes.<platform>.*
-    project.json
+    project.json  .demo.applied.json
     media/  sNN.raw.*  sNN.vo.wav  final-16x9.mp4  final-9x16.mp4
             final-1x1.mp4  final.vtt  thumb.png
 ```
 
 Only two kinds of video file exist: raw clips and finals. Blur, motion, captions and mix are instructions in `project.json`, not intermediate videos.
+
+### `demo.yaml`: the video's properties (you own it)
+
+`brief.md` holds only prose (audience, goal, message, CTA, out of scope). Everything you can tune lives in `.demo/<slug>/demo.yaml`: `platform`, `length_s`, `formats`, `voice` (engine, name, language, lexicon), `motion.level`, `music` (style, duck_db), `captions` (burn_in, max_chars), `targets` (lufs, true_peak, max_drift_ms, caption_offset_ms), `privacy` (blur, real_data), `install`. The strategist creates it at G1 from `templates/demo.yaml` (every field commented with allowed values and its default); the director records your decisions in it; all other agents only read it.
+
+Edit it any time. On `/demo-studio:run` (or `/demo-studio:fix`) the director validates it and diffs it against the last snapshot (taken after G1 and after every G3; no snapshot = first run), then re-runs only what your change affects (e.g. `voice.*` re-runs voice and everything after it; `music.*` re-runs the mix; `platform` re-records everything).
+
+```
+python scripts/config.py --slug <slug> init | validate | get <dotted.path> | diff [--json] | apply | apply-lexicon (--text T | --file F | stdin) [--json]
+```
+Stdlib only; a built-in strict parser accepts plain maps, lists and scalars (anything else is an error with the line number). Tests: `python -m unittest discover -s scripts/tests`.
 
 ### `project.json` key ownership
 
@@ -128,12 +143,17 @@ One owner per key; writes go through `scripts/project.py`, which locks the file 
 ```
 python scripts/project.py --slug <slug> keys
 python scripts/project.py deps voice     # what to re-run if voice changes
+```
+
+Dependency order: voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. A `length_s` change re-runs storyboarder (G2) → timeline → motion, captions, mix → checks → delivery; voice only if the narration changes. Pronunciation fixes live in `demo.yaml` `voice.lexicon` (written term → spoken spelling, applied to TTS input only; captions keep the written text); a lexicon change re-runs voice.
+
+```
 python scripts/project.py owner blur     # privacy-blurrer
 ```
 
 ## Toolkit
 
-Nothing is installed up front. When a step needs a feature, the agent runs a check; if it is missing, **you are asked first** with the size and effect (and a recommended default). Declined features fall back (cinematic to basic motion, word captions to sentence captions). Installs go into `.demo/.venv` and are recorded in `.demo/toolkit.json`. Your choice is saved in `brief.md`, so you are not asked twice.
+Nothing is installed up front. When a step needs a feature, the agent runs a check; if it is missing, **you are asked first** with the size and effect (and a recommended default). Declined features fall back (cinematic to basic motion, word captions to sentence captions). Installs go into `.demo/.venv` and are recorded in `.demo/toolkit.json`. Your choice is saved in `demo.yaml` (`install.approved` / `install.declined`), so you are not asked twice.
 
 ```
 python scripts/setup_tools.py --list | --check [features] | --plan <features> | --install <features>
@@ -166,10 +186,12 @@ python scripts/setup_tools.py --list | --check [features] | --plan <features> | 
 | Email, name or amount still visible | privacy-blurrer |
 | Wrong click, UI changed, scene broken | scene-automator |
 | Black frame, freeze, bad recording | capture-operator |
-| Awkward narration | scriptwriter, then voice-producer |
+| Wrong translation, UI term, on-screen text language | localizer, then voice-producer |
+| Awkward narration | scriptwriter, (localizer), then voice-producer |
 | Caption wrong or off | caption-writer |
 | Music too loud, voice too quiet | sound-mixer |
 | Zoom in the wrong place, missing callout | motion-designer |
+| You edited `demo.yaml` | director runs `config.py diff`, then the owners it lists |
 
 Owner unclear: it asks you. Same defect after two attempts: it stops and reports. If you already know the cause, `/rerecord` and `/revoice` are shortcuts.
 

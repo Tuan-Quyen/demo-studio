@@ -10,12 +10,17 @@ then runs ``--install``.
     setup_tools.py --plan capture,blur [--json]
     setup_tools.py --install capture,blur [--dry-run] [--json] [--venv PATH]
     setup_tools.py --check [capture,blur] [--json]
+    setup_tools.py --python [--json] [--venv PATH]
+
+--python prints the absolute path of the venv interpreter (Windows Scripts/python.exe, POSIX
+bin/python) for agent briefs: exit 0 if it exists, exit 3 (one line on stderr) if not.
+--json prints {"python": path, "exists": bool}.
 
 Appium-based features (capture-desktop on macOS, capture-android, capture-ios) share one
 Appium install in <workspace>/appium/ (APPIUM_HOME). Env DEMO_STUDIO_OS=win|mac|linux
 overrides OS detection (testing only).
 
-Exit codes: 0 ok, 1 a requested feature is missing / blocked / failed, 2 usage error
+Exit codes: 0 ok, 3 --python: venv not found, 1 a requested feature is missing / blocked / failed, 2 usage error
 (e.g. unknown feature key). Stdlib only, Python 3.10+.
 """
 from __future__ import annotations
@@ -676,6 +681,18 @@ def build_plan(ctx: Ctx, keys: list[str]) -> dict:
     }
 
 
+def cmd_python(args, ctx: Ctx) -> int:
+    exists = ctx.venv_exists
+    if args.json:
+        print(json.dumps({"python": str(ctx.vpy), "exists": exists}, indent=2))
+    elif exists:
+        print(ctx.vpy)
+    if not exists:
+        print(f"venv not found at {ctx.venv}; run --install", file=sys.stderr)
+        return 3
+    return 0
+
+
 def cmd_list(args, ctx: Ctx) -> int:
     rows = [{"key": k, "effect": f["effect"], "size": fmt_size(pos(f, "size_mb", 0)) + (f" ({f['size_note']})" if f["size_note"] else ""),
              "needs": needs_text(f), "agents": f["agents"]} for k, f in CATALOG.items()]
@@ -884,6 +901,7 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--plan", metavar="A,B", help="show what --install would do (no changes)")
     g.add_argument("--install", metavar="A,B", help="install features (dependencies auto-included)")
     g.add_argument("--check", metavar="A,B", nargs="?", const="", help="status of features (default: all)")
+    g.add_argument("--python", action="store_true", help="print the venv interpreter path (exit 3 if missing)")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--dry-run", action="store_true", help="with --install: print commands only")
     ap.add_argument("--venv", help="venv directory (default: .demo/.venv under the current directory)")
@@ -891,6 +909,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     ctx = Ctx(args.venv, args.workspace)
     try:
+        if args.python:
+            return cmd_python(args, ctx)
         if args.list:
             return cmd_list(args, ctx)
         if args.plan is not None:

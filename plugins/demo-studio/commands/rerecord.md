@@ -10,7 +10,7 @@ Empty request → ask which scenes changed, then stop.
 
 1. scene-automator fixes the scenes' selectors/steps; dry-run PASS.
 2. capture-operator re-shoots only those scenes (`sNN.raw.*`, `#events`).
-3. Re-run dependents: privacy-blurrer → sync-editor → motion-designer → render-engineer → demo-qa.
+3. Re-run dependents: privacy-blurrer ∥ sync-editor → motion-designer → render-engineer → demo-qa.
 4. **G3: show the result, wait for approval.**
 
 Voice, captions and mix are untouched unless a scene duration changed (then sync-editor flags it; ask the user).

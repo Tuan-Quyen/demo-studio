@@ -1,0 +1,74 @@
+# demo.yaml - the properties of this demo video. You own this file: edit it any time.
+# demo-strategist creates it at G1, demo-director records your decisions in it
+# (motion level, voice, install choices). Every other agent only reads it.
+#
+# After an edit the director runs `config.py diff` and re-runs only what changed.
+# Check it yourself: python <plugin>/scripts/config.py --slug <slug> validate
+#
+# Syntax (strict subset of YAML): "key: value" maps indented with spaces (no tabs),
+# lists as [a, b] or as "- item" lines, # comments. Values: text, number, true/false,
+# null. Quote text that contains ":" or "#" or looks like another type, e.g. "16:9", "no".
+# Unknown keys are errors. A missing key (or null where allowed) uses the default shown.
+
+# Where the app runs. Allowed: web | desktop | android | ios
+# Default: null (not set yet: the strategist or director fills it in at G1)
+platform: null
+
+# Target length in seconds, 5-600 (render check allows +-10%). Default: null (strategist sets it)
+length_s: null
+
+# Source language = the app UI / on-screen language, e.g. en. Default: null (same as voice.language).
+# The scriptwriter writes narration in this language. When it differs from voice.language, the
+# localizer agent translates narration, captions and on-screen text into voice.language.
+language: null
+
+# Output aspect ratios. Allowed items: "16:9" | "9:16" | "1:1". Default: ["16:9"]
+formats: ["16:9"]
+
+voice:
+  # engine: edge       free, needs internet (default)
+  #         kokoro     offline, heavy install
+  #         elevenlabs paid; ELEVENLABS_API_KEY in the environment only (never in this file);
+  #                    voice cloning only with the speaker's written consent
+  #         recorded   your own WAVs at .demo/<slug>/vo-src/sNN.wav, 48 kHz, ~0.3 s silence at
+  #                    each end; no toolkit feature needed
+  engine: edge
+  name: null         # voice name of the engine. Default: null (engine's default voice)
+                     # voices depend on the language. edge Vietnamese, recommended first:
+                     # vi-VN-NamMinhNeural (male, calm), vi-VN-HoaiMyNeural (female, warm)
+  rate: "+0%"        # speaking rate, -30%..+30% (edge-tts rate; other engines map it to their speed).
+                     # Prefer cutting words over speeding up. Default: "+0%"
+  pitch: "+0Hz"      # pitch, -50Hz..+50Hz (edge only; ignored by other engines). Default: "+0Hz"
+  language: en       # narration language code, e.g. en, vi, de. Default: en
+  # Pronunciation lexicon: written term -> how the TTS should say it. Matched whole-word,
+  # case-sensitive, longest match first; applied to TTS input only (captions keep the written
+  # text). Quote terms: {"AI": "ay eye", "YouTube": "you tube"} or one `"term": spoken` per line.
+  # Each side 1-60 chars. Changing it re-runs the voice only. Default: {}
+  lexicon: {}
+
+motion:
+  level: null        # none | basic | cinematic. Default: null (director asks you once)
+
+music:
+  style: null        # text such as "calm electronic", or null for voice only. Default: null
+  duck_db: -20       # music level under the voice, dB, -40..0. Default: -20
+
+captions:
+  burn_in: false     # true = captions burned into the picture, false = separate .vtt/.srt. Default: false
+  layout: overlay    # overlay = captions over the picture; band = picture scaled to the top, captions in a
+                     # bottom band. Per-cue position is #captions cue "pos". Default: overlay
+  max_chars: 42      # max characters per caption line, 10-80. Default: 42
+
+targets:
+  lufs: -14          # integrated loudness, LUFS, -30..-5 (render check passes within +-1). Default: -14
+  true_peak: -1      # max true peak, dBTP, -6..0. Default: -1
+  max_drift_ms: 80   # max audio/video drift per scene, ms, 0-1000. Default: 80
+  caption_offset_ms: 200   # max caption start offset from the voice, ms, 0-2000. Default: 200
+
+privacy:
+  blur: []           # extra things to always blur, e.g. ["customer email", "API token"]. Default: []
+  real_data: false   # true = the app shows real personal data (qa-ocr check is then recommended). Default: false
+
+install:
+  approved: []       # toolkit features you approved, e.g. [motion-cinematic]. Default: []
+  declined: []       # toolkit features you declined, e.g. [voice-kokoro]. Default: []

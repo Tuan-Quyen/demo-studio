@@ -6,8 +6,10 @@ Feature `capture` (playwright + chromium + ffmpeg). One browser context **per sc
 ```python
 def glide_click(ctx, locator, label):
     page = ctx.target
-    locator.scroll_into_view_if_needed()
     b = locator.bounding_box()                       # CSS px, relative to main frame viewport
+    vh = page.viewport_size["height"]
+    if b["y"] < 0 or b["y"] + b["height"] > vh:      # scroll ONLY when off-screen
+        locator.scroll_into_view_if_needed(); b = locator.bounding_box()
     cx, cy = b["x"] + b["width"]/2, b["y"] + b["height"]/2
     page.mouse.move(cx, cy, steps=25)                # visible cursor travel
     ctx.mark("click", [b["x"], b["y"], b["width"], b["height"]], label)
@@ -23,43 +25,50 @@ def s03(ctx):
     ctx.hold_until(ctx.vo_ms // 2)
     page.keyboard.type("Q4 retainer", delay=60); ctx.mark("key", None, "typed invoice title")
 ```
-Prefer role/test-id locators. `locator.click()` teleports the pointer and the video has no cursor, so use `glide_click` and the overlay below.
+Never call `scroll_into_view_if_needed()` on an element in a sticky/fixed header or footer: Chromium scrolls the page to the element's in-flow position (observed: 1801 -> 1435 px) and with CSS `scroll-behavior:smooth` it animates, so the clip shows a jump before the click. Prefer role/test-id locators. `locator.click()` teleports the pointer and the video has no cursor, so use `glide_click` and the overlay below.
 
 ## Recorder adapter (capture-operator)
 ```python
 from playwright.sync_api import sync_playwright
-import shutil, pathlib
-VIEW = {"width": 1280, "height": 720}
-REC  = {"width": 2560, "height": 1440}               # 1440p master; scale = REC/VIEW = 2.0
+import shutil, pathlib, time
+VIEW = {"width": 1280, "height": 720}                # the clip size: recordVideo size MUST equal the viewport
 CURSOR_JS = """(()=>{const d=document.createElement('div');d.style.cssText='position:fixed;z-index:2147483647;pointer-events:none;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:rgba(255,80,60,.55);border:2px solid #fff;transition:transform .08s';
 addEventListener('DOMContentLoaded',()=>document.documentElement.appendChild(d));
 addEventListener('mousemove',e=>{d.style.left=e.clientX+'px';d.style.top=e.clientY+'px'},true);
 addEventListener('mousedown',()=>d.style.transform='scale(.7)',true);addEventListener('mouseup',()=>d.style.transform='scale(1)',true)})()"""
 
-def record_scene(p, sid, fn, out, vo_ms, dry=False):
+def view_state(page): return page.evaluate("[scrollX, scrollY]")
+
+def record_scene(p, mod, sid, out, vo_ms, dry=False):   # mod = scene module (SCENES, optional prepare)
     browser = p.chromium.launch()
-    kw = dict(viewport=VIEW, device_scale_factor=2)
+    kw = dict(viewport=VIEW)                          # device_scale_factor 1: the clip is viewport-sized anyway
     if not dry:
-        kw.update(record_video_dir=str(out/"tmp"), record_video_size=REC)   # add record_video_fps=60 if supported (see pitfalls)
+        kw.update(record_video_dir=str(out/"tmp"), record_video_size=VIEW)
     context = browser.new_context(**kw)
     context.add_init_script(CURSOR_JS)
-    page = context.new_page()
-    ctx = Ctx(sid, page, vo_ms, scale=REC["width"]/VIEW["width"], dry=dry)   # Ctx from SKILL.md
+    page = context.new_page(); t_page = time.monotonic()
+    ctx = Ctx(sid, page, vo_ms, scale=1.0, dry=dry)   # Ctx from SKILL.md
+    if hasattr(mod, "prepare"): mod.prepare(sid, page)  # SAME sequence in the dry-run; no goto/reload after this
+    before = view_state(page)
+    offset_ms = round((time.monotonic() - t_page) * 1000)   # recorded as clips[sid].offset_ms (verify with the frame check)
     ctx.start()
-    try:    fn(ctx)
+    if view_state(page) != before: raise StepError("start state moved between prepare and start")
+    try:    mod.SCENES[sid](ctx)
     finally:
-        ctx.end(); vpath = page.video.path() if not dry else None
-        context.close()                               # video is finalized only on context.close()
+        ctx.end()                                     # scene_end; NOTHING after this but the close
+        vpath = page.video.path() if not dry else None
+        context.close()                               # stop recording now; video is finalized only on close
         browser.close()
     if vpath: shutil.move(vpath, out/f"media/{sid}.raw.webm")
 ```
-Then `ffprobe` the clip, record `w,h,fps,duration_ms,offset_ms` (~0 here: the video starts at page creation) in `#events`. Login/consent/cookie banners: do them in a **setup** context outside the recording and reuse `storage_state` so the clip starts on the target screen.
+Then `ffprobe` the clip, record `w,h,fps,duration_ms,offset_ms` in `#events` (the video starts at page creation, so `offset_ms` covers `prepare`; confirm with a frame at `offset_ms` showing the start state). Login/consent/cookie banners: do them in a **setup** context outside the recording and reuse `storage_state` so the clip starts on the target screen.
 
 ## bbox source
 `locator.bounding_box()` -> CSS px relative to the main frame viewport; `scale` converts to recorded pixels. Re-read it right before the click (layout shifts). Element inside iframes: check the box against the main-frame viewport (verify in dry-run).
 
 ## Pitfalls
-- `recordVideo` default is 25 fps and the picture is only **scaled down** to `size`; Firefox/WebKit are capped at 25 fps (Playwright docs). Use Chromium. 60 fps and 1440p from `new_context` are not guaranteed: `ffprobe` every clip; if it is below spec, fall back to viewport 1920x1080 = record size 1920x1080 and report the real fps in `#events`.
+- `recordVideo` is capped at **25 fps** (all browsers) and **a `size` larger than the viewport does not scale**: the page is drawn 1:1 in the top-left of a grey canvas (a "crisp" clip with grey padding is a bug). So `size == viewport`, web raw = 25 fps, and render upscales without faking 60 fps (`media-specs` Encode). A bigger clip needs a bigger viewport (only if the app layout allows). `ffprobe` every clip and run the full-frame check.
+- Stop right after `ctx.end()`: no wait, screenshot, ffprobe or logging before `context.close()` (held tails of 1.5-2 s were recorded past `scene_end`; report `tail_ms` = clip duration - `offset_ms` - `scene_end` `t` per clip). capture-operator records the real `duration_ms` and compares it with `offset_ms` + `scene_end` `t`; sync-editor trims `out` to that as the fallback.
 - Video is empty if the context is not closed; a crash mid-scene loses the clip (environment error -> retry).
 - No cursor, no hover-only tooltips from OS: use the overlay; keep animations on (do not set `reduced_motion`) unless they jitter.
 - Cookie banners, chat widgets, autofill prompts, update toasts: dismiss in setup or block via `add_init_script` CSS.
