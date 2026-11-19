@@ -1,0 +1,1019 @@
+{
+  "_meta": {
+    "schema": 1,
+    "keys": {
+      "voice": {
+        "version": 1,
+        "owner": "voice-producer",
+        "updated": "2026-11-18T19:22:54Z"
+      },
+      "events": {
+        "version": 1,
+        "owner": "capture-operator",
+        "updated": "2026-11-18T19:30:40Z"
+      },
+      "blur": {
+        "version": 1,
+        "owner": "privacy-blurrer",
+        "updated": "2026-11-18T19:35:21Z"
+      },
+      "timeline": {
+        "version": 1,
+        "owner": "sync-editor",
+        "updated": "2026-11-18T19:39:54Z"
+      },
+      "mix": {
+        "version": 1,
+        "owner": "sound-mixer",
+        "updated": "2026-11-18T19:41:12Z"
+      },
+      "captions": {
+        "version": 1,
+        "owner": "caption-writer",
+        "updated": "2026-11-18T19:43:00Z"
+      },
+      "motion": {
+        "version": 2,
+        "owner": "motion-designer",
+        "updated": "2026-11-18T20:01:12Z"
+      },
+      "checks": {
+        "version": 4,
+        "owner": "render-engineer",
+        "updated": "2026-11-18T20:02:04Z"
+      },
+      "delivery": {
+        "version": 1,
+        "owner": "packager",
+        "updated": "2026-11-18T20:07:45Z"
+      }
+    }
+  },
+  "voice": {
+    "engine": "edge",
+    "voice": "vi-VN-HoaiMyNeural",
+    "language": "vi",
+    "scenes": [
+      {
+        "id": "s01",
+        "file": "media/s01.vo.wav",
+        "duration_s": 5.95,
+        "words": 15,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s02",
+        "file": "media/s02.vo.wav",
+        "duration_s": 5.09,
+        "words": 14,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s03",
+        "file": "media/s03.vo.wav",
+        "duration_s": 7.51,
+        "words": 21,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s04",
+        "file": "media/s04.vo.wav",
+        "duration_s": 5.04,
+        "words": 19,
+        "lexicon_applied": []
+      },
+      {
+        "id": "s05",
+        "file": "media/s05.vo.wav",
+        "duration_s": 8.58,
+        "words": 24,
+        "lexicon_applied": []
+      }
+    ]
+  },
+  "events": {
+    "schema": 1,
+    "platform": "web",
+    "bbox_space": {
+      "unit": "px",
+      "frame": [
+        1280,
+        720
+      ],
+      "scale": 1.0,
+      "origin": [
+        0,
+        0
+      ]
+    },
+    "clips": {
+      "s01": {
+        "file": "media/s01.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 594,
+        "duration_ms": 7520
+      },
+      "s02": {
+        "file": "media/s02.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 641,
+        "duration_ms": 6480
+      },
+      "s03": {
+        "file": "media/s03.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 1016,
+        "duration_ms": 11520
+      },
+      "s04": {
+        "file": "media/s04.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 656,
+        "duration_ms": 8600
+      },
+      "s05": {
+        "file": "media/s05.raw.webm",
+        "w": 1280,
+        "h": 720,
+        "fps": 25,
+        "scale": 1.0,
+        "offset_ms": 656,
+        "duration_ms": 10600
+      }
+    },
+    "markers": [
+      {
+        "t": 0,
+        "scene": "s01",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 14,
+        "scene": "s01",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 7000,
+        "scene": "s01",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s02",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s02",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 1608,
+        "scene": "s02",
+        "type": "click",
+        "bbox": [
+          475,
+          189,
+          141,
+          39
+        ],
+        "label": "Faceless YouTube chip"
+      },
+      {
+        "t": 6000,
+        "scene": "s02",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s03",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s03",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 1109,
+        "scene": "s03",
+        "type": "click",
+        "bbox": [
+          60,
+          282,
+          275,
+          282
+        ],
+        "label": "card: 10 Habits of Calm Productive People"
+      },
+      {
+        "t": 7405,
+        "scene": "s03",
+        "type": "key",
+        "bbox": null,
+        "label": "Esc closes the modal"
+      },
+      {
+        "t": 9000,
+        "scene": "s03",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s04",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s04",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 6000,
+        "scene": "s04",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s05",
+        "type": "scene_start",
+        "bbox": null,
+        "label": ""
+      },
+      {
+        "t": 0,
+        "scene": "s05",
+        "type": "sensitive",
+        "bbox": [
+          980,
+          15,
+          260,
+          34
+        ],
+        "label": "signed-in email"
+      },
+      {
+        "t": 10000,
+        "scene": "s05",
+        "type": "scene_end",
+        "bbox": null,
+        "label": ""
+      }
+    ],
+    "retries": {
+      "s01": 0,
+      "s02": 0,
+      "s03": 0,
+      "s04": 0,
+      "s05": 0
+    }
+  },
+  "blur": {
+    "schema": 1,
+    "space": "source",
+    "time": "scene",
+    "regions": [
+      {
+        "id": "b1",
+        "scene": "s01",
+        "t_start": 0,
+        "t_end": 6926,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": "media/preview/b1.png"
+      },
+      {
+        "id": "b2",
+        "scene": "s02",
+        "t_start": 0,
+        "t_end": 5839,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": "media/preview/b2.png"
+      },
+      {
+        "id": "b3",
+        "scene": "s03",
+        "t_start": 0,
+        "t_end": 9000,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": "media/preview/b3.png"
+      },
+      {
+        "id": "b4",
+        "scene": "s04",
+        "t_start": 0,
+        "t_end": 6000,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": "media/preview/b4.png"
+      },
+      {
+        "id": "b5",
+        "scene": "s05",
+        "t_start": 0,
+        "t_end": 9944,
+        "bbox": [
+          968,
+          3,
+          284,
+          58
+        ],
+        "pad": 12,
+        "margin_ms": 150,
+        "mode": "boxblur",
+        "strength": 25,
+        "source": "events:sensitive:signed-in email",
+        "keyframes": null,
+        "preview": "media/preview/b5.png"
+      }
+    ]
+  },
+  "timeline": {
+    "scenes": [
+      {
+        "id": "s01",
+        "clip": "media/s01.raw.webm",
+        "in": 600,
+        "out": 7520,
+        "speed": 1.0,
+        "pad_end": 80,
+        "vo": {
+          "file": "media/s01.vo.wav",
+          "start": 900,
+          "end": 6852,
+          "speech": [
+            1091,
+            6005
+          ]
+        },
+        "start": 0,
+        "end": 7000,
+        "drift_ms": 0
+      },
+      {
+        "id": "s02",
+        "clip": "media/s02.raw.webm",
+        "in": 1360,
+        "out": 6480,
+        "speed": 1.0,
+        "pad_end": 180,
+        "vo": {
+          "file": "media/s02.vo.wav",
+          "start": 7000,
+          "end": 12088,
+          "speech": [
+            7193,
+            11250
+          ]
+        },
+        "start": 7000,
+        "end": 12300,
+        "drift_ms": 23
+      },
+      {
+        "id": "s03",
+        "clip": "media/s03.raw.webm",
+        "in": 1560,
+        "out": 9300,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s03.vo.wav",
+          "start": 12412,
+          "end": 19924,
+          "speech": [
+            12600,
+            19084
+          ]
+        },
+        "start": 12300,
+        "end": 20040,
+        "drift_ms": -16
+      },
+      {
+        "id": "s04",
+        "clip": "media/s04.raw.webm",
+        "in": 1440,
+        "out": 6640,
+        "speed": 1.0,
+        "pad_end": 0,
+        "vo": {
+          "file": "media/s04.vo.wav",
+          "start": 20140,
+          "end": 25180,
+          "speech": [
+            20333,
+            24327
+          ]
+        },
+        "start": 20040,
+        "end": 25240,
+        "drift_ms": 0
+      },
+      {
+        "id": "s05",
+        "clip": "media/s05.raw.webm",
+        "in": 840,
+        "out": 10600,
+        "speed": 1.0,
+        "pad_end": 40,
+        "vo": {
+          "file": "media/s05.vo.wav",
+          "start": 25540,
+          "end": 34124,
+          "speech": [
+            25732,
+            33264
+          ]
+        },
+        "start": 25240,
+        "end": 35040,
+        "drift_ms": -22
+      }
+    ],
+    "total_s": 35.04
+  },
+  "mix": {
+    "schema": 1,
+    "voice": {
+      "gain_db": 4.4
+    },
+    "music": null,
+    "ducking": null,
+    "target": {
+      "lufs": -14,
+      "tp_db": -1.5
+    },
+    "preview": {
+      "lufs": -14.0,
+      "tp_db": -1.9
+    }
+  },
+  "captions": {
+    "schema": 1,
+    "lang": "vi",
+    "burn_in": false,
+    "max_chars": 42,
+    "max_lines": 2,
+    "cues": [
+      {
+        "i": 1,
+        "scene": "s01",
+        "t_start": 1090,
+        "t_end": 3340,
+        "lines": [
+          "Quá nhiều kiểu video AI?"
+        ]
+      },
+      {
+        "i": 2,
+        "scene": "s01",
+        "t_start": 3750,
+        "t_end": 6540,
+        "lines": [
+          "Một trang cho bạn thấy ngay",
+          "xu hướng đang lên."
+        ]
+      },
+      {
+        "i": 3,
+        "scene": "s02",
+        "t_start": 7190,
+        "t_end": 11760,
+        "lines": [
+          "Chọn thể loại, danh sách gọn lại ngay,",
+          "chỉ còn những video bạn cần."
+        ]
+      },
+      {
+        "i": 4,
+        "scene": "s03",
+        "t_start": 12602,
+        "t_end": 14612,
+        "lines": [
+          "Mở video bất kỳ."
+        ]
+      },
+      {
+        "i": 5,
+        "scene": "s03",
+        "t_start": 14972,
+        "t_end": 19632,
+        "lines": [
+          "Bạn thấy câu lệnh mẫu, loại công cụ",
+          "đã dùng và lý do nó đang thịnh hành."
+        ]
+      },
+      {
+        "i": 6,
+        "scene": "s04",
+        "t_start": 20340,
+        "t_end": 22650,
+        "lines": [
+          "Thẻ xu hướng và biểu đồ tăng trưởng",
+          "theo thể loại"
+        ]
+      },
+      {
+        "i": 7,
+        "scene": "s04",
+        "t_start": 22710,
+        "t_end": 24840,
+        "lines": [
+          "cho bạn thấy kỹ thuật nào đang lên."
+        ]
+      },
+      {
+        "i": 8,
+        "scene": "s05",
+        "t_start": 25730,
+        "t_end": 29360,
+        "lines": [
+          "Bảng xếp hạng chỉ rõ thể loại đáng thử,",
+          "kèm lý do."
+        ]
+      },
+      {
+        "i": 9,
+        "scene": "s05",
+        "t_start": 30270,
+        "t_end": 33800,
+        "lines": [
+          "Khám phá xu hướng và chọn thể loại",
+          "cho video tiếp theo."
+        ]
+      }
+    ]
+  },
+  "motion": {
+    "schema": 1,
+    "engine": "ffmpeg",
+    "level": "basic",
+    "space": "source",
+    "time": "timeline",
+    "allow": {
+      "black": [
+        [
+          0,
+          2500
+        ],
+        [
+          28940,
+          35040
+        ]
+      ],
+      "freeze": [
+        [
+          0,
+          2500
+        ],
+        [
+          8320,
+          11840
+        ],
+        [
+          16000,
+          19200
+        ],
+        [
+          28940,
+          35040
+        ]
+      ]
+    },
+    "effects": [
+      {
+        "scene": "s01",
+        "type": "title_card",
+        "t_start": 0,
+        "t_end": 2500,
+        "params": {
+          "title": "Quá nhiều kiểu video AI?",
+          "subtitle": "",
+          "bg": "#0B1020"
+        }
+      },
+      {
+        "scene": "s01",
+        "type": "fade",
+        "t_start": 2200,
+        "t_end": 2500,
+        "params": {
+          "mode": "out",
+          "target": "title_card"
+        }
+      },
+      {
+        "scene": "s01",
+        "type": "zoom",
+        "t_start": 2300,
+        "t_end": 6900,
+        "params": {
+          "center": [
+            534,
+            380
+          ],
+          "scale": 1.2,
+          "ease_in_ms": 1500,
+          "ease_out_ms": 400,
+          "source_event": "storyboard:s01 slow zoom to h1 + sub-line"
+        }
+      },
+      {
+        "scene": "s02",
+        "type": "zoom",
+        "t_start": 7389,
+        "t_end": 12200,
+        "params": {
+          "center": [
+            430,
+            340
+          ],
+          "scale": 1.6,
+          "ease_in_ms": 500,
+          "ease_out_ms": 400,
+          "source_event": "s02@1608"
+        }
+      },
+      {
+        "scene": "s02",
+        "type": "cursor_highlight",
+        "t_start": 7639,
+        "t_end": 8289,
+        "params": {
+          "bbox": [
+            475,
+            189,
+            141,
+            39
+          ]
+        }
+      },
+      {
+        "scene": "s03",
+        "type": "cursor_highlight",
+        "t_start": 12615,
+        "t_end": 12940,
+        "params": {
+          "bbox": [
+            60,
+            282,
+            275,
+            282
+          ]
+        }
+      },
+      {
+        "scene": "s03",
+        "type": "zoom",
+        "t_start": 13900,
+        "t_end": 18900,
+        "params": {
+          "center": [
+            640,
+            505
+          ],
+          "scale": 1.8,
+          "ease_in_ms": 500,
+          "ease_out_ms": 400,
+          "source_event": "storyboard:s03 zoom to modal fields (open after s03@1109)"
+        }
+      },
+      {
+        "scene": null,
+        "type": "fade",
+        "t_start": 19890,
+        "t_end": 20190,
+        "params": {
+          "mode": "cross",
+          "at": 20040,
+          "from": "s03",
+          "to": "s04"
+        }
+      },
+      {
+        "scene": "s04",
+        "type": "zoom",
+        "t_start": 21700,
+        "t_end": 25200,
+        "params": {
+          "center": [
+            568,
+            380
+          ],
+          "scale": 1.3,
+          "ease_in_ms": 600,
+          "ease_out_ms": 400,
+          "source_event": "storyboard:s04 zoom to chart after scroll settles (~21160)"
+        }
+      },
+      {
+        "scene": "s05",
+        "type": "zoom",
+        "t_start": 27500,
+        "t_end": 29340,
+        "params": {
+          "center": [
+            356,
+            274
+          ],
+          "scale": 1.8,
+          "ease_in_ms": 500,
+          "ease_out_ms": 0,
+          "source_event": "storyboard:s05 zoom to rank-1 (cursor arrives ~28000)"
+        }
+      },
+      {
+        "scene": "s05",
+        "type": "cursor_highlight",
+        "t_start": 27750,
+        "t_end": 28940,
+        "params": {
+          "bbox": [
+            70,
+            200,
+            580,
+            68
+          ]
+        }
+      },
+      {
+        "scene": "s05",
+        "type": "title_card",
+        "t_start": 28940,
+        "t_end": 35040,
+        "params": {
+          "title": "Khám phá xu hướng",
+          "subtitle": "AI Video Trends · dữ liệu mẫu",
+          "bg": "#0B1020"
+        }
+      },
+      {
+        "scene": "s05",
+        "type": "fade",
+        "t_start": 28940,
+        "t_end": 29340,
+        "params": {
+          "mode": "in",
+          "target": "title_card"
+        }
+      }
+    ]
+  },
+  "checks": {
+    "schema": 1,
+    "outputs": {
+      "16x9": {
+        "file": "media/final-16x9.mp4",
+        "w": 1920,
+        "h": 1080,
+        "fps": 25,
+        "duration_s": 35.04,
+        "video_kbps": 1157
+      }
+    },
+    "allow": {
+      "black": [
+        [
+          0,
+          2500
+        ],
+        [
+          28940,
+          35040
+        ]
+      ],
+      "freeze": [
+        [
+          0,
+          2500
+        ],
+        [
+          8320,
+          11840
+        ],
+        [
+          16000,
+          19200
+        ],
+        [
+          28940,
+          35040
+        ]
+      ]
+    },
+    "results": {
+      "sync": {
+        "pass": true,
+        "measured_ms_max": 3,
+        "threshold_ms": 80,
+        "owner": "sync-editor",
+        "detail": "VO onset in final audio vs #timeline vo.speech[0] per scene: s01 -1, s02 -3, s03 0, s04 -3, s05 -2 ms"
+      },
+      "loudness": {
+        "pass": true,
+        "lufs": -14.0,
+        "tp_db": -1.9,
+        "threshold_lufs": 14,
+        "threshold_tp_db": -1,
+        "owner": "sound-mixer",
+        "detail": "ebur128 of final audio; equals #mix.preview (-14.0 / -1.9); no extra loudnorm pass"
+      },
+      "blur": {
+        "pass": true,
+        "regions_checked": 5,
+        "text_found": 0,
+        "owner": "privacy-blurrer",
+        "detail": "40 mapped samples (every 0.5 s, pad/hold frames included) on the final mp4 through the logged zoom window; 0 readable text. Positive control: unblurred source crop of all 5 regions reads the email text, so the OCR is not vacuous. Hint: the region bbox already includes pad (equals events bbox +/-12 px)."
+      },
+      "black": {
+        "pass": true,
+        "hits": [],
+        "owner": "capture-operator",
+        "detail": "blackdetect d=0.2 pix_th=0.10: black only inside allow.black"
+      },
+      "freeze": {
+        "pass": true,
+        "hits": [],
+        "owner": "capture-operator",
+        "detail": "freezedetect n=-60dB d=3: only inside allow.freeze (8320-11840 added to #motion.allow by motion-designer, #motion v2)"
+      },
+      "captions": {
+        "pass": true,
+        "max_chars": 39,
+        "cues": 9,
+        "cues_over_offset": 0,
+        "max_offset_ms": 110,
+        "owner": "caption-writer",
+        "detail": "RMS speech onset (after silence >=150 ms) for cues 1,2,3,4,5,6,8,9 (0-2 ms); cue 7 starts 60 ms after cue 6 ends, inside one speech run, so faster-whisper word start (110 ms, whisper runs ~100 ms early). Plain whisper on cue 9 gives 410 ms (mis-aligned word inside the pause); RMS run start 30270 ms used instead"
+      },
+      "length": {
+        "pass": true,
+        "target_s": 38,
+        "actual_s": 35.04,
+        "delta_pct": -7.8,
+        "owner": "storyboarder",
+        "detail": "length_s 38, +-10% fixed"
+      }
+    },
+    "pass": true
+  },
+  "delivery": {
+    "title": "Xu hướng video AI: thể loại nào đáng thử? (dữ liệu mẫu)",
+    "description": "Một trang cho bạn thấy xu hướng video AI đang lên.\n\nLọc video thịnh hành theo thể loại chỉ với một lần chạm, mở từng video để xem câu lệnh mẫu, loại công cụ đã dùng và lý do nó đang thịnh hành. Sau đó xem thẻ xu hướng, biểu đồ tăng trưởng theo thể loại trong 90 ngày và bảng xếp hạng các thể loại đáng thử.\n\nLưu ý: toàn bộ số liệu trong video là dữ liệu mẫu (sample), không phải thống kê thị trường thật.\n\nKhám phá xu hướng và chọn thể loại cho video tiếp theo của bạn.\n\nCác chương:\n00:00 Mở đầu: một trang xu hướng video AI\n00:07 Lọc video theo thể loại\n00:12 Mở một video: câu lệnh, công cụ, lý do\n00:20 Xu hướng và biểu đồ tăng trưởng\n00:25 Bảng xếp hạng thể loại đáng thử",
+    "chapters": [
+      {
+        "start_ms": 0,
+        "time": "00:00",
+        "title": "Mở đầu: một trang xu hướng video AI"
+      },
+      {
+        "start_ms": 7000,
+        "time": "00:07",
+        "title": "Lọc video theo thể loại"
+      },
+      {
+        "start_ms": 12300,
+        "time": "00:12",
+        "title": "Mở một video: câu lệnh, công cụ, lý do"
+      },
+      {
+        "start_ms": 20040,
+        "time": "00:20",
+        "title": "Xu hướng và biểu đồ tăng trưởng"
+      },
+      {
+        "start_ms": 25240,
+        "time": "00:25",
+        "title": "Bảng xếp hạng thể loại đáng thử"
+      }
+    ],
+    "thumb": "media/thumb.png",
+    "files": [
+      {
+        "path": "media/final-16x9.mp4",
+        "bytes": 5741653,
+        "sha256": "95ee9241ce7b5e6168c1b623e7732eec60a56f3139d714902f3d9b9127b5eddb",
+        "duration_s": 35.04,
+        "width": 1920,
+        "height": 1080,
+        "ratio": "16:9",
+        "fps": 25
+      },
+      {
+        "path": "media/final.vtt",
+        "bytes": 857,
+        "sha256": "c86586f5fead634afaa7f398a9f780bfe3db9845dddc94127dfa5c9bd5f974bc"
+      },
+      {
+        "path": "media/thumb.png",
+        "bytes": 264929,
+        "sha256": "82e8b18cfd20db94d968f2a5b5ff7a813277afe459a3c48d9d37b81f57ffb2cc",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "total_bytes": 6007439,
+    "duration_s": 35.04,
+    "language": "vi",
+    "ratio": "16:9"
+  }
+}

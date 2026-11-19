@@ -1,0 +1,4 @@
+.demo/.venv/
+.demo/toolkit.json
+.demo/**/media/
+__pycache__/

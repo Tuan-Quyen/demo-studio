@@ -1,0 +1,56 @@
+{
+  "applied": "2026-11-18T20:06:43Z",
+  "config": {
+    "captions": {
+      "burn_in": false,
+      "max_chars": 42
+    },
+    "formats": [
+      "16:9"
+    ],
+    "install": {
+      "approved": [
+        "capture",
+        "voice-edge",
+        "captions",
+        "mix",
+        "blur",
+        "motion-basic",
+        "qa-ocr",
+        "package"
+      ],
+      "declined": []
+    },
+    "length_s": 38,
+    "motion": {
+      "level": "basic"
+    },
+    "music": {
+      "duck_db": -20,
+      "style": null
+    },
+    "platform": "web",
+    "privacy": {
+      "blur": [
+        "signed-in email",
+        "API key"
+      ],
+      "real_data": false
+    },
+    "targets": {
+      "caption_offset_ms": 200,
+      "lufs": -14,
+      "max_drift_ms": 80,
+      "true_peak": -1
+    },
+    "voice": {
+      "engine": "edge",
+      "language": "vi",
+      "lexicon": {},
+      "name": "vi-VN-HoaiMyNeural",
+      "pitch": "+0Hz",
+      "rate": "+0%"
+    }
+  },
+  "schema": 1
+}
