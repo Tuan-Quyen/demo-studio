@@ -33,7 +33,7 @@ Exactly one, last, specific and doable ("Start a free trial at example.com"). No
 - Every cut changes something the viewer can see (screen, zoom target or state). Never two scenes on the same unchanged screen.
 
 ## Storyboard rules (storyboarder -> storyboard.md)
-Per scene: id, goal (one sentence), on-screen actions in order (using app-map names), start/end screen, camera intent (where to zoom/highlight, or "none"), target duration (s), narration ref, sensitive elements visible (from app-map), motion hint. Uses only flows that exist in app-map.md; if a flow is missing, ask app-scout, do not invent UI.
+Per scene: id, goal (one sentence), reading hold in s (after the last action; default 0.4, 1-2 only where asked; scene duration = VO + hold, and VO is within the word budget so the holds fit the 15% air), on-screen actions in order (using app-map names), start/end screen, camera intent (where to zoom/highlight, or "none"), target duration (s), narration ref, sensitive elements visible (from app-map), motion hint. Uses only flows that exist in app-map.md; if a flow is missing, ask app-scout, do not invent UI.
 
 ## Narration rules (scriptwriter -> narration.md)
 - Write for the ear: present tense, second person ("you"), sentences <= ~14 words (a longer one needs a comma or a split; never over 20; a long comma-less sentence is read too fast), contractions, numerals as people say them.

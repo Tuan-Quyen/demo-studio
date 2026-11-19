@@ -57,7 +57,7 @@ Write the brief in your message to the agent using the template in skill `run-ki
 
 ## Read a handoff
 Every agent ends with the Handoff block. For each one:
-1. `done`: verify `wrote:` exists (file on disk, or `project.py get <key>` returns data owned by that agent). Update STATE.md. Go to the next step.
+1. `done`: verify `wrote:` exists (file on disk, or `project.py get <key>` returns data owned by that agent) and that `facts` quotes the `<key> version N` line `project.py set` printed (compare with `get <key> --version`). Update STATE.md. Go to the next step.
 2. `needs-input`: voice-producer lists lexicon previews (`media/preview/lex-<term>.wav`) → ask the user to listen and accept or give another spelling (auto mode: accept, log as unverified in STATE.md). voice-producer reporting total VO < 75% of `length_s` (the budget makes it ~85% by design) → record a lower `length_s` (user-approved) and re-run storyboarder (retime) rather than leaving silence. If it is a decision, ask the user (AskUserQuestion, options + recommended default from `notes`), then re-brief the same agent with the answer. If it is a missing tool, see below.
 3. `blocked`: read `notes`. A step/selector failure from capture-operator goes to scene-automator, then capture-operator again. Anything else: apply the same-defect rule below, or ask the user.
 
@@ -78,6 +78,8 @@ With a symptom, diagnose the owner. With no symptom, read `qa.md` and `project.j
 | music too loud, voice too quiet, LUFS off | sound-mixer | render → qa |
 | zoom in the wrong place, missing callout | motion-designer | render → qa |
 | user changed `demo.yaml` (`length_s`: storyboarder → timeline → motion, captions, mix) | director: `config.py diff` | the keys and agents `diff` lists, earliest first → render → qa |
+
+**Accepted deviation** (a failed check you or the user accept, e.g. a deliberate 200 ms freeze): the only path is motion-designer adding the span to `#motion.allow.<black|freeze>`, then render-engineer re-runs `#checks` (it copies `allow`), then demo-qa. Until `#checks.pass` is true demo-qa FAILs by design. Log it in STATE.md.
 
 Key dependency order: voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. Re-run only the owner and the keys downstream of it; never the whole pipeline.
 - Cause unclear or two owners plausible: ask the user with options. Do not guess.

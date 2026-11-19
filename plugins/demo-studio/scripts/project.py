@@ -4,12 +4,16 @@
 Usage:
   project.py (--project PATH | --slug SLUG) [--timeout SEC] <command> ...
     init
-    get <key> [--version]
+    get <key> [--version]   --version prints the stored version (the value itself has no
+                            version field; also see `keys`, which lists all versions)
     set <key> --as <agent> [--file PATH | --json TEXT | (stdin)] [--expect-version N]
     keys
     deps <key> [--json]   keys to re-run after <key> changes (transitive, run order)
     owner <key>           agent that owns <key>
   (deps/owner need no project file)
+  --slug walks up from cwd to the nearest `.demo/<slug>`; inside `.demo/` with none above it, or
+  with a path containing `.demo/.demo`, it refuses (exit 2). `set` prints "<key> version N (<path>)"
+  after reading the file back: quote that line in the handoff.
 
 Exit codes:
   0  ok
@@ -78,12 +82,38 @@ def check_key(key):
         raise CliError(2, "unknown key %r; valid keys: %s" % (key, ", ".join(OWNERS)))
 
 
-def project_path(args):
+def _parts(path):
+    return [p.lower() for p in os.path.normpath(path).split(os.sep)]
+
+
+def _nested_demo(path):
+    p = _parts(path)
+    return any(a == b == ".demo" for a, b in zip(p, p[1:]))
+
+
+def project_path(args, creating=False):
+    """Resolve project.json. --slug walks up from cwd to the nearest `.demo/<slug>`, so running
+    from inside `.demo/` (or any subfolder) hits the same file; a nested `.demo/.demo` is refused."""
     if args.project:
-        return os.path.abspath(args.project)
-    if args.slug:
-        return os.path.abspath(os.path.join(".demo", args.slug, "project.json"))
-    raise CliError(2, "one of --project or --slug is required")
+        path = os.path.abspath(args.project)
+        if _nested_demo(path):
+            raise CliError(2, "refusing nested .demo/.demo path: %s" % path)
+        return path
+    if not args.slug:
+        raise CliError(2, "one of --project or --slug is required")
+    cwd = os.path.abspath(os.getcwd())
+    d = cwd
+    while True:
+        if os.path.isdir(os.path.join(d, ".demo", args.slug)):
+            return os.path.join(d, ".demo", args.slug, "project.json")
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    if ".demo" in _parts(cwd):
+        raise CliError(2, "cwd %s is inside .demo and no .demo/%s was found above it; "
+                          "run from the project root" % (cwd, args.slug))
+    return os.path.join(cwd, ".demo", args.slug, "project.json")
 
 
 def retry_fs(fn, attempts=20, delay=0.02):
@@ -255,7 +285,11 @@ def cmd_set(args, path):
         data[args.key] = value
         keys[args.key] = {"version": current + 1, "owner": owner, "updated": now_iso()}
         atomic_write(path, data)
-    print("%s version %d" % (args.key, current + 1))
+        back = read_project(path)  # read back under the lock: report what is really stored
+        stored = back["_meta"]["keys"].get(args.key, {}).get("version")
+        if back.get(args.key) != value or stored != current + 1:
+            raise CliError(2, "read-back mismatch after writing %r to %s" % (args.key, path))
+    print("%s version %d (%s)" % (args.key, stored, path))
     return 0
 
 

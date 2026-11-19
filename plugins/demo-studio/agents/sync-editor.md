@@ -16,8 +16,8 @@ Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --pyth
 ## Steps
 1. For each scene read the clip duration and the VO duration (`#voice`).
 2. Align so the VO starts at the right action: trim dead time before the first action and after the last; pad with a hold of the last frame when the clip is shorter than the VO; never cut inside an action.
-3. Clip `out` never exceeds `offset_ms` + the scene's `scene_end` `t` (fallback for a held tail). Speed changes only within the `media-specs` limit; larger gaps go back to scene-automator via `needs-input` (retime pauses).
-4. Order scenes, add transition gaps per `media-specs`, compute each scene's start and end on the final timeline, and the drift between VO end and action end (must be <= `targets.max_drift_ms`, default 80; read with `config.py --slug <slug> get targets.max_drift_ms`).
+3. Trim the idle tail: `out` = `offset_ms` + min(`scene_end` `t`, max(last click/key/sensitive marker `t` + the storyboard hold (default 400 ms), end of VO speech in the clip)); never keep picture past both the last event + hold and the VO. Speed changes only within the `media-specs` limit; larger gaps go back to scene-automator via `needs-input` (retime pauses).
+4. Compare each scene's final length with the storyboard duration (VO + hold); more than 1 s apart: list it in `notes`. Order scenes, add transition gaps per `media-specs`, compute each scene's start and end on the final timeline, and the drift between VO end and action end (must be <= `targets.max_drift_ms`, default 80; read with `config.py --slug <slug> get targets.max_drift_ms`).
 5. Write `#timeline` (shape and units, incl. `scenes[].vo.speech` from `#voice` `lead_ms`/`trail_ms`: `media-specs` project.json schemas; `in` is on the clip, so account for `#events.clips[sid].offset_ms`) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set timeline --as sync-editor --file <json>`.
 6. On a /fix for drift: adjust only the scenes named, keep the rest.
 

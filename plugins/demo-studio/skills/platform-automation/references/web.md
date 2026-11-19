@@ -68,7 +68,7 @@ Then `ffprobe` the clip, record `w,h,fps,duration_ms,offset_ms` in `#events` (th
 
 ## Pitfalls
 - `recordVideo` is capped at **25 fps** (all browsers) and **a `size` larger than the viewport does not scale**: the page is drawn 1:1 in the top-left of a grey canvas (a "crisp" clip with grey padding is a bug). So `size == viewport`, web raw = 25 fps, and render upscales without faking 60 fps (`media-specs` Encode). A bigger clip needs a bigger viewport (only if the app layout allows). `ffprobe` every clip and run the full-frame check.
-- Stop right after `ctx.end()`: no wait, screenshot, ffprobe or logging before `context.close()` (held tails of 1.5-2 s were recorded past `scene_end`). capture-operator records the real `duration_ms` and compares it with `offset_ms` + `scene_end` `t`; sync-editor trims `out` to that as the fallback.
+- Stop right after `ctx.end()`: no wait, screenshot, ffprobe or logging before `context.close()` (held tails of 1.5-2 s were recorded past `scene_end`; report `tail_ms` = clip duration - `offset_ms` - `scene_end` `t` per clip). capture-operator records the real `duration_ms` and compares it with `offset_ms` + `scene_end` `t`; sync-editor trims `out` to that as the fallback.
 - Video is empty if the context is not closed; a crash mid-scene loses the clip (environment error -> retry).
 - No cursor, no hover-only tooltips from OS: use the overlay; keep animations on (do not set `reduced_motion`) unless they jitter.
 - Cookie banners, chat widgets, autofill prompts, update toasts: dismiss in setup or block via `add_init_script` CSS.

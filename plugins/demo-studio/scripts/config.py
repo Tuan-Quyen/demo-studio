@@ -35,7 +35,8 @@ diff mapping (field -> pre agents; first project.json keys; downstream follows p
   motion.*                 motion (+ checks, delivery)
   music.*                  mix (+ checks, delivery)
   captions.burn_in         checks only (+ delivery): burn-in happens in the render
-  captions.*               captions (+ checks, delivery)
+  captions.*               captions (+ checks, delivery); layout: overlay | band (picture scaled to
+                           the top, captions in a bottom band)
   targets.lufs/true_peak   mix (+ checks, delivery)
   targets.max_drift_ms     timeline (+ motion, captions, mix, checks, delivery)
   targets.caption_offset_ms captions (+ checks, delivery)
@@ -112,6 +113,7 @@ SCHEMA = {
     },
     "captions": {
         "burn_in": leaf("bool", False),
+        "layout": leaf("enum", "overlay", enum=["overlay", "band"]),
         "max_chars": leaf("int", 42, min=10, max=80),
     },
     "targets": {

@@ -15,6 +15,8 @@ Settings live in `demo.yaml` (`config.py --slug <slug> get voice`): `engine`, `n
 | `elevenlabs` | paid, key `ELEVENLABS_API_KEY` | most natural, emotional | multilingual model | `voice-elevenlabs` | `name` (voice id), `rate` |
 | `recorded` | the user's own voice | the user's | any | none (ffmpeg via `capture`) | section 5 |
 
+Recommended `rate` (edge voices read fast; cut words before slowing further): `en-US-AndrewNeural` -10% (tested), other `en-*` neural voices -5%, `vi-VN-*` +0%. After scene 1 check `#voice.scenes[].words_per_s` and adjust in 5% steps (director records it in `demo.yaml`).
+
 `rate` ("+0%", -30..+30%) is global; `pitch` ("+0Hz", -50..+50) is `edge` only. Cloning a voice only with the owner's written consent. OpenAI and Google TTS are not supported yet (no toolkit feature): do not offer them. API keys live only in environment variables, never in files, `demo.yaml`, briefs or chat; never print them.
 
 ## 2. Choosing

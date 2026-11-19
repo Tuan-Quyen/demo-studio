@@ -80,5 +80,12 @@ class PythonPath(unittest.TestCase):
         self.assertEqual(run("--python", "--list")[0], 2)
 
 
+class Pins(unittest.TestCase):
+    def test_captions_stack_is_pinned(self):
+        lines = (setup_tools.REQ_DIR / "captions.txt").read_text().split()
+        for name in ("faster-whisper", "av"):
+            self.assertTrue(any(l.startswith(name + "==") for l in lines), name)
+
+
 if __name__ == "__main__":
     unittest.main()

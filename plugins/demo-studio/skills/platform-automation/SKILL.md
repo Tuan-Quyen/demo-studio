@@ -62,7 +62,7 @@ class Ctx:
 
 ## VO-pause rule
 VO is produced first. Read `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> get voice` and take the scene's duration (use the field `get voice` shows; convert to ms) as `vo_ms`.
-- Scene length = `vo_ms + 400` ms; accept up to `vo_ms + 1500`. Pad with `ctx.hold_until(...)`, not fixed sleeps.
+- Scene length = `vo_ms + hold_ms`; `hold_ms` = the storyboard scene's reading hold (default 400, 1000-2000 only where the storyboard asks), placed after the last action; accept up to `hold_ms + 500` extra. Pad with `ctx.hold_until(...)`, not fixed sleeps. Never the old fixed `vo_ms + 1500`.
 - No input in the first 500 ms (narration leads the action); place actions at the beats the storyboard gives, spread over the VO.
 - If the real actions cannot fit in `vo_ms`, do not speed up: return `needs-input` to the director (scriptwriter/storyboarder shorten or lengthen) with the measured action time.
 

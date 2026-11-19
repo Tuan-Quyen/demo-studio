@@ -55,6 +55,8 @@ music:
 
 captions:
   burn_in: false     # true = captions burned into the picture, false = separate .vtt/.srt. Default: false
+  layout: overlay    # overlay = captions over the picture; band = picture scaled to the top, captions in a
+                     # bottom band. Per-cue position is #captions cue "pos". Default: overlay
   max_chars: 42      # max characters per caption line, 10-80. Default: 42
 
 targets:

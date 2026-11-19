@@ -140,7 +140,7 @@ class Validation(Workspace):
         d = config.defaults()
         self.assertEqual(d["targets"], {"lufs": -14, "true_peak": -1, "max_drift_ms": 80,
                                         "caption_offset_ms": 200})
-        self.assertEqual(d["captions"], {"burn_in": False, "max_chars": 42})
+        self.assertEqual(d["captions"], {"burn_in": False, "layout": "overlay", "max_chars": 42})
         self.assertEqual(d["formats"], ["16:9"])
 
     def test_partial_file_gets_defaults(self):
@@ -174,6 +174,9 @@ class Validation(Workspace):
         self.bad('length_s: "ninety"\n', "length_s: must be a whole number")
         self.bad("length_s: 60.5\n", "whole number")
         self.bad("captions:\n  burn_in: 1\n", "true or false")
+        self.bad("captions:\n  layout: top\n", "captions.layout")
+        self.write("captions:\n  layout: band\n")
+        self.assertEqual(config.load_config(self.path)["captions"]["layout"], "band")
         self.bad("targets:\n  lufs: loud\n", "must be a number")
         self.bad("voice:\n  engine: null\n", "must not be null")
         self.bad("targets:\n  lufs: true\n", "must be a number")
@@ -408,7 +411,8 @@ class Get(Workspace):
         self.write("voice:\n  engine: elevenlabs\n")
         self.assertEqual(json.loads(self.cli("get", "voice.engine")[1]), "elevenlabs")
         self.assertEqual(json.loads(self.cli("get", "targets.lufs")[1]), -14)
-        self.assertEqual(json.loads(self.cli("get", "captions")[1]), {"burn_in": False, "max_chars": 42})
+        self.assertEqual(json.loads(self.cli("get", "captions")[1]),
+                         {"burn_in": False, "layout": "overlay", "max_chars": 42})
         self.assertEqual(json.loads(self.cli("get", "formats")[1]), ["16:9"])
         self.assertIsNone(json.loads(self.cli("get", "platform")[1]))
         self.assertEqual(json.loads(self.cli("get")[1])["voice"]["engine"], "elevenlabs")
@@ -471,6 +475,8 @@ class DiffMapping(Workspace):
 
     def test_captions(self):
         res = self.diff("", "captions:\n  max_chars: 36\n")
+        self.assertEqual(self.keys(res), ["captions", "checks", "delivery"])
+        res = self.diff("", "captions:\n  layout: band\n")
         self.assertEqual(self.keys(res), ["captions", "checks", "delivery"])
 
     def test_mix_fields(self):

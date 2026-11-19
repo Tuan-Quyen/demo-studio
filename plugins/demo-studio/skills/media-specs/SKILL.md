@@ -21,7 +21,7 @@ ffmpeg -y <inputs/filtergraph> -c:v libx264 -preset slow -crf 18 -maxrate 20M -b
 Target **`targets.lufs` integrated (default -14), true peak <= `targets.true_peak` dBTP (default -1)**, accept the target +-1 LUFS. Normalize the mix with two-pass `loudnorm=I=<targets.lufs>:TP=<true_peak - 0.5>:LRA=11` (default `I=-14:TP=-1.5`; the 0.5 dB leaves margin; `-ar 48000` explicitly since loudnorm upsamples). Ducking: `[music][vo]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400`, music `music.duck_db` (default -20) dB under VO when not ducked, fade-in 500 ms / fade-out 1500 ms. VO peaks <= -3 dBFS before mixing.
 
 ## Captions
-VTT (`media/final.vtt`) and SRT (`media/final.srt`); per language add `.<lang>` (`final.vi.vtt`). <= **`captions.max_chars` characters per line (default 42), <= 2 lines**, 1-6 s per cue, <= 17 chars/s reading speed (soft). Break at phrases, never mid-word; text = narration text (spelling and punctuation as written). Every cue start within **`targets.caption_offset_ms` (default 200)** of the measured onset of its first word (see the captions check). Cue text aligns to the written narration in `voice.language` (`narration.<voice.language>.md` if it exists, else `narration.md`), never to the spoken (lexicon) spelling. No speaker labels or sound tags unless asked. Burn-in only when `captions.burn_in` is true (default false; mirrored in `#captions.burn_in`).
+VTT (`media/final.vtt`) and SRT (`media/final.srt`); per language add `.<lang>` (`final.vi.vtt`). <= **`captions.max_chars` characters per line (default 42), <= 2 lines**, 1-6 s per cue, <= 17 chars/s reading speed (soft). Break at phrases, never mid-word; text = narration text (spelling and punctuation as written). Every cue start within **`targets.caption_offset_ms` (default 200)** of the measured onset of its first word (see the captions check). Cue text aligns to the written narration in `voice.language` (`narration.<voice.language>.md` if it exists, else `narration.md`), never to the spoken (lexicon) spelling. No speaker labels or sound tags unless asked. Burn-in only when `captions.burn_in` is true (default false; read from demo.yaml, not stored in `#captions`). `captions.layout`: `overlay` = text over the picture at the cue `pos`; `band` = picture scaled to fit the width and aligned top, captions in the remaining bottom band (`#blur`/`#motion` coordinates go through the same scale).
 
 ## File naming
 `<slug>` = lowercase ascii kebab-case. Scenes `sNN` (two digits). In `.demo/<slug>/media/`: `sNN.raw.webm` (non-web platforms may be `.mp4/.mov/.mkv`; `#events.clips` is authoritative), `sNN.vo.wav`, `final-16x9.mp4`, `final-9x16.mp4`, `final-1x1.mp4`, `final.vtt`, `final.srt`, `thumb.png` (1280x720 PNG). Language variant: `final-16x9.<lang>.mp4`. No other intermediate videos are kept.
@@ -36,12 +36,12 @@ Thresholds are the defaults; the project's `demo.yaml` overrides them (key in th
 | vo | each `sNN.vo.wav` clean: lead <= 200, trail <= 150, gaps <= 500 ms except declared pauses; `#voice` fields present | `vo.py check <file> [--pause-ms N...]` exit 0 (run before mixing) | voice-producer |
 | sync | rendered scene length vs timeline | drift <= `targets.max_drift_ms` (80) per scene | render-engineer knows each scene's cut points; `ffprobe` the final and compare scene durations/VO onsets with `#timeline` | sync-editor |
 | loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP | `ffmpeg -nostats -i F -af ebur128=peak=true -f null -` (read summary `I:` and `True peak`) | sound-mixer |
-| blur | readable text in blur regions | 0 | for each `#blur` region sample frames every 0.5 s plus first/last, mapped to output coordinates and final time per Spaces and time, OCR (feature `qa-ocr`) | privacy-blurrer |
+| blur | readable text in blur regions | 0 | for each `#blur` region OCR ROI crops (not full frames) every 0.5 s plus first/last and every frame in a tracked transit, mapped to output coordinates and final time per Spaces and time (feature `qa-ocr`); match the sensitive value's pattern, not a bare `@`; positive control on an unblurred crop | privacy-blurrer |
 | black | black frames not intended | none (>0.2 s) outside `allow.black` | `-vf blackdetect=d=0.2:pix_th=0.10 -an -f null -` | capture-operator |
 | freeze | frozen video not intended | none (>=3 s) outside `allow.freeze` | `-vf freezedetect=n=-60dB:d=3 -an -f null -` | capture-operator |
 | captions | chars/line, lines, onset offset | <= `captions.max_chars` (42), <= 2 lines; **for EVERY cue** `|t_start - onset of its first word| <= targets.caption_offset_ms` (200) | parse `final.vtt`; measure each word onset in the final audio: 10 ms RMS window, onset = first window above -40 dBFS after a silence, merging silences < 150 ms; match cues to words by order in `narration.md`. Report the max over all cues and the count over the limit; one cue over = fail | caption-writer |
 | length | total duration vs `length_s` | +-10% (fixed) | `ffprobe -v error -show_entries format=duration -of csv=p=0 F` | storyboarder |
-Intentional black (fade through black, title cards) and deliberate holds (screen static while VO explains) are listed in `#checks.allow` (from `#motion.allow` and the storyboard) and are not failures. Black/freeze are measured on the final render and tied to the nearest scene for blame. Change a project's values in its `demo.yaml`; change the defaults here and in `templates/demo.yaml` together.
+Intentional black (fade through black, title cards) and deliberate holds (screen static while VO explains) are listed in `#checks.allow` (from `#motion.allow` and the storyboard) and are not failures. Black/freeze are measured on the final render and tied to the nearest scene for blame. `allow` spans must be per hold; if they cover > 30% of the duration the check is blind there: render-engineer puts the covered % in `detail`, and demo-qa samples frames inside allowed spans. Change a project's values in its `demo.yaml`; change the defaults here and in `templates/demo.yaml` together.
 
 Measuring snippets:
 ```
@@ -76,7 +76,7 @@ Pronunciation rules, `apply-lexicon` and starter entries: skill `voice-over`.
 Single source for every shape below; agents reference this section and never restate it. `schema` is always `1`.
 
 **#events** (capture-operator; written per `platform-automation`): `{schema, platform, clips:{sid:{file,w,h,fps,scale,offset_ms,duration_ms}}, bbox_space:{unit:"px",frame:[w,h],scale,origin:[x,y]}, markers:[{t,scene,type,bbox,label}], retries}`; `t` is ms since `scene_start`.
-**#voice** (voice-producer): `{engine, voice, language, scenes:[{id, file, duration_s, words, lead_ms, trail_ms, sentences:[{words,start_ms,end_ms}], words_per_s, lexicon_applied:[{term,spoken}]}]}` (`lead_ms`, `trail_ms`, `sentences` (scene-relative ms), `words_per_s` are **mandatory**, measured after `vo.py join` + `trim`; a scene without them fails the `vo` check).
+**#voice** (voice-producer): `{engine, voice, language, scenes:[{id, file, duration_s, words, lead_ms, trail_ms, sentences:[{words,start_ms,end_ms}], words_per_s, pauses_ms:[400], lexicon_applied:[{term,spoken}]}]}` (`lead_ms`, `trail_ms`, `sentences` (scene-relative ms), `words_per_s`, `pauses_ms` (declared `[pause]` gaps, `[]` if none) are **mandatory**, measured after `vo.py join` + `trim`; a scene without them fails the `vo` check).
 **#timeline** (sync-editor): `{scenes:[{id, clip, in, out, speed, pad_end, vo:{file, start, end, speech:[onset, offset]}, start, end, drift_ms}], total_s}`; ms as in the table above. `vo.start/end` = the trimmed VO file on the final timeline, `vo.speech` = first and last spoken ms (from `lead_ms`/`trail_ms`); end cards and fades key off `speech[1]`. The sync check compares each rendered scene with `scenes[].start/end`.
 
 **#blur** (privacy-blurrer):
@@ -100,13 +100,13 @@ Every `sensitive` marker in `#events` must be covered; `pad` px on all sides; `m
 
 **#mix** (sound-mixer):
 ```json
-{"schema":1,"voice":{"gain_db":0},"music":{"file":"assets/music.mp3","license":"...","gain_db":-20,"fade_in_ms":500,"fade_out_ms":1500},"ducking":{"threshold":0.05,"ratio":8,"attack_ms":20,"release_ms":400},"target":{"lufs":-14,"tp_db":-1.5},"preview":{"lufs":-14.2,"tp_db":-1.8}}
+{"schema":1,"voice":{"gain_db":0},"music":{"file":"assets/music.mp3","license":"...","gain_db":-20,"fade_in_ms":500,"fade_out_ms":1500},"ducking":{"threshold":0.05,"ratio":8,"attack_ms":20,"release_ms":400},"chain":"<complete audio filter_complex incl. make-up gain and limiter>","target":{"lufs":-14,"tp_db":-1.5},"preview":{"lufs":-14.2,"tp_db":-1.8}}
 ```
-`music` may be `null` (voice only). `target.lufs` / `tp_db` from `demo.yaml` (`tp_db` = `targets.true_peak` - 0.5); `music.gain_db` from `music.duck_db`.
+`music` may be `null` (voice only). `target.lufs` / `tp_db` from `demo.yaml` (`tp_db` = `targets.true_peak` - 0.5); `music.gain_db` from `music.duck_db`. `chain` is the single source of the final audio: render-engineer runs it as-is; `preview` is that chain measured.
 
-**#captions** (caption-writer; `lang`, `max_chars` from `voice.language`, `captions.*`; burn-in vs sidecar is read by render-engineer from demo.yaml `captions.burn_in`, never mirrored here; times ms on the final timeline):
+**#captions** (caption-writer; `lang`, `max_chars` from `voice.language`, `captions.max_chars`; `pos` = `bottom|top`; burn-in vs sidecar is read by render-engineer from demo.yaml `captions.burn_in`, never mirrored here; times ms on the final timeline):
 ```json
-{"schema":1,"lang":"en","max_chars":42,"max_lines":2,"cues":[{"i":1,"scene":"s01","t_start":300,"t_end":2900,"lines":["Create an invoice","in three clicks."]}]}
+{"schema":1,"lang":"en","max_chars":42,"max_lines":2,"cues":[{"i":1,"scene":"s01","t_start":300,"t_end":2900,"pos":"bottom","lines":["Create an invoice","in three clicks."]}]}
 ```
 
 **#checks** (render-engineer, after render; every result carries its `owner`):

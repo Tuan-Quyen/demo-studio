@@ -3,6 +3,8 @@
 Video: <media/final-*.mp4 reviewed>
 
 ## Machine checks (project.json#checks)
+Source: `#checks v<N>` pass=<true|false> (rewrite on every QA run, never keep an older one)
+
 | Check | Threshold | Result | Pass |
 |---|---|---|---|
 | Sync drift | ≤`targets.max_drift_ms`/scene (80) | <value> | <yes/no> |

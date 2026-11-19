@@ -13,7 +13,7 @@ Input/output: 16-bit PCM WAV (mono or stereo). Loudness is measured on 10 ms RMS
       share rate/channels (else exit 2). Prints the JSON above plus segments [{start_ms,end_ms}]
       (each trimmed input on the OUT timeline).
   vo.py check IN [--lead-max 200] [--trail-max 150] [--gap-max 500] [--pause-ms N ...]
-                 [--threshold-db -45]
+                 [--threshold-db -50]
       Prints JSON {lead_ms, trail_ms, duration_ms, internal_gaps:[{start_ms,len_ms,allowed}],
       pass, failures:[...]}. An internal gap is a silent run longer than gap-max; each
       --pause-ms declares one intentional gap (allowed within +-150 ms of a declared value).
@@ -28,6 +28,7 @@ import sys
 import wave
 
 WINDOW_MS = 10
+SILENCE_DB = -50  # one silence threshold for trim, join and check
 PAUSE_TOLERANCE_MS = 150
 
 
@@ -220,13 +221,13 @@ def build_parser():
     t.add_argument("output")
     t.add_argument("--lead-ms", type=float, default=200)
     t.add_argument("--trail-ms", type=float, default=150)
-    t.add_argument("--threshold-db", type=float, default=-50)
+    t.add_argument("--threshold-db", type=float, default=SILENCE_DB)
     j = sub.add_parser("join", help="trim edges and join with an exact gap")
     j.add_argument("output")
     j.add_argument("inputs", nargs="+")
     j.add_argument("--gap-ms", type=float, default=300)
     j.add_argument("--edge-ms", type=float, default=50)
-    j.add_argument("--threshold-db", type=float, default=-50)
+    j.add_argument("--threshold-db", type=float, default=SILENCE_DB)
     c = sub.add_parser("check", help="measure edges and internal gaps; exit 1 on failure")
     c.add_argument("input")
     c.add_argument("--lead-max", type=float, default=200)
@@ -234,7 +235,7 @@ def build_parser():
     c.add_argument("--gap-max", type=float, default=500)
     c.add_argument("--pause-ms", type=float, action="append", default=[],
                    help="an allowed intentional gap (repeatable)")
-    c.add_argument("--threshold-db", type=float, default=-45)
+    c.add_argument("--threshold-db", type=float, default=SILENCE_DB)
     return p
 
 

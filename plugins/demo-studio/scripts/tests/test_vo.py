@@ -193,5 +193,14 @@ class Check(VoTest):
         self.assertTrue(res["pass"])
 
 
+class Threshold(unittest.TestCase):
+    def test_single_default_threshold(self):
+        p = vo.build_parser()
+        defaults = {c: p.parse_args(a).threshold_db for c, a in
+                    (("trim", ["trim", "i", "o"]), ("join", ["join", "o", "i"]),
+                     ("check", ["check", "i"]))}
+        self.assertEqual(set(defaults.values()), {vo.SILENCE_DB}, defaults)
+
+
 if __name__ == "__main__":
     unittest.main()

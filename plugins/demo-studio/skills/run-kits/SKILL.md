@@ -94,7 +94,7 @@ next: <agent or user>
 notes: <issues; questions with options + recommended default>
 ```
 
-Director checks `wrote:` against the agent's allowed outputs. **Evidence rule:** a `wrote:` claim about media (raw clips, finals) must come with evidence in `facts` (ffprobe w x h @ fps + duration, and a checked frame); the director spot-checks one frame of the raw clips and of the final before moving on, and sends back a claim without evidence; `needs-input` → ask the user (options + default) then re-brief; `blocked` → route by §3 / §7 or tell the user.
+**Handoff truth:** after every `project.py set`, quote the printed line (`<key> version N (<path>)`) in `facts`; never claim a write without it. Director checks `wrote:` against the agent's allowed outputs and the quoted version against `project.py --slug <slug> get <key> --version` (mismatch, or a path outside `.demo/<slug>/` = re-brief). **Evidence rule:** a `wrote:` claim about media (raw clips, finals) must come with evidence in `facts` (ffprobe w x h @ fps + duration, and a checked frame); the director spot-checks one frame of the raw clips and of the final before moving on, and sends back a claim without evidence; `needs-input` → ask the user (options + default) then re-brief; `blocked` → route by §3 / §7 or tell the user.
 
 ## 6. Workspace
 
@@ -111,7 +111,7 @@ Only two kinds of video file: raw clips and finals. Blur, motion, captions and m
 
 **Files → owner:** `brief.md` demo-strategist (prose; user approves at G1) · `demo.yaml` **the user** (demo-strategist creates it at G1; demo-director records the user's decisions in it: motion level, voice, install choices; every other agent reads only) · `.demo.applied.json` snapshot written by `config.py apply` (director: after G1 as baseline, after every G3) · `app-map.md` app-scout · `storyboard.md` storyboarder · `narration.md` scriptwriter (in `language`) · `localization.md`, `narration.<voice.language>.md` localizer (only when `language` ≠ `voice.language`; voice-producer reads the latter when it exists) · `qa.md` demo-qa.
 
-**`demo.yaml`** controls the video's properties: `platform`, `length_s`, `formats`, `voice {engine, name, language, lexicon}`, `motion {level}`, `music {style, duck_db}`, `captions {burn_in, max_chars}`, `targets {lufs, true_peak, max_drift_ms, caption_offset_ms}`, `privacy {blur, real_data}`, `install {approved, declined}`. Template with allowed values and defaults: `${CLAUDE_PLUGIN_ROOT}/templates/demo.yaml`. A value lives only there; agents read it, never copy it.
+**`demo.yaml`** controls the video's properties: `platform`, `length_s`, `formats`, `voice {engine, name, language, lexicon}`, `motion {level}`, `music {style, duck_db}`, `captions {burn_in, layout, max_chars}`, `targets {lufs, true_peak, max_drift_ms, caption_offset_ms}`, `privacy {blur, real_data}`, `install {approved, declined}`. Template with allowed values and defaults: `${CLAUDE_PLUGIN_ROOT}/templates/demo.yaml`. A value lives only there; agents read it, never copy it.
 
 ```
 python ${CLAUDE_PLUGIN_ROOT}/scripts/config.py --slug <slug> init | validate | get <dotted.path> | diff [--json] | apply | apply-lexicon (--text T | --file F | stdin) [--json]
@@ -132,7 +132,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/vo.py check IN [--lead-max 200 --trail-max 
 ```
 `vo.py` (voice-producer builds scenes with it; render-engineer and sound-mixer check with it) prints JSON; never hand-roll audio trimming.
 
-Locked and owner-checked, so parallel agents do not overwrite each other. Never edit `project.json` by hand.
+Locked and owner-checked, so parallel agents do not overwrite each other. Never edit `project.json` by hand. A key's value has no version field (`schema` is the format version, not the data version): read the version with `get <key> --version` (0 = never set) or `keys`. `--slug` finds the nearest `.demo/<slug>` above cwd and refuses to run from inside `.demo/` without one.
 
 **Dependency order:** voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. A `length_s` change re-runs storyboarder (G2) → timeline → motion, captions, mix → checks → delivery; voice only if narration changes.
 

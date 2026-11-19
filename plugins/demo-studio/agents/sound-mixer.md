@@ -14,12 +14,12 @@ Load skill `media-specs` (loudness targets, ducking amount, music level, fades, 
 Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check mix`. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
 Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
 ## Steps
-0. Before mixing run `scripts/vo.py check media/sNN.vo.wav [--pause-ms 400 per [pause]]` on every scene; any failure → `blocked`, owner voice-producer (never repair audio yourself).
+0. Before mixing run `scripts/vo.py check media/sNN.vo.wav` on every scene with one `--pause-ms <v>` per value of `#voice.scenes[].pauses_ms`; any failure → `blocked`, owner voice-producer (never repair audio yourself).
 1. Choose music: a file the user supplied or one the project already has with a licence that allows use. `music.style` null = voice only: set `music: null`. If a style is set but no file, set `music: null` and say so; never download or invent a track.
 2. Set parameters: music gain (`music.duck_db`), ducking under VO (threshold, ratio, attack/release), fade in/out, loudness normalisation to `targets.lufs` integrated and <= `targets.true_peak` dBTP.
 3. Run an audio-only render over the full timeline (ffmpeg via `capture`) and measure loudness (`loudnorm` / `ebur128`).
 4. Adjust gain until within `targets.lufs` +/- 1 LUFS and true peak <= `targets.true_peak` dBTP.
-5. Write `#mix` (shape: `media-specs` project.json schemas) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set mix --as sound-mixer --file <json>`.
+5. Store the **exact final chain** in `#mix.chain`: one ffmpeg `filter_complex` string with every stage in order (voice gain, ducking, music, loudnorm, **any make-up gain and limiter**) and, in `preview`, the measurement of that same chain. render-engineer replays it verbatim; a trim you needed after loudnorm belongs in the chain. Write `#mix` (shape: `media-specs` project.json schemas) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set mix --as sound-mixer --file <json>`.
 
 ## Outputs
 `project.json#mix`; the audio test render only under `.demo/<slug>/media/preview/`.
