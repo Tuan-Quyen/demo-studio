@@ -30,7 +30,7 @@ One JSON object per line on stdout:
 - `sensitive`: bbox of an element showing real private data (email, name, amount, token), marked when it becomes visible. Re-mark after every scroll/navigation/resize that moves it. `bbox:null` with the same `label` = region gone (otherwise the region lasts to `scene_end`).
 - `label`: short human text ("Create invoice button"), no secrets.
 
-Reference core (copy verbatim to `.demo/<slug>/demo_ctx.py`; JS twin in `references/desktop.md`):
+Reference core (scene-automator copies it verbatim to `.demo/<slug>/demo_ctx.py`, the one file it may write besides the scenes; JS twin in `references/desktop.md`):
 ```python
 import json, sys, time
 TAIL_MS = 400                         # keep scene alive after VO ends
@@ -79,7 +79,7 @@ Runner exit code + one JSON line on stderr `{"error_class":"step|environment","s
 Same step failure at the same selector twice = report to the director, do not loop. Unsure which class: treat as step and attach evidence.
 
 ## Recorder adapter (capture-operator owns)
-Per platform it must: set a fixed size/viewport and the native fps of the recorder (record at the largest native size the platform gives; the render scales; never claim a resolution or fps `ffprobe` does not show, see `media-specs` Encode); enable DND / hide notifications where the OS allows (else ask the user); create the target, run `prepare` if exported, then start recording / wait until frames flow as the platform needs, assert the start state, `ctx.start()`; run the scene script unmodified; stop and finalize the file; save `media/sNN.raw.<ext>` (web: webm); `ffprobe` the clip (w, h, fps, duration); check it is non-empty, not black and **fills the frame** (mandatory frame check in capture-operator); collect stdout markers into `project.json#events`:
+Per platform it must: set a fixed size/viewport and the native fps of the recorder (record at the largest native size the platform gives; the render scales; never claim a resolution or fps `ffprobe` does not show, see `media-specs` Encode); enable DND / hide notifications where the OS allows (else ask the user); create the target, run `prepare` if exported, then start recording / wait until frames flow as the platform needs, assert the start state, `ctx.start()`; run the scene script unmodified; stop and finalize the file; save `media/sNN.raw.<ext>` (web: webm); `ffprobe` the clip (w, h, fps, duration); check it is non-empty, not black and **not padded** (mandatory full-frame check in capture-operator: grey padding colour and size > viewport), and that it stops right after `ctx.end()` (no held tail); collect stdout markers into `project.json#events`:
 ```json
 {"schema":1,"platform":"web",
  "bbox_space":{"unit":"px","frame":[1280,720],"scale":1.0,"origin":[0,0]},

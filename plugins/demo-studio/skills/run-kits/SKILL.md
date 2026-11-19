@@ -18,7 +18,7 @@ Plugin files: `${CLAUDE_PLUGIN_ROOT}/…`. Commands: `/demo-studio:<name>`. Only
 | `storyboarder` | scenes and shots: on-screen action, camera intent, duration | `storyboard.md` | opus |
 | `scriptwriter` | per-scene narration within the `demo-storytelling` word budget | `narration.md` | opus |
 | `voice-producer` | TTS or own-voice VO per scene (skill `voice-over`: engines, lexicon, pacing), measure duration | `media/sNN.vo.wav`, `#voice` | haiku |
-| `scene-automator` | action-only scene scripts, VO pauses, `mark()`, dry-run | `scenes.<platform>.*` | inherit |
+| `scene-automator` | action-only scene scripts, VO pauses, `mark()`, dry-run | `scenes.<platform>.*`, `demo_ctx.py` | inherit |
 | `capture-operator` | recorder wrapper, run script unmodified (prepare → start), collect markers, save raw clips, full-frame check | `media/sNN.raw.*`, `#events` | haiku |
 | `privacy-blurrer` | blur regions over time (email, name, amount, token); no fake data, no video | `#blur` | haiku |
 | `sync-editor` | align clips with VO: pad, trim, speed | `#timeline` | inherit |
@@ -73,6 +73,7 @@ Slug: <slug> · Pipeline: <name> · Step: <n — name> · Scene(s): <sNN or all>
 Goal: <what this step must produce>
 Read: <.demo/ files, project.json keys, code/app paths>
 Write: <the files / keys it owns for this step>
+Python: python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python   (prints the toolkit interpreter; use it for all toolkit code)
 Constraints: <values the step needs from `demo.yaml` (name the fields, e.g. platform, voice.language), finding IDs to fix, gates passed, features approved for install>
 User's language: <language>
 ```
@@ -147,7 +148,7 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 
 ## 8. Toolkit
 
-`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval). Installs into `.demo/.venv`, records `.demo/toolkit.json`. It never prompts.
+`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/.venv`, records `.demo/toolkit.json`. It never prompts.
 
 | Feature | Gives |
 |---|---|

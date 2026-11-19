@@ -75,8 +75,8 @@ Pronunciation rules, `apply-lexicon` and starter entries: skill `voice-over`.
 Single source for every shape below; agents reference this section and never restate it. `schema` is always `1`.
 
 **#events** (capture-operator; written per `platform-automation`): `{schema, platform, clips:{sid:{file,w,h,fps,scale,offset_ms,duration_ms}}, bbox_space:{unit:"px",frame:[w,h],scale,origin:[x,y]}, markers:[{t,scene,type,bbox,label}], retries}`; `t` is ms since `scene_start`.
-**#voice** (voice-producer): `{engine, voice, language, scenes:[{id, file, duration_s, words, lexicon_applied:[{term,spoken}]}]}`.
-**#timeline** (sync-editor): `{scenes:[{id, clip, in, out, speed, pad_end, vo, start, end, drift_ms}], total_s}`; ms as in the table above. The sync check compares each rendered scene with `scenes[].start/end`.
+**#voice** (voice-producer): `{engine, voice, language, scenes:[{id, file, duration_s, words, lead_ms, trail_ms, lexicon_applied:[{term,spoken}]}]}` (`duration_s`, `lead_ms`, `trail_ms` measured after trimming).
+**#timeline** (sync-editor): `{scenes:[{id, clip, in, out, speed, pad_end, vo:{file, start, end, speech:[onset, offset]}, start, end, drift_ms}], total_s}`; ms as in the table above. `vo.start/end` = the trimmed VO file on the final timeline, `vo.speech` = first and last spoken ms (from `lead_ms`/`trail_ms`); end cards and fades key off `speech[1]`. The sync check compares each rendered scene with `scenes[].start/end`.
 
 **#blur** (privacy-blurrer):
 ```json
@@ -95,7 +95,7 @@ Every `sensitive` marker in `#events` must be covered; `pad` px on all sides; `m
   {"scene":null,"type":"title_card","t_start":0,"t_end":2500,"params":{"title":"Invoice in 60 seconds","subtitle":"","bg":"#0B1020"}},
   {"scene":"s02","type":"fade","t_start":12000,"t_end":12300,"params":{"mode":"cross"}}]}
 ```
-`engine`: `ffmpeg|remotion|null`; `level`: `none|basic|cinematic` (copied from `motion.level`; `none` -> `engine:null`, `effects:[]`). `type` in `zoom, pan, cursor_highlight, ripple, callout, title_card, fade, device_frame, reframe`. `allow` lists intentional black/freeze spans (ms, final timeline) for the checks. Optional `params.aspects` (e.g. `["9x16"]`) limits an effect to some outputs. Every effect derives from an `#events` marker or a storyboard camera note; none over a `#blur` region; effects the level cannot do are not written.
+`engine`: `ffmpeg|opencv|remotion|null` is a hint, not a contract (render-engineer records what it actually used in `#checks.outputs.<ratio>.renderer`); `level`: `none|basic|cinematic` (copied from `motion.level`; `none` -> `engine:null`, `effects:[]`). `type` in `zoom, pan, cursor_highlight, ripple, callout, title_card, fade, device_frame, reframe`. `allow` lists intentional black/freeze spans (ms, final timeline) for the checks. Optional `params.aspects` (e.g. `["9x16"]`) limits an effect to some outputs. Every effect derives from an `#events` marker or a storyboard camera note; none over a `#blur` region; effects the level cannot do are not written.
 
 **#mix** (sound-mixer):
 ```json
@@ -110,7 +110,7 @@ Every `sensitive` marker in `#events` must be covered; `pad` px on all sides; `m
 
 **#checks** (render-engineer, after render; every result carries its `owner`):
 ```json
-{"schema":1,"outputs":{"16x9":{"file":"media/final-16x9.mp4","w":1920,"h":1080,"fps":25,"duration_s":84.2,"video_kbps":2400}},
+{"schema":1,"outputs":{"16x9":{"file":"media/final-16x9.mp4","w":1920,"h":1080,"fps":25,"duration_s":84.2,"video_kbps":2400,"renderer":"ffmpeg"}},
  "allow":{"black":[[0,300]],"freeze":[]},
  "results":{"sync":{"pass":true,"measured_ms_max":42,"threshold_ms":80,"owner":"sync-editor","detail":""},
             "loudness":{"pass":true,"lufs":-14.1,"tp_db":-1.6,"owner":"sound-mixer","detail":""},

@@ -12,6 +12,7 @@ Settings from demo.yaml (`config.py --slug <slug> get captions`, `get targets.ca
 
 ## Tool check
 Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check captions`. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
+Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
 ## Steps
 1. Transcribe each `sNN.vo.wav` with word timestamps (faster-whisper); align the words to the **approved text** in `narration.md` so spelling and names are exactly the script's. Rule: align against the written text only, never against the spoken lexicon spellings (`#voice.scenes[].lexicon_applied` tells you where TTS said something else); the cue time is the onset of the spoken word.
 2. Break into cues: <= `captions.max_chars` per line, <= 2 lines, split at phrase boundaries, duration and reading speed per `media-specs`.

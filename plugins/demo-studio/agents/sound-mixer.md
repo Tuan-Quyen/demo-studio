@@ -12,6 +12,7 @@ Load skill `media-specs` (loudness targets, ducking amount, music level, fades, 
 
 ## Tool check
 Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check mix`. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
+Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
 ## Steps
 1. Choose music: a file the user supplied or one the project already has with a licence that allows use. `music.style` null = voice only: set `music: null`. If a style is set but no file, set `music: null` and say so; never download or invent a track.
 2. Set parameters: music gain (`music.duck_db`), ducking under VO (threshold, ratio, attack/release), fade in/out, loudness normalisation to `targets.lufs` integrated and <= `targets.true_peak` dBTP.

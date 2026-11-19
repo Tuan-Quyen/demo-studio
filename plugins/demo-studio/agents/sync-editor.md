@@ -12,12 +12,13 @@ Load skill `media-specs` (max speed change, drift limit, scene transitions) and 
 
 ## Tool check
 Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check capture`. ffmpeg comes with `capture`. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
+Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
 ## Steps
 1. For each scene read the clip duration and the VO duration (`#voice`).
 2. Align so the VO starts at the right action: trim dead time before the first action and after the last; pad with a hold of the last frame when the clip is shorter than the VO; never cut inside an action.
-3. Speed changes only within the `media-specs` limit; larger gaps go back to scene-automator via `needs-input` (retime pauses).
+3. Clip `out` never exceeds `offset_ms` + the scene's `scene_end` `t` (fallback for a held tail). Speed changes only within the `media-specs` limit; larger gaps go back to scene-automator via `needs-input` (retime pauses).
 4. Order scenes, add transition gaps per `media-specs`, compute each scene's start and end on the final timeline, and the drift between VO end and action end (must be <= `targets.max_drift_ms`, default 80; read with `config.py --slug <slug> get targets.max_drift_ms`).
-5. Write `#timeline` (shape and units: `media-specs` project.json schemas; `in` is on the clip, so account for `#events.clips[sid].offset_ms`) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set timeline --as sync-editor --file <json>`.
+5. Write `#timeline` (shape and units, incl. `scenes[].vo.speech` from `#voice` `lead_ms`/`trail_ms`: `media-specs` project.json schemas; `in` is on the clip, so account for `#events.clips[sid].offset_ms`) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set timeline --as sync-editor --file <json>`.
 6. On a /fix for drift: adjust only the scenes named, keep the rest.
 
 ## Outputs

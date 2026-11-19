@@ -53,12 +53,12 @@ Ask with AskUserQuestion: 2-4 options, the recommended one first and marked "(re
 - **G3 final render approved**: show `qa.md` verdict, `project.json#checks` numbers, file list. Options: approve and package / fix a symptom / re-render other ratios.
 
 ## Brief an agent
-Write the brief in your message to the agent using the template in skill `run-kits`: slug, ticket/goal, inputs to read, exact outputs, tools feature line, platform, constraints, what NOT to do. Name files, not summaries. Keep it under ~25 lines.
+Write the brief in your message to the agent using the template in skill `run-kits`: slug, ticket/goal, inputs to read, exact outputs, tools feature line, the `Python:` line (`setup_tools.py --python`) for any agent that runs toolkit code, platform, constraints, what NOT to do. Name files, not summaries. Keep it under ~25 lines.
 
 ## Read a handoff
 Every agent ends with the Handoff block. For each one:
 1. `done`: verify `wrote:` exists (file on disk, or `project.py get <key>` returns data owned by that agent). Update STATE.md. Go to the next step.
-2. `needs-input`: voice-producer reporting total VO >15% under `length_s` → record a lower `length_s` (user-approved) and re-run storyboarder (retime) rather than leaving silence. If it is a decision, ask the user (AskUserQuestion, options + recommended default from `notes`), then re-brief the same agent with the answer. If it is a missing tool, see below.
+2. `needs-input`: voice-producer lists lexicon previews (`media/preview/lex-<term>.wav`) → ask the user to listen and accept or give another spelling (auto mode: accept, log as unverified in STATE.md). voice-producer reporting total VO < 75% of `length_s` (the budget makes it ~85% by design) → record a lower `length_s` (user-approved) and re-run storyboarder (retime) rather than leaving silence. If it is a decision, ask the user (AskUserQuestion, options + recommended default from `notes`), then re-brief the same agent with the answer. If it is a missing tool, see below.
 3. `blocked`: read `notes`. A step/selector failure from capture-operator goes to scene-automator, then capture-operator again. Anything else: apply the same-defect rule below, or ask the user.
 
 ## Missing tools
