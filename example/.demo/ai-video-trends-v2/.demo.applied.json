@@ -1,8 +1,8 @@
 {
-  "applied": "2026-11-18T20:06:43Z",
+  "applied": "2026-11-19T06:11:17Z",
   "config": {
     "captions": {
-      "burn_in": false,
+      "burn_in": true,
       "max_chars": 42
     },
     "formats": [
@@ -21,7 +21,8 @@
       ],
       "declined": []
     },
-    "length_s": 38,
+    "language": "en",
+    "length_s": 105,
     "motion": {
       "level": "basic"
     },
@@ -45,11 +46,13 @@
     },
     "voice": {
       "engine": "edge",
-      "language": "vi",
-      "lexicon": {},
-      "name": "vi-VN-HoaiMyNeural",
+      "language": "en",
+      "lexicon": {
+        "UGC": "U G C"
+      },
+      "name": "en-US-AndrewNeural",
       "pitch": "+0Hz",
-      "rate": "+0%"
+      "rate": "-10%"
     }
   },
   "schema": 1

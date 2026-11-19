@@ -1,9 +1,9 @@
 # Demo studio state
 
 - Slug: ai-video-trends-v2 (base; v1 deleted by user request)
-- Pipeline: new
-- Current step: done — pipeline new finished (v2)
-- Gates: G1 approved (auto) · G2 approved (auto) · G3 approved (auto; QA PASS, Q-1..Q-7 logged)
+- Pipeline: fix — full app coverage (user: demo skips too much; add full grid + chips, trend cards, all 5 ranks, nav + CTA; length < 10 min)
+- Current step: done — delivered (G3 approved by user 2026-11-19; minors M-1..M-4 accepted)
+- Gates: G1 (auto) · G2 · G3 approved by user
 - Tools approved: capture, voice-edge, captions, mix, blur, motion-basic, qa-ocr, package (installed, --check ok)
 
 ## Steps
@@ -27,5 +27,8 @@
 - 2026-11-19 freeze s02 8.32–11.84 deliberate → motion-designer allow → fixed, checks PASS
 - 2026-11-19 VO 32.2 s vs 45 (−28.6%) → director length_s 45→38 (diff: storyboarder, timeline↓, no voice) → storyboarder retime
 
+- 2026-11-19 full coverage: blur v2 (17 regions, OCR partial, API-key transit checked visually) → render → #checks v9 freeze 74280–74480 (deliberate hold) → motion v8 allow → #checks v10 pass; QA PASS, minors M-1..M-4 open
+- 2026-11-19 G3 approved by user → config apply → packager: thumb (12 s grid), 10 en chapters, #delivery v2
+
 ## Next action
-Done. Optional: motion-only pass Q-1,Q-2,Q-3,Q-5 (qa.md).
+Next: user asked to fix M-1, M-2 and make title/intro introduce the product → s01 narration + title card → voice s01 → timeline (M-1) → motion ∥ captions ∥ mix → render → qa → G3.

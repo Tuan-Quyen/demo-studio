@@ -12,10 +12,11 @@
 
 # Where the app runs. Allowed: web | desktop | android | ios
 # Default: null (not set yet: the strategist or director fills it in at G1)
+language: en   # source/UI language (app is English); localizer translates to voice.language
 platform: web
 
 # Target length in seconds, 5-600 (render check allows +-10%). Default: null (strategist sets it)
-length_s: 38
+length_s: 105
 
 # Output aspect ratios. Allowed items: "16:9" | "9:16" | "1:1". Default: ["16:9"]
 formats: ["16:9"]
@@ -28,17 +29,17 @@ voice:
   #         recorded   your own WAVs at .demo/<slug>/vo-src/sNN.wav, 48 kHz, ~0.3 s silence at
   #                    each end; no toolkit feature needed
   engine: edge
-  name: vi-VN-HoaiMyNeural # voice name of the engine. Default: null (engine's default voice)
+  name: en-US-AndrewNeural # voice name of the engine. Default: null (engine's default voice)
                      # edge Vietnamese: vi-VN-HoaiMyNeural (female, warm), vi-VN-NamMinhNeural (male, calm)
-  rate: "+0%"        # speaking rate, -30%..+30% (edge-tts rate; other engines map it to their speed).
+  rate: "-10%"       # speaking rate, -30%..+30% (edge-tts rate; other engines map it to their speed).
                      # Prefer cutting words over speeding up. Default: "+0%"
   pitch: "+0Hz"      # pitch, -50Hz..+50Hz (edge only; ignored by other engines). Default: "+0Hz"
-  language: vi       # narration language code, e.g. en, vi, de. Default: en
+  language: en       # narration language code, e.g. en, vi, de. Default: en
   # Pronunciation lexicon: written term -> how the TTS should say it. Matched whole-word,
   # case-sensitive, longest match first; applied to TTS input only (captions keep the written
   # text). Quote terms: {"AI": "ay eye", "YouTube": "you tube"} or one `"term": spoken` per line.
   # Each side 1-60 chars. Changing it re-runs the voice only. Default: {}
-  lexicon: {}
+  lexicon: {"UGC": "U G C"}
 
 motion:
   level: basic # none | basic | cinematic. Default: null (director asks you once)
@@ -48,7 +49,7 @@ music:
   duck_db: -20       # music level under the voice, dB, -40..0. Default: -20
 
 captions:
-  burn_in: false     # true = captions burned into the picture, false = separate .vtt/.srt. Default: false
+  burn_in: true      # true = captions burned into the picture, false = separate .vtt/.srt. Default: false
   max_chars: 42      # max characters per caption line, 10-80. Default: 42
 
 targets:

@@ -1,40 +1,68 @@
-# QA: ai-video-trends-v2
+# QA: ai-video-trends-v2 (full 10-scene tour, #checks v9)
 
-Video: `media/final-16x9.mp4` (1920x1080, 25 fps, 35.04 s), `media/final.vtt` (9 cues). Independent run; v1 not read.
-Evidence: `media/preview/qa/` (sheet1.png, sheet2.png = 2 fps contact sheets 0-17.5 s / 17.5-35 s; full/F_NNN.png = full-res 2 fps frames, NNN = t*2+1; k_*.png, xfade.png, scroll.png, join23.png, chart_top*.png).
-Accepted per director: 25 fps, 720p source upscaled, voice-only mix.
+Video: `media/final-16x9.mp4` (1920x1080, 25 fps, 100.04 s). The picture is 1600x900 at the top; the caption band runs from y 900 to 1080. Captions: `media/final.vtt` (23 cues, en, burned into the band).
 
-## Machine checks (project.json#checks, pass=true, not re-measured)
-| Check | Threshold | Result | Pass |
-|---|---|---|---|
-| Sync drift | ≤80 ms/scene | 3 ms max | yes |
-| Loudness | −14±1 LUFS, ≤−1 dBTP | −14.0 LUFS / −1.9 dBTP | yes |
-| Blur coverage (OCR) | 0 readable text | 5 regions, 0 text | yes |
-| Black / freeze | none unintended | only inside allow | yes |
-| Captions | ≤42 chars, ≤200 ms | 39 chars, 110 ms max | yes |
-| Total length | 38 s ±10% | 35.04 s (−7.8%) | yes |
+Evidence in `media/preview/qa/`:
+- sheet1–sheet4.png: 1 fps contact sheets for 0–24 s, 25–49 s, 50–74 s and 75–99 s.
+- s08_scroll.png and s10_scroll.png: 25 fps strips of the key-sensitive scrolls.
+- f90.png and keys.png: the API key card.
+- nav_8.5.png: the header nav.
+- k_93.5.png: the s10 zoom.
+- a.wav: the final audio.
 
-## Human-eye checklist
-- [x] Spelling: title card "Quá nhiều kiểu video AI?", end card "Khám phá xu hướng" / "AI Video Trends · dữ liệu mẫu" diacritics correct (k_2.2.png, F_061.png); all 9 VTT cues match narration.md word for word; line breaks at phrases
-- [x] No broken UI, popups or notifications; no other windows
-- [x] No sensitive data: OCR of all 70 full-res frames finds no email, API key or token; only fictional creator handles (@still_atlas etc., sample data). Email pill blurred in every wide frame, out of frame in zooms; API key panel never in frame (s04 stops at the chart). Blur box covers only the pill, nav links untouched
-- [x] Sample-data framing: chart caption "Genre growth, last 90 days (sample)" readable through the s04 zoom (chart_top.png, chart_top_24.png); end card says "dữ liệu mẫu"; no figures spoken
-- [~] Pacing: hook at 0 s, one CTA, VO matches action in every scene; see Q-5, Q-6
-- [~] Zoom/highlights land on the right element; rings sized/placed poorly (Q-1, Q-2)
-- [x] 16:9 present and framed (only format requested)
+Sampling was lean: no per-frame OCR. Whisper ran once on the full audio.
+
+Accepted by the director:
+- the 200 ms freeze at 74.28–74.48 s;
+- the s06 wide shot;
+- allow.freeze for the reading holds;
+- loudness −14.7 LUFS / −4.4 dBTP;
+- 25 fps, 720p source upscaled, voice-only mix.
+
+## Machine checks (`project.json#checks` v9: **pass=false**)
+| Check | Result | Pass |
+|---|---|---|
+| VO / sync | vo.py exit 0; drift ≤10 ms | yes |
+| Loudness | −14.7 LUFS / −4.4 dBTP | yes |
+| Blur (OCR) | 108 samples, 0 readable | yes |
+| Black | only in the title and end card dips | yes |
+| **Freeze** | **74.28–74.48 s is outside allow.freeze (which starts at 74480)** | **no** |
+| Captions | 23 cues in the band, ≤42 chars, ≤2 lines; soft: cue 12 17.8 cps, cue 14 18.8 cps | yes |
+| Length | 100.04 s vs 105 ±10% | yes |
+
+Per the demo-qa rule, `#checks.pass=false` means FAIL. The director has accepted this freeze as intended, but the accepted span is not in `allow`, so the gate still fails. Fix (bookkeeping only, no re-render): add [74280, 74480] to `#motion.allow.freeze` (motion-designer), then render-engineer re-runs the checks (v10). The human review below found no blockers, so the verdict becomes PASS once #checks passes.
+
+## User requests
+| Request | Result | Evidence |
+|---|---|---|
+| Entirely English | Yes. Whisper detects en at p 1.0, and the transcript follows narration.md. final.vtt contains no non-ASCII characters. Cards and captions are English | a.wav, final.vtt, sheets |
+| Title card introduces the product | Yes. 0–2.5 s: "AI Video Trends" with the subline "Trending AI videos, rising techniques, genres to bet on". The first spoken line is "Meet AI Video Trends: …" | sheet1 0–2 s |
+| 1–2 s reading holds | Yes. Measured silences (−50 dB, ≥0.8 s): 1.59 / 1.71 / 2.25 / 1.94 / 1.68 / 1.69 / 1.82 / 2.02 s, then 4.17 s at s09→s10 (M-2) and the 0.89 s declared pause | silencedetect |
+| Captions in the band below the picture | Yes. All sampled cues are in the band, with no overlap on the UI | sheets |
+| 8-video grid | Yes, 8–16 s; both rows shown | sheet1 8–15 s |
+| 2–3 genre chips | Yes: Music video (18–21 s), Anime (22–24 s), Faceless YouTube (29–30 s) | sheet1, sheet2 |
+| Reset to All | Yes, 25–28 s; all 8 cards return | sheet2 25–28 s |
+| Detail popup open / close | Yes: opens at 31 s; prompt, tool and "Why it trends" are readable from 32 to 39 s; closes at 40–41 s | sheet2 31–41 s |
+| 4 trend cards | Yes, 44–53 s, all four readable | sheet2 44–49 s, sheet3 50–53 s |
+| Chart | Yes, 54–60 s, all 7 bars, "(sample)" caption shown | sheet3 54–60 s |
+| All 5 genre ranks with reasons | Yes. Ranks 1–2 at 62–73 s and ranks 3–5 at 74–88 s, each reason line readable, with the ring on the rank badge as each is spoken | sheet3 62–73 s, sheet4 75–88 s |
+| Header nav Trending / Trends / Genres | Yes. The cursor clicks Trending (about 8 s, readable: nav_8.5.png), Trends (about 43 s) and Genres (about 61 s) | nav_8.5.png, sheet2 43 s, sheet3 61 s |
+| "Explore trends" CTA | Yes. In s10 the cursor clicks the hero "Explore trends" button (about 94 s). The end card "Explore trends" is up from 95.6 s, and the CTA line plays from 95.19 to 98.97 s on the card, which then holds about 4.4 s | sheet4 94–99 s |
+| Email and API key never readable | Yes, in every sample. The email pill is blurred in all wide frames. The API key value is blurred where the Creator dashboard card scrolls through (61.1–61.5 s and 89.9–90.7 s): f90.png shows the label "Your API key for the sample generator:" over a blurred key field. See M-1 for blur misplacement | f90.png, s08_scroll.png, s10_scroll.png |
 
 ## Findings
 | ID | Time / scene | Problem | Evidence | Owner agent | Severity | Fix |
 |---|---|---|---|---|---|---|
-| Q-1 | 00:12.6–00:12.9 / s03 | Click highlight ring is oversized: ~580 px circle drawn from the whole card bbox [60,282,275,282], overflows the card into the count line and empty grid; cursor sits off-centre at the card's lower right | k_12.75.png | motion-designer | minor | Size the ring from the click point (fixed ~60–80 px radius around the cursor / card thumbnail), not the card bbox |
-| Q-2 | 00:27.75–00:28.94 / s05 | Rank-1 ring is centred on the row bbox [70,200,580,68], so it sits over "repeatable formats" in the why-text (partly hiding it) while the cursor is on the rank badge; cursor dot also covers the "1" | k_28.3.png | motion-designer | minor | Centre a smaller ring on the cursor/badge (or use a row outline instead of a circle) so the why-text stays clear |
-| Q-3 | 00:19.89–00:20.19 / s03→s04 | Cross-fade dissolves two text-heavy screens: "Trending now" and "Trends" headings, the card and the trend cards ghost over each other and two cursors show for ~300 ms; reads muddy, not wrong | xfade.png | motion-designer | minor | Use a hard cut or a short dip-through-black (headers differ, nav is identical, so a cut reads cleaner) |
-| Q-4 | 00:20.96 / s04 | Scroll from trend cards to chart is a single-frame jump (instant scroll, ~330 px), no backtrack; looks like a jump cut mid-shot. Storyboard allowed it as a fallback | scroll.png | scene-automator | minor (accept) | Optional: smooth scroll over ~600 ms ending before 21.7 s zoom; otherwise accept |
-| Q-5 | 00:28.94–00:29.36 / s05 | End card fades in while VO still says "...kèm lý do"; rank-1 zoom only ~1.4 s (storyboard ~4.5 s), so the "why" text is on screen briefly before the dissolve; fade-in overlays end-card title on the list text (k_29.1.png) | k_28.3.png, k_29.1.png | motion-designer | minor | Start the end-card fade at ~29.4 s (after "kèm lý do", before CTA onset 30.27 s) and start the rank-1 zoom earlier (~26.5 s); end card still ≥ 5 s |
-| Q-6 | 00:12.30 / s02→s03 | Cut between two takes of the same screen: cursor jumps from the chip to mid-screen and the grid shifts a few px | join23.png | scene-automator | minor | Start s03 with the cursor parked on the chip (s02 end state); or accept |
-| Q-7 | 00:02.5–00:06.9 / s01 | Resting cursor sits on the "Explore trends" button label, covering "Ex" for the whole hero hold | sheet1.png (2.5–6.5 s) | scene-automator | minor | Park the cursor just below/right of the button |
+| G-1 | 74.28–74.48 s s09 | `#checks.freeze` fails: the accepted 200 ms hold is missing from allow.freeze | #checks v9 | motion-designer, then render-engineer (checks only) | **gate** | Add [74280, 74480] to `#motion.allow.freeze` and re-run the checks; no re-render |
+| M-1 | 89.9–90.7 s s10 | The tracked API-key blur (b12–b14) jumps between frames onto harmless content: the rank-1 title "Faceless YouTube" and the chart labels "Music video" / "Explainer". It shows as flickering blobs. The key itself stays blurred | s10_scroll.png | privacy-blurrer | minor | Re-track b12–b14 to the key field only. Trimming the scroll (M-2) also removes this |
+| M-2 | 88.05–92.22 s s09→s10 | 4.2 s without VO: the s09 hold (1.6 s), then a 2.6 s scroll back up through the whole page (genres → chart → trends → hero). It reads as a rewind | sheet4 88–91 s; silencedetect | sync-editor | minor | Raise s10 `in` so s10 opens on the hero (or cut straight to it); the gap drops to the 1–2 s hold the user asked for |
+| M-3 | 93.0–94.3 s s10 | The zoom on the hero clips the headline at the right edge ("What's trending in AI vid…") | k_93.5.png | motion-designer | minor | Move the zoom centre left or lower the scale (about 1.3) so the full h1 fits |
+| M-4 | 44.51 s (cue 12), 53.73 s (cue 14) | Soft caption speed over 17 cps (17.8 and 18.8). Cue 14 "Scroll a little further," flashes for 1.28 s | final.vtt | caption-writer | minor | Merge cue 14 into cue 15, and extend cue 12 into the gap before cue 13; otherwise accept |
 
-Notes (no action): silences at joins 1.2–1.4 s each (s01→s02 1.19, s02→s03 1.35, s03→s04 1.25, s04→s05 1.41 s) are even and acceptable for this length; s02 holds 3.5 s on the single filtered card while VO finishes (allowed freeze, fine). End-card CTA timing OK: CTA line 30.27–33.80 s fully on the end card, 1.2 s tail. Focus outline on the card after Esc (19.0 s) is real app behaviour, acceptable.
+The cursor issues from earlier renders are gone in this capture: the s01 cursor rests beside the button, not on it.
 
-## Verdict: PASS
-No blockers; 7 minor findings (motion-designer Q-1, Q-2, Q-3, Q-5; scene-automator Q-4, Q-6, Q-7). Highest-value fixes: Q-1, Q-2, Q-5 (render-only, no re-capture).
+## Verdict: FAIL (gate only)
+The only failure is G-1: `#checks.pass=false` because the accepted 200 ms freeze is not listed in allow.freeze. The human review found no blockers; the four minors (M-1 to M-4) are optional. Once G-1 is fixed and #checks re-runs as pass=true, this is a PASS and no new QA pass is needed unless the render changes.
+
+## Gate update (director, 2026-11-19)
+G-1 fixed: #motion v8 allow.freeze += [74280, 74480]; #checks v10 pass=true, no re-render. Final verdict: **PASS** (minors M-1..M-4 accepted by the user at G3).
