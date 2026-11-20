@@ -10,7 +10,7 @@
       "name": "demo-studio",
       "source": "./plugins/demo-studio",
       "description": "A team of 18 agents that plans, records, edits and packages demo videos for web, desktop and mobile apps.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "category": "media",
       "keywords": ["demo", "video", "screen-recording", "voiceover", "captions"]
     }
