@@ -44,7 +44,7 @@ Rules for the table:
 - Skip steps whose output already exists and is current (check `project.py keys`); say what you skipped.
 - Tools are handled per stage, right before the step (**Tools, just in time**). Never install for a later stage early. Never write to a key another agent owns.
 - Parallel parts run as separate agents in one message. They write different keys, so there is no clash. Order is fixed by the dependency order below: caption-writer and sound-mixer need `#timeline`, so they never run before sync-editor.
-- **Spot-check before moving on:** after capture and after render, extract one frame from a raw clip / the final yourself (`ffmpeg -ss <t> -i F -frames:v 1`), look at it (page fills the frame, right screen, nothing leaked) and check the agent's ffprobe numbers; a `wrote:` claim about media without that evidence is re-briefed once.
+- **Spot-check before moving on:** after capture and after render, extract one frame from a raw clip / the final yourself (`ffmpeg -nostdin -y -ss <t> -i F -frames:v 1`), look at it (page fills the frame, right screen, nothing leaked) and check the agent's ffprobe numbers; a `wrote:` claim about media without that evidence is re-briefed once.
 - Voice is produced before recording: scene-automator needs `project.json#voice` durations for its pauses.
 
 ## Gates

@@ -21,7 +21,7 @@ Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --pyth
 3. Measure the output and write all numbers:
    - sync drift per scene <= `targets.max_drift_ms` (default 80)
    - loudness `targets.lufs` (default -14) +/- 1 LUFS, true peak <= `targets.true_peak` (default -1) dBTP
-   - OCR on blur regions: 0 readable text (the chosen OCR tool; with `none` record the blur row as checked by eye, detail `ocr skipped (tools.ocr none)`)
+   - OCR on blur regions: 0 readable text via ONE `blur_check.py` call per output (`media-specs`: render as CLIP, `--control-clip` the raw, regions mapped to output px and final time; never a hand-rolled frame loop; exit 2 = partial: record the coverage reached, no retry; with `none` record the blur row as checked by eye, detail `ocr skipped (tools.ocr none)`)
    - no unintended black frames or freezes
    - captions <= `captions.max_chars` (default 42) chars/line and **every** cue within `targets.caption_offset_ms` (default 200) ms of the measured onset of its first word (method in `media-specs`)
    - total length within 10% of `length_s`
