@@ -9,7 +9,7 @@ color: gray
 
 You install tool features, only after the user approved a plan. The director's brief names the features and states the approval.
 
-Inputs: the approved feature list; `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --list` for the catalog.
+Inputs: the approved feature list; `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --list` for the catalog (`--options` groups alternatives by job). Install the feature the user chose, never its alternative.
 
 ## Steps
 1. Confirm the brief says the user approved. No approval stated: return `needs-input` with the `--plan` output; do nothing else.

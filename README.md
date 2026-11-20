@@ -119,7 +119,7 @@ Only two kinds of video file exist: raw clips and finals. Blur, motion, captions
 
 ### `demo.yaml`: the video's properties (you own it)
 
-`brief.md` holds only prose (audience, goal, message, CTA, out of scope). Everything you can tune lives in `.demo/<slug>/demo.yaml`: `platform`, `length_s`, `formats`, `voice` (engine, name, language, lexicon), `motion.level`, `music` (style, duck_db), `captions` (burn_in, max_chars), `targets` (lufs, true_peak, max_drift_ms, caption_offset_ms), `privacy` (blur, real_data), `install`. The strategist creates it at G1 from `templates/demo.yaml` (every field commented with allowed values and its default); the director records your decisions in it; all other agents only read it.
+`brief.md` holds only prose (audience, goal, message, CTA, out of scope). Everything you can tune lives in `.demo/<slug>/demo.yaml`: `platform`, `length_s`, `formats`, `voice` (engine, name, language, lexicon), `motion.level`, `music` (style, duck_db), `captions` (burn_in, max_chars), `targets` (lufs, true_peak, max_drift_ms, caption_offset_ms), `privacy` (blur, real_data), `tools` (ocr), `install`. The strategist creates it at G1 from `templates/demo.yaml` (every field commented with allowed values and its default); the director records your decisions in it; all other agents only read it.
 
 Edit it any time. On `/demo-studio:run` (or `/demo-studio:fix`) the director validates it and diffs it against the last snapshot (taken after G1 and after every G3; no snapshot = first run), then re-runs only what your change affects (e.g. `voice.*` re-runs voice and everything after it; `music.*` re-runs the mix; `platform` re-records everything).
 
@@ -155,8 +155,10 @@ python scripts/project.py owner blur     # privacy-blurrer
 
 Nothing is installed up front. When a step needs a feature, the agent runs a check; if it is missing, **you are asked first** with the size and effect (and a recommended default). Declined features fall back (cinematic to basic motion, word captions to sentence captions). Installs go into `.demo/.venv` and are recorded in `.demo/toolkit.json`. Your choice is saved in `demo.yaml` (`install.approved` / `install.declined`), so you are not asked twice.
 
+Where several tools can do the same job you choose, and the recommended one is listed first: `scripts/setup_tools.py --options [ocr|voice|motion]` shows the alternatives with size, requirements and status. The choice is stored in `demo.yaml` (`tools.ocr`, `voice.engine`, `motion.level`); `none` skips the job (OCR: blur and text are checked by eye only).
+
 ```
-python scripts/setup_tools.py --list | --check [features] | --plan <features> | --install <features>
+python scripts/setup_tools.py --list | --options [job] | --check [features] | --plan <features> | --install <features>
 ```
 
 | Feature | What it gives | Size |
@@ -173,7 +175,8 @@ python scripts/setup_tools.py --list | --check [features] | --plan <features> | 
 | `blur` | Blur emails, tokens, faces in frames | ~60 MB |
 | `motion-basic` | Zoom/pan, overlays, fades via ffmpeg | ~0 MB |
 | `motion-cinematic` | Titles, transitions, animated captions via Remotion | ~400 MB |
-| `qa-ocr` | OCR the finished video to verify text and redactions | ~120 MB |
+| `qa-ocr` | OCR the finished video to verify text and redactions: RapidOCR + onnxruntime, Python 3.10-3.13 (default) | ~120 MB |
+| `qa-ocr-tesseract` | Same job with Tesseract: lighter, less accurate; needs the `tesseract` program on PATH | ~60 MB |
 | `package` | Thumbnails, posters, covers | ~10 MB |
 
 ## Fixing a finished video
@@ -199,7 +202,7 @@ Owner unclear: it asks you. Same defect after two attempts: it stops and reports
 
 - Real data in the app is **blurred, not replaced**: `privacy-blurrer` never fakes or swaps content.
 - `app-scout` flags sensitive elements up front; scene scripts report their boxes with `mark()`.
-- The render check requires zero readable text inside blur regions (OCR); `qa-ocr` is recommended whenever the app shows real data.
+- The render check requires zero readable text inside blur regions (OCR); an OCR tool (`tools.ocr`) is recommended whenever the app shows real data.
 - `demo-qa` also looks for leaked personal data by eye before you reach G3.
 
 ## License

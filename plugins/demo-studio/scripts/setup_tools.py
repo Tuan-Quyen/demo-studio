@@ -7,10 +7,16 @@ Non-interactive: never prompts. The agent asks the user first (using ``--plan``)
 then runs ``--install``.
 
     setup_tools.py --list
+    setup_tools.py --options [ocr|voice|motion] [--json]
     setup_tools.py --plan capture,blur [--json]
     setup_tools.py --install capture,blur [--dry-run] [--json] [--venv PATH]
     setup_tools.py --check [capture,blur] [--json]
     setup_tools.py --python [--json] [--venv PATH]
+
+--options lists, per capability (a job several features can do: ocr, voice, motion), the alternatives
+with tool, effect, size, needs, installed/missing/blocked and which one is recommended, plus the
+demo.yaml setting that records the user's choice. The plugin never picks silently: the director shows
+this table and the user chooses.
 
 --python prints the absolute path of the venv interpreter (Windows Scripts/python.exe, POSIX
 bin/python) for agent briefs: exit 0 if it exists, exit 3 (one line on stderr) if not.
@@ -60,6 +66,8 @@ APPIUM_DRIVER_PKGS = {  # driver id -> npm package (node_modules detection)
 #   node     needs Node >= 18
 #   size_mb  rough download size (planning only), size_note extra text
 #   agents   owning agents
+# Optional: capability (job this feature does; features sharing one are alternatives, see CAPABILITIES),
+#   tool (short name of the underlying tool, shown in --options).
 # Optional keys: <key>_by_os {win|mac|linux: value} overrides reqs/modules/node/size_mb/
 #   appium per OS; os (allowed OSes) + os_reason; bins {exe: reason-if-missing} (hard,
 #   must be on PATH); opt_bins {exe: warning} (soft); appium [driver ids] installed into
@@ -129,6 +137,8 @@ CATALOG: dict[str, dict] = {
         "agents": ["scene-automator", "capture-operator"],
     },
     "voice-edge": {
+        "capability": "voice",
+        "tool": "edge-tts (Microsoft Edge voices)",
         "effect": "Narration with Microsoft Edge neural voices (online, free, light)",
         "reqs": "voice-edge.txt",
         "modules": ["edge_tts"],
@@ -141,6 +151,8 @@ CATALOG: dict[str, dict] = {
         "agents": ["voice-producer"],
     },
     "voice-kokoro": {
+        "capability": "voice",
+        "tool": "Kokoro TTS (PyTorch)",
         "effect": "Narration with Kokoro TTS, fully offline (pulls PyTorch)",
         "reqs": "voice-kokoro.txt",
         "modules": ["kokoro", "soundfile"],
@@ -153,6 +165,8 @@ CATALOG: dict[str, dict] = {
         "agents": ["voice-producer"],
     },
     "voice-elevenlabs": {
+        "capability": "voice",
+        "tool": "ElevenLabs API",
         "effect": "Narration with ElevenLabs studio-quality voices (paid API)",
         "reqs": "voice-elevenlabs.txt",
         "modules": ["elevenlabs"],
@@ -201,6 +215,8 @@ CATALOG: dict[str, dict] = {
         "agents": ["privacy-blurrer"],
     },
     "motion-basic": {
+        "capability": "motion",
+        "tool": "ffmpeg filters",
         "effect": "Zoom/pan, overlays and fades via ffmpeg filters (no extra packages)",
         "reqs": None,
         "modules": ["imageio_ffmpeg"],
@@ -213,6 +229,8 @@ CATALOG: dict[str, dict] = {
         "agents": ["motion-designer"],
     },
     "motion-cinematic": {
+        "capability": "motion",
+        "tool": "Remotion (Node)",
         "effect": "Cinematic titles, transitions and animated captions rendered with Remotion",
         "reqs": None,
         "modules": [],
@@ -225,16 +243,33 @@ CATALOG: dict[str, dict] = {
         "agents": ["motion-designer", "render-engineer"],
     },
     "qa-ocr": {
+        "capability": "ocr",
+        "tool": "RapidOCR + ONNX Runtime",
         "effect": "OCR the finished video to verify on-screen text, captions and redactions",
         "reqs": "qa-ocr.txt",
-        "modules": ["rapidocr_onnxruntime", "cv2"],
+        "modules": ["rapidocr", "onnxruntime", "cv2"],
         "post": [],
         "requires": [],
         "env": None,
         "node": False,
         "size_mb": 120,
-        "size_note": "",
-        "agents": ["demo-qa"],
+        "size_note": "models ship inside the wheel; Python 3.10-3.13",
+        "agents": ["demo-qa", "render-engineer", "privacy-blurrer"],
+    },
+    "qa-ocr-tesseract": {
+        "capability": "ocr",
+        "tool": "Tesseract (pytesseract)",
+        "effect": "OCR the finished video with Tesseract: light, but less accurate on UI text; needs the tesseract program",
+        "reqs": "qa-ocr-tesseract.txt",
+        "modules": ["pytesseract", "cv2"],
+        "post": [],
+        "requires": [],
+        "env": None,
+        "node": False,
+        "bins": {"tesseract": "tesseract program not found on PATH (apt install tesseract-ocr | brew install tesseract | winget install UB-Mannheim.TesseractOCR)"},
+        "size_mb": 60,
+        "size_note": "+ the tesseract program, installed separately",
+        "agents": ["demo-qa", "render-engineer", "privacy-blurrer"],
     },
     "package": {
         "effect": "Thumbnails, posters and cover images for delivery",
@@ -249,6 +284,39 @@ CATALOG: dict[str, dict] = {
         "agents": ["packager"],
     },
 }
+
+# ---------------------------------------------------------------------------
+# Capabilities: a job that several features can do. The user chooses; the catalog only lists.
+#   setting  demo.yaml field that records the choice
+#   default  recommended feature (listed first)
+#   values   feature -> value written to `setting` (ocr: the feature key itself)
+#   none     value meaning "no tool", with what that costs
+# config.py keeps the enum of `tools.ocr` in step (a test compares both).
+# ---------------------------------------------------------------------------
+CAPABILITIES: dict[str, dict] = {
+    "ocr": {
+        "title": "Text recognition (OCR) for blur and QA checks",
+        "setting": "tools.ocr",
+        "default": "qa-ocr",
+        "values": {"qa-ocr": "qa-ocr", "qa-ocr-tesseract": "qa-ocr-tesseract"},
+        "none": {"value": "none", "effect": "no OCR: blur and text checked by eye on sampled frames only, a warning is logged"},
+    },
+    "voice": {
+        "title": "Narration voice",
+        "setting": "voice.engine",
+        "default": "voice-edge",
+        "values": {"voice-edge": "edge", "voice-kokoro": "kokoro", "voice-elevenlabs": "elevenlabs"},
+        "none": {"value": "recorded", "effect": "you record your own WAVs; no TTS feature"},
+    },
+    "motion": {
+        "title": "Motion (zoom, titles, transitions)",
+        "setting": "motion.level",
+        "default": "motion-basic",
+        "values": {"motion-basic": "basic", "motion-cinematic": "cinematic"},
+        "none": {"value": "none", "effect": "no motion effects"},
+    },
+}
+
 
 
 # ---------------------------------------------------------------------------
@@ -694,18 +762,60 @@ def cmd_python(args, ctx: Ctx) -> int:
 
 
 def cmd_list(args, ctx: Ctx) -> int:
-    rows = [{"key": k, "effect": f["effect"], "size": fmt_size(pos(f, "size_mb", 0)) + (f" ({f['size_note']})" if f["size_note"] else ""),
+    rows = [{"key": k, "capability": f.get("capability"), "effect": f["effect"], "size": fmt_size(pos(f, "size_mb", 0)) + (f" ({f['size_note']})" if f["size_note"] else ""),
              "needs": needs_text(f), "agents": f["agents"]} for k, f in CATALOG.items()]
     if args.json:
         print(json.dumps({"features": rows}, indent=2))
         return 0
-    hdr = ("KEY", "EFFECT", "SIZE", "NEEDS", "AGENTS")
-    table = [hdr] + [(r["key"], r["effect"], r["size"], r["needs"], ", ".join(r["agents"])) for r in rows]
-    widths = [max(len(row[i]) for row in table) for i in range(5)]
+    hdr = ("KEY", "CHOICE", "EFFECT", "SIZE", "NEEDS", "AGENTS")
+    table = [hdr] + [(r["key"], r["capability"] or "-", r["effect"], r["size"], r["needs"], ", ".join(r["agents"]))
+                     for r in rows]
+    widths = [max(len(row[i]) for row in table) for i in range(6)]
     for i, row in enumerate(table):
         print("  ".join(c.ljust(widths[j]) for j, c in enumerate(row)).rstrip())
         if i == 0:
             print("  ".join("-" * w for w in widths))
+    return 0
+
+
+def capability_members(cap: str) -> list[str]:
+    """Features of a capability: the recommended one first, then catalog order."""
+    keys = [k for k, f in CATALOG.items() if f.get("capability") == cap]
+    default = CAPABILITIES[cap]["default"]
+    return sorted(keys, key=lambda k: k != default)
+
+
+def cmd_options(args, ctx: Ctx, cap: str) -> int:
+    if cap and cap not in CAPABILITIES:
+        raise UsageError(f"Unknown capability: {cap}. Valid: {', '.join(CAPABILITIES)}")
+    caps = [cap] if cap else list(CAPABILITIES)
+    members = {c: capability_members(c) for c in caps}
+    states = feature_states(ctx, [k for c in caps for k in members[c]])
+    out = []
+    for c in caps:
+        spec = CAPABILITIES[c]
+        opts = []
+        for k in members[c]:
+            f, st = CATALOG[k], states[k]
+            opts.append({"feature": k, "value": spec["values"][k], "tool": f.get("tool", k), "effect": f["effect"],
+                         "size": fmt_size(pos(f, "size_mb", 0)) + (f" ({f['size_note']})" if f["size_note"] else ""),
+                         "needs": needs_text(f), "status": st["status"], "reason": st.get("reason"),
+                         "recommended": k == spec["default"]})
+        out.append({"capability": c, "title": spec["title"], "setting": spec["setting"],
+                    "default": spec["values"][spec["default"]], "none": spec["none"], "options": opts})
+    if args.json:
+        print(json.dumps({"capabilities": out}, indent=2))
+        return 0
+    for item in out:
+        print(f"{item['capability']}: {item['title']}  [demo.yaml: {item['setting']}]")
+        for o in item["options"]:
+            tag = " (recommended)" if o["recommended"] else ""
+            why = f" - {o['reason']}" if o["reason"] and o["status"] != "installed" else ""
+            print(f"  {o['value']:<18} {o['feature']:<18} {o['status']:<9} {o['size']}{tag}")
+            print(f"  {'':<18} {o['tool']}: {o['effect']}{why}")
+            if o["needs"] != "-":
+                print(f"  {'':<18} needs: {o['needs']}")
+        print(f"  {item['none']['value']:<18} {'-':<18} {'-':<9} {item['none']['effect']}")
     return 0
 
 
@@ -898,6 +1008,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Install only the demo-video tool features a job needs.")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--list", action="store_true", help="show the feature catalog")
+    g.add_argument("--options", metavar="CAPABILITY", nargs="?", const="",
+                   help="alternatives per capability (%s) with status and recommended default" % ", ".join(CAPABILITIES))
     g.add_argument("--plan", metavar="A,B", help="show what --install would do (no changes)")
     g.add_argument("--install", metavar="A,B", help="install features (dependencies auto-included)")
     g.add_argument("--check", metavar="A,B", nargs="?", const="", help="status of features (default: all)")
@@ -913,6 +1025,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_python(args, ctx)
         if args.list:
             return cmd_list(args, ctx)
+        if args.options is not None:
+            return cmd_options(args, ctx, args.options.strip())
         if args.plan is not None:
             return cmd_plan(args, ctx, parse_features(args.plan, allow_empty=False))
         if args.install is not None:

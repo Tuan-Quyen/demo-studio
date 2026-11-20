@@ -87,5 +87,65 @@ class Pins(unittest.TestCase):
             self.assertTrue(any(l.startswith(name + "==") for l in lines), name)
 
 
+class Capabilities(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.venv = os.path.join(self._tmp.name, "nov")  # does not exist: nothing installed
+
+    def test_catalog_and_capabilities_agree(self):
+        for cap, spec in setup_tools.CAPABILITIES.items():
+            members = [k for k, f in setup_tools.CATALOG.items() if f.get("capability") == cap]
+            self.assertEqual(sorted(members), sorted(spec["values"]), cap)
+            self.assertIn(spec["default"], members)
+            self.assertEqual(setup_tools.capability_members(cap)[0], spec["default"])
+        for k, f in setup_tools.CATALOG.items():
+            self.assertIn(f.get("capability"), (None, *setup_tools.CAPABILITIES), k)
+
+    def test_ocr_requirements(self):
+        reqs = (setup_tools.REQ_DIR / "qa-ocr.txt").read_text()
+        self.assertIn("rapidocr>=", reqs)
+        self.assertNotIn("rapidocr-onnxruntime", reqs)
+        self.assertIn("onnxruntime>=", reqs)  # rapidocr 3.x ships no inference engine
+        self.assertEqual(setup_tools.CATALOG["qa-ocr"]["modules"], ["rapidocr", "onnxruntime", "cv2"])
+        for f in ("qa-ocr", "qa-ocr-tesseract"):
+            self.assertTrue((setup_tools.REQ_DIR / setup_tools.CATALOG[f]["reqs"]).exists())
+
+    def test_options_json(self):
+        code, out, _ = run("--options", "ocr", "--json", "--venv", self.venv)
+        self.assertEqual(code, 0)
+        cap = json.loads(out)["capabilities"][0]
+        self.assertEqual(cap["setting"], "tools.ocr")
+        self.assertEqual([o["feature"] for o in cap["options"]], ["qa-ocr", "qa-ocr-tesseract"])
+        self.assertEqual([o["recommended"] for o in cap["options"]], [True, False])
+        self.assertEqual(cap["none"]["value"], "none")
+
+    def test_options_all_and_text(self):
+        code, out, _ = run("--options", "--venv", self.venv)
+        self.assertEqual(code, 0)
+        for word in ("ocr:", "voice:", "motion:", "(recommended)", "recorded"):
+            self.assertIn(word, out)
+
+    def test_options_unknown(self):
+        code, _, err = run("--options", "nope", "--venv", self.venv)
+        self.assertEqual(code, 2)
+        self.assertIn("Unknown capability", err)
+
+    def test_tesseract_needs_binary_on_path(self):
+        old = os.environ.get("PATH")
+        os.environ["PATH"] = self._tmp.name  # empty dir: no tesseract
+        self.addCleanup(lambda: os.environ.__setitem__("PATH", old))
+        code, out, _ = run("--check", "qa-ocr-tesseract", "--json", "--venv", self.venv)
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["features"][0]["status"], "blocked")
+
+    def test_list_still_works(self):
+        code, out, _ = run("--list", "--json")
+        self.assertEqual(code, 0)
+        keys = [r["key"] for r in json.loads(out)["features"]]
+        self.assertIn("qa-ocr", keys)
+        self.assertIn("qa-ocr-tesseract", keys)
+
+
 if __name__ == "__main__":
     unittest.main()

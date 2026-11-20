@@ -109,7 +109,7 @@ notes: <issues; questions with options + recommended default>
 
 Only two kinds of video file: raw clips and finals. Blur, motion, captions and mix are instructions in `project.json`, not intermediate videos. Templates in `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
-**Files → owner:** `brief.md` demo-strategist (prose; user approves at G1) · `demo.yaml` **the user** (demo-strategist creates it at G1; demo-director records the user's decisions in it: motion level, voice, install choices; every other agent reads only) · `.demo.applied.json` snapshot written by `config.py apply` (director: after G1 as baseline, after every G3) · `app-map.md` app-scout · `storyboard.md` storyboarder · `narration.md` scriptwriter (in `language`) · `localization.md`, `narration.<voice.language>.md` localizer (only when `language` ≠ `voice.language`; voice-producer reads the latter when it exists) · `qa.md` demo-qa.
+**Files → owner:** `brief.md` demo-strategist (prose; user approves at G1) · `demo.yaml` **the user** (demo-strategist creates it at G1; demo-director records the user's decisions in it: motion level, voice, tool choices, install choices; every other agent reads only) · `.demo.applied.json` snapshot written by `config.py apply` (director: after G1 as baseline, after every G3) · `app-map.md` app-scout · `storyboard.md` storyboarder · `narration.md` scriptwriter (in `language`) · `localization.md`, `narration.<voice.language>.md` localizer (only when `language` ≠ `voice.language`; voice-producer reads the latter when it exists) · `qa.md` demo-qa.
 
 **`demo.yaml`** controls the video's properties: `platform`, `length_s`, `formats`, `voice {engine, name, language, lexicon}`, `motion {level}`, `music {style, duck_db}`, `captions {burn_in, layout, max_chars}`, `targets {lufs, true_peak, max_drift_ms, caption_offset_ms}`, `privacy {blur, real_data}`, `install {approved, declined}`. Template with allowed values and defaults: `${CLAUDE_PLUGIN_ROOT}/templates/demo.yaml`. A value lives only there; agents read it, never copy it.
 
@@ -157,7 +157,7 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 
 ## 8. Toolkit
 
-`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/.venv`, records `.demo/toolkit.json`. It never prompts.
+`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--options [capability]` (alternatives per job, see below) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/.venv`, records `.demo/toolkit.json`. It never prompts.
 
 | Feature | Gives |
 |---|---|
@@ -168,16 +168,26 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 | `mix` | ducking and loudness normalisation |
 | `blur` | region blur (OpenCV) |
 | `motion-basic` / `motion-cinematic` | ffmpeg zoom/fade (0 MB) / Remotion titles and callouts (Node ≥18, ~400 MB) |
-| `qa-ocr` | OCR check for leftover sensitive text; recommended with real data |
+| `qa-ocr` (default) / `qa-ocr-tesseract` | OCR check for leftover sensitive text, recommended with real data: RapidOCR + onnxruntime (~120 MB, Python 3.10-3.13) / Tesseract (~60 MB, needs the `tesseract` program on PATH) |
 | `package` | thumbnails |
 
 Features not yet in `--list` are not installed by the script; report `blocked` rather than improvising.
+
+**Choosing the tool (capabilities).** Where several features do the same job, the user picks; no agent hard-codes one. `setup_tools.py --options [ocr|voice|motion] [--json]` lists the alternatives (tool, effect, size, needs, installed / missing / blocked, recommended first) and the `demo.yaml` field that records the choice:
+
+| Capability | demo.yaml | Values (features) |
+|---|---|---|
+| `ocr` | `tools.ocr` | `qa-ocr` (recommended) · `qa-ocr-tesseract` · `none` |
+| `voice` | `voice.engine` | `edge` (`voice-edge`) · `kokoro` · `elevenlabs` · `recorded` (no feature) |
+| `motion` | `motion.level` | `basic` (`motion-basic`) · `cinematic` · `none` |
+
+Resolving **OCR tool** (demo-qa, render-engineer, privacy-blurrer, `/review`): `config.py get tools.ocr` → that feature is the one to `--check`. `null` = not chosen: use the first installed option of `--options ocr --json`; none installed → handoff `needs-input` and the director asks (options table, recommended first). `none` = no OCR: the agent checks frames by eye and says so in `notes` (render-engineer: blur row detail `ocr skipped (tools.ocr none)`). Call patterns per tool: `media-specs` (Render checks). A new alternative = a `CATALOG` entry with `capability`, its `CAPABILITIES` value and the matching enum in `config.py`.
 
 **Install-approval flow:**
 1. An agent runs `--check <feature>`; missing → handoff `needs-input` with the `--plan` output.
 2. Director asks the user (options with size and effect, a recommended default; e.g. motion: none / basic / cinematic).
 3. Approved → toolsmith `--install`, then `--check`; the agent continues. Declined → fall back (cinematic → basic, word captions → sentence captions) and continue.
-4. Director records the choice in `demo.yaml` (`install.approved` / `install.declined`, plus the decision itself, e.g. `motion.level`, `voice.engine`) so it is not asked again. Never install a feature nobody needs.
+4. Director records the choice in `demo.yaml` (`install.approved` / `install.declined`, plus the decision itself, e.g. `tools.ocr`, `motion.level`, `voice.engine`) so it is not asked again. Never install a feature nobody needs.
 
 ## 9. Resume
 

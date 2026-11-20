@@ -8,7 +8,7 @@ Act as demo-director: read `${CLAUDE_PLUGIN_ROOT}/agents/demo-director.md` and r
 
 Empty request → ask what to demo, then stop. Create slug and `.demo/<slug>/` from `${CLAUDE_PLUGIN_ROOT}/templates/`, set STATE.md. At the start of every step block run `config.py validate` + `diff` (see the director file); run `config.py apply` after G1 (baseline) and after G3 (a missing snapshot = first run).
 
-1. **Tools** — toolsmith `--check` for the features the platform and options need (capture*, voice-*, blur, mix, captions, motion-*, qa-ocr, package); ask before any install.
+1. **Tools** — toolsmith `--check` for the features the platform and options need (capture*, voice-*, blur, mix, captions, motion-*, the OCR tool chosen in `tools.ocr`, package); ask before any install.
 2. **Brief** — demo-strategist → `brief.md` (audience, goal, message, CTA) and `demo.yaml` (length, platform, formats, voice language). Director asks the motion level and voice engine and records them in `demo.yaml`. **G1: show the brief and the `demo.yaml` values, wait for approval.**
 3. **Map** — app-scout → `app-map.md` (must contain `target:` and the sensitive-elements list; platform comes from `demo.yaml`).
 4. **Storyboard** — storyboarder → `storyboard.md`; scriptwriter → `narration.md` (in `language`); localizer → `localization.md` + `narration.<voice.language>.md` only when `language` differs from `voice.language` (it proposes lexicon entries; the director asks the user and records them). **G2: show storyboard, narration (both languages if localized) and the glossary, wait for approval. No recording before G2.**
