@@ -12,11 +12,20 @@ then runs ``--install``.
     setup_tools.py --install capture,blur [--dry-run] [--json] [--venv PATH]
     setup_tools.py --check [capture,blur] [--json]
     setup_tools.py --python [--json] [--venv PATH]
+    setup_tools.py --stage <name> [--platform web|desktop|android|ios] [--choose cap=value,...] [--with f,...] [--json]
+    setup_tools.py --stages [--json]
 
 --options lists, per capability (a job several features can do: ocr, voice, motion), the alternatives
 with tool, effect, size, needs, installed/missing/blocked and which one is recommended, plus the
 demo.yaml setting that records the user's choice. The plugin never picks silently: the director shows
 this table and the user chooses.
+
+--stage <name> (read-only) answers "what does this pipeline stage need": required features, the
+capabilities it needs a choice for (alternatives, recommended first), optional features, each with
+installed/missing/blocked, plus the suggested --plan for what is missing. --choose records the user's
+choice per capability (value from demo.yaml or `none`), --with adds optional features to the plan.
+--stage with no name, or --stages, prints the overview of all stages (information only, nothing
+installed). Always exit 0; `ready` in the output says whether the stage can run as is.
 
 --python prints the absolute path of the venv interpreter (Windows Scripts/python.exe, POSIX
 bin/python) for agent briefs: exit 0 if it exists, exit 3 (one line on stderr) if not.
@@ -317,6 +326,40 @@ CAPABILITIES: dict[str, dict] = {
     },
 }
 
+
+# ---------------------------------------------------------------------------
+# Stages: which features each pipeline stage needs (single source of truth for --stage/--stages).
+#   step      pipeline step (commands/new.md); agents  owners of the stage
+#   needs     features always required; needs_by_platform replaces it per demo.yaml `platform`
+#   choices   capabilities (see CAPABILITIES) the user decides; the chosen option is required
+#   optional  [(feature, when)] only in the stated case; added to the plan with --with
+# Stage order = pipeline order. Agents still run their own --check as a safety net.
+# ---------------------------------------------------------------------------
+PLATFORMS = ["web", "desktop", "android", "ios"]
+PLATFORM_FEATURES = {
+    "web": ["capture"],
+    "desktop": ["capture", "capture-desktop"],
+    "android": ["capture", "capture-android"],
+    "ios": ["capture", "capture-ios"],
+}
+STAGES: dict[str, dict] = {
+    "scout": {"step": "Map", "agents": ["app-scout"], "needs": ["capture"],
+              "note": "web exploration uses the browser from capture"},
+    "voice": {"step": "Voice", "agents": ["voice-producer"], "choices": ["voice"],
+              "optional": [("captions", "voice.lexicon is set (round-trip check)"),
+                           ("capture", "voice.engine is recorded (ffmpeg only)")]},
+    "scenes": {"step": "Scenes", "agents": ["scene-automator"], "needs_by_platform": PLATFORM_FEATURES},
+    "capture": {"step": "Capture", "agents": ["capture-operator"], "needs_by_platform": PLATFORM_FEATURES},
+    "blur": {"step": "Post", "agents": ["privacy-blurrer"], "needs": ["blur"], "choices": ["ocr"]},
+    "sync": {"step": "Post", "agents": ["sync-editor"], "needs": ["capture"], "note": "ffmpeg comes with capture"},
+    "motion": {"step": "Post", "agents": ["motion-designer"], "choices": ["motion"]},
+    "captions": {"step": "Post", "agents": ["caption-writer"], "needs": ["captions"]},
+    "mix": {"step": "Post", "agents": ["sound-mixer"], "needs": ["mix"]},
+    "render": {"step": "Render", "agents": ["render-engineer"], "needs": ["capture"], "choices": ["ocr"],
+               "optional": [("motion-cinematic", "motion.level is cinematic (Remotion render)")]},
+    "qa": {"step": "QA", "agents": ["demo-qa"], "choices": ["ocr"]},
+    "package": {"step": "Package", "agents": ["packager"], "needs": ["package"]},
+}
 
 
 # ---------------------------------------------------------------------------
@@ -819,6 +862,150 @@ def cmd_options(args, ctx: Ctx, cap: str) -> int:
     return 0
 
 
+def _feature_row(k: str, st: dict) -> dict:
+    f = CATALOG[k]
+    return {"feature": k, "tool": f.get("tool", k), "effect": f["effect"], "status": st["status"], "reason": st.get("reason"),
+            "size": fmt_size(pos(f, "size_mb", 0)) + (f" ({f['size_note']})" if f["size_note"] else ""),
+            "needs": needs_text(f)}
+
+
+def parse_choices(raw: str | None, stage: dict, name: str) -> dict[str, str]:
+    """`voice=kokoro,ocr=none` -> {capability: feature or "none"}."""
+    out: dict[str, str] = {}
+    for part in [p.strip() for p in (raw or "").split(",") if p.strip()]:
+        cap, sep, val = part.partition("=")
+        cap, val = cap.strip(), val.strip()
+        if not sep or not val:
+            raise UsageError(f"--choose expects capability=value, got: {part}")
+        if cap not in stage.get("choices", []):
+            raise UsageError(f"Stage {name} has no choice {cap!r}. Valid: {', '.join(stage.get('choices', [])) or 'none'}")
+        spec = CAPABILITIES[cap]
+        if val == spec["none"]["value"]:
+            out[cap] = "none"
+            continue
+        match = [k for k, v in spec["values"].items() if val in (k, v)]
+        if not match:
+            valid = ", ".join(list(spec["values"].values()) + [spec["none"]["value"]])
+            raise UsageError(f"Unknown value {val!r} for {cap}. Valid: {valid}")
+        out[cap] = match[0]
+    return out
+
+
+def stage_report(ctx: Ctx, name: str, platform: str | None, chosen: dict[str, str], with_: list[str],
+                 states: dict[str, dict] | None = None) -> dict:
+    st = STAGES[name]
+    plat = platform or "web"
+    req = list(st["needs_by_platform"][plat]) if "needs_by_platform" in st else list(st.get("needs", []))
+    caps = st.get("choices", [])
+    opt = st.get("optional", [])
+    bad = [w for w in with_ if w not in [o[0] for o in opt]]
+    if bad:
+        raise UsageError(f"--with {', '.join(bad)}: not optional for stage {name}. Optional: {', '.join(o[0] for o in opt) or 'none'}")
+    want = req + [k for c in caps for k in capability_members(c)] + [o[0] for o in opt]
+    if states is None or any(k not in states for k in want):
+        states = {**(states or {}), **feature_states(ctx, want)}
+    required = [_feature_row(k, states[k]) for k in req]
+    choices = []
+    for c in caps:
+        spec = CAPABILITIES[c]
+        opts = [{**_feature_row(k, states[k]), "value": spec["values"][k], "recommended": k == spec["default"]}
+                for k in capability_members(c)]
+        pick = chosen.get(c)
+        if pick == "none":
+            status = "skipped"
+        elif pick:
+            status = states[pick]["status"]
+        else:
+            status = "ok" if any(o["status"] == "installed" for o in opts) else "needs_choice"
+        choices.append({"capability": c, "title": spec["title"], "setting": spec["setting"],
+                        "recommended": spec["values"][spec["default"]], "chosen": spec["none"]["value"] if pick == "none"
+                        else (spec["values"][pick] if pick else None),
+                        "status": status, "options": opts, "none": spec["none"]})
+    optional = [{**_feature_row(k, states[k]), "when": when, "included": k in with_} for k, when in opt]
+    ready = all(r["status"] == "installed" for r in required) and all(c["status"] in ("ok", "installed", "skipped") for c in choices)
+    # suggested plan: missing required + chosen (or best available recommended) option + requested optional
+    feats: list[str] = [r["feature"] for r in required if r["status"] == "missing"]
+    blocked = [{"feature": r["feature"], "reason": r["reason"]} for r in required if r["status"] == "blocked"]
+    for c in choices:
+        if c["status"] == "skipped" or c["status"] == "ok":
+            continue
+        by_val = {o["value"]: o for o in c["options"]}
+        o = by_val[c["chosen"]] if c["chosen"] else next((o for o in c["options"] if o["status"] != "blocked"), None)
+        if o and o["status"] == "missing":
+            feats.append(o["feature"])
+        elif o and o["status"] == "blocked":
+            blocked.append({"feature": o["feature"], "reason": o["reason"]})
+        elif o is None:
+            blocked.append({"feature": c["capability"], "reason": "every option is blocked on this machine"})
+    feats += [o["feature"] for o in optional if o["included"] and o["status"] == "missing"]
+    blocked += [{"feature": o["feature"], "reason": o["reason"]} for o in optional if o["included"] and o["status"] == "blocked"]
+    feats = list(dict.fromkeys(feats))
+    plan = build_plan(ctx, feats) if feats else None
+    return {"stage": name, "step": st["step"], "agents": st["agents"], "platform": plat,
+            "platform_assumed": platform is None and "needs_by_platform" in st, "note": st.get("note"),
+            "required": required, "choices": choices, "optional": optional, "ready": ready,
+            "blocked": blocked, "suggested_features": feats,
+            "plan_command": f"setup_tools.py --plan {','.join(feats)}" if feats else None, "plan": plan}
+
+
+def cmd_stage(args, ctx: Ctx, name: str) -> int:
+    if not name:
+        return cmd_stages(args, ctx)
+    if name not in STAGES:
+        raise UsageError(f"Unknown stage: {name}. Valid: {', '.join(STAGES)}")
+    if args.platform and args.platform not in PLATFORMS:
+        raise UsageError(f"Unknown platform: {args.platform}. Valid: {', '.join(PLATFORMS)}")
+    with_ = [w.strip() for w in (args.with_ or "").split(",") if w.strip()]
+    rep = stage_report(ctx, name, args.platform, parse_choices(args.choose, STAGES[name], name), with_)
+    if args.json:
+        print(json.dumps(rep, indent=2))
+        return 0
+    plat = f", platform {rep['platform']}{' (assumed, pass --platform)' if rep['platform_assumed'] else ''}" if "needs_by_platform" in STAGES[name] else ""
+    print(f"Stage {name} ({rep['step']}; {', '.join(rep['agents'])}{plat}): {'READY' if rep['ready'] else 'NEEDS TOOLS'}")
+    if rep["note"]:
+        print(f"  note: {rep['note']}")
+    for r in rep["required"]:
+        why = f" - {r['reason']}" if r["reason"] and r["status"] != "installed" else ""
+        print(f"  needs  {r['feature']:<18} {r['status']:<9} {r['size']}{why}")
+    for c in rep["choices"]:
+        print(f"  choice {c['capability']}: {c['title']} [{c['setting']}] "
+              f"chosen: {c['chosen'] or 'not chosen'} ({c['status']}), recommended: {c['recommended']}")
+        for o in c["options"]:
+            tag = " (recommended)" if o["recommended"] else ""
+            why = f" - {o['reason']}" if o["reason"] and o["status"] != "installed" else ""
+            print(f"    {o['value']:<12} {o['feature']:<18} {o['status']:<9} {o['size']}{tag}{why}")
+            print(f"    {'':<12} {o['tool']}: {o['effect']}" + (f"; needs: {o['needs']}" if o["needs"] != "-" else ""))
+        print(f"    {c['none']['value']:<12} {'-':<18} {'-':<9} {c['none']['effect']}")
+    for o in rep["optional"]:
+        mark = " [in plan]" if o["included"] else ""
+        print(f"  option {o['feature']:<18} {o['status']:<9} {o['size']}  when {o['when']}{mark}")
+    for b in rep["blocked"]:
+        print(f"  BLOCKED {b['feature']}: {b['reason']}")
+    if rep["plan"]:
+        print(f"Suggested: {rep['plan_command']}  (total {rep['plan']['total_size']})")
+    return 0
+
+
+def cmd_stages(args, ctx: Ctx) -> int:
+    if args.platform and args.platform not in PLATFORMS:
+        raise UsageError(f"Unknown platform: {args.platform}. Valid: {', '.join(PLATFORMS)}")
+    keys = list(dict.fromkeys(
+        [k for n in STAGES for k in (STAGES[n].get("needs", []) + [x for v in STAGES[n].get("needs_by_platform", {}).values() for x in v]
+                                      + [x for c in STAGES[n].get("choices", []) for x in capability_members(c)]
+                                      + [o[0] for o in STAGES[n].get("optional", [])])]))
+    states = feature_states(ctx, keys)
+    reps = [stage_report(ctx, n, args.platform, {}, [], states) for n in STAGES]
+    if args.json:
+        print(json.dumps({"stages": reps}, indent=2))
+        return 0
+    print("Stages in pipeline order (information only; nothing is installed). Details: --stage <name>")
+    for r in reps:
+        need = [f"{x['feature']}:{x['status']}" for x in r["required"]]
+        need += [f"{c['capability']}:{c['status']} (rec. {c['recommended']})" for c in r["choices"]]
+        print(f"  {r['stage']:<9} {r['step']:<8} {'ready' if r['ready'] else 'needs tools':<11} " + ("; ".join(need) or "-"))
+    return 0
+
+
 def cmd_plan(args, ctx: Ctx, keys: list[str]) -> int:
     plan = build_plan(ctx, keys)
     if args.json:
@@ -1014,6 +1201,12 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--install", metavar="A,B", help="install features (dependencies auto-included)")
     g.add_argument("--check", metavar="A,B", nargs="?", const="", help="status of features (default: all)")
     g.add_argument("--python", action="store_true", help="print the venv interpreter path (exit 3 if missing)")
+    g.add_argument("--stage", metavar="NAME", nargs="?", const="",
+                   help="read-only: what a pipeline stage needs (%s); no name = overview" % ", ".join(STAGES))
+    g.add_argument("--stages", action="store_true", help="read-only overview of all stages")
+    ap.add_argument("--platform", help="with --stage/--stages: web|desktop|android|ios (default web)")
+    ap.add_argument("--choose", metavar="CAP=VALUE,...", help="with --stage: the user's choice per capability, e.g. voice=kokoro,ocr=none")
+    ap.add_argument("--with", dest="with_", metavar="A,B", help="with --stage: optional features to include in the plan")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--dry-run", action="store_true", help="with --install: print commands only")
     ap.add_argument("--venv", help="venv directory (default: .demo/.venv under the current directory)")
@@ -1025,6 +1218,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_python(args, ctx)
         if args.list:
             return cmd_list(args, ctx)
+        if args.stages:
+            return cmd_stages(args, ctx)
+        if args.stage is not None:
+            return cmd_stage(args, ctx, args.stage.strip())
         if args.options is not None:
             return cmd_options(args, ctx, args.options.strip())
         if args.plan is not None:

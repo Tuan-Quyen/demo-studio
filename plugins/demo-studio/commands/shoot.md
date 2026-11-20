@@ -8,10 +8,9 @@ Act as demo-director: read `${CLAUDE_PLUGIN_ROOT}/agents/demo-director.md` and r
 
 Needs G2 approved (`storyboard.md` + `narration.md`). Missing or unapproved → say so and point to `/demo-studio:script`; stop.
 
-1. toolsmith `--check` the required features; ask before any install.
-2. voice-producer → `.vo.wav` + `#voice`; scene-automator → scenes + dry-run PASS; capture-operator → raw clips + `#events`.
-3. privacy-blurrer → `#blur` ∥ sync-editor → `#timeline`; then motion-designer → `#motion` ∥ caption-writer → `#captions` ∥ sound-mixer → `#mix`.
-4. render-engineer → finals + `#checks` (failures go to the key owner); demo-qa → `qa.md`.
-5. **G3: show finals + verdict, wait for approval.** Then packager.
+1. voice-producer (stage `voice`) → `.vo.wav` + `#voice`; scene-automator (`scenes`) → scenes + dry-run PASS; capture-operator (`capture`) → raw clips + `#events`.
+2. privacy-blurrer (`blur`) → `#blur` ∥ sync-editor (`sync`) → `#timeline`; then motion-designer (`motion`) → `#motion` ∥ caption-writer (`captions`) → `#captions` ∥ sound-mixer (`mix`) → `#mix`.
+3. render-engineer (`render`) → finals + `#checks` (failures go to the key owner); demo-qa (`qa`) → `qa.md`.
+4. **G3: show finals + verdict, wait for approval.** Then packager (`package`).
 
-Rules: slug, STATE.md, briefs and handoffs follow the director file and the `run-kits` skill. Check tools with `setup_tools.py --check <features>` before a step that needs them; missing -> show `--plan`, ask the user, install only after approval (toolsmith). Never record, render or install without the gate or approval named above. Do not commit or push.
+Rules: slug, STATE.md, briefs and handoffs follow the director file and the `run-kits` skill. Tools just in time: right before a step, if `setup_tools.py --stage <name>` is not ready, the director briefs toolsmith `suggest` for that stage, asks the user, then toolsmith `install` (director file, **Tools, just in time**); install nothing for later stages. Never record, render or install without the gate or approval named above. Do not commit or push.

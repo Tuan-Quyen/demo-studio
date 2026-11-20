@@ -147,5 +147,101 @@ class Capabilities(unittest.TestCase):
         self.assertIn("qa-ocr-tesseract", keys)
 
 
+class Stages(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.venv = os.path.join(self._tmp.name, "nov")  # missing venv: everything is missing
+
+    def stage(self, *argv):
+        code, out, err = run("--stage", *argv, "--json", "--venv", self.venv)
+        return code, (json.loads(out) if out else None), err
+
+    def test_map_is_consistent(self):
+        order = ["scout", "voice", "scenes", "capture", "blur", "sync", "motion", "captions", "mix", "render", "qa", "package"]
+        self.assertEqual(list(setup_tools.STAGES), order)
+        for n, st in setup_tools.STAGES.items():
+            feats = list(st.get("needs", [])) + [o[0] for o in st.get("optional", [])]
+            feats += [f for v in st.get("needs_by_platform", {}).values() for f in v]
+            for f in feats:
+                self.assertIn(f, setup_tools.CATALOG, n)
+            for c in st.get("choices", []):
+                self.assertIn(c, setup_tools.CAPABILITIES, n)
+            for a in st["agents"]:
+                self.assertTrue(any(a in f["agents"] for f in setup_tools.CATALOG.values()) or n in ("sync", "scout"), (n, a))
+
+    def test_every_stage_runs(self):
+        for n in setup_tools.STAGES:
+            code, rep, _ = self.stage(n)
+            self.assertEqual(code, 0, n)
+            self.assertEqual(rep["stage"], n)
+            code, out, _ = run("--stage", n, "--venv", self.venv)
+            self.assertEqual(code, 0)
+            self.assertIn("Stage " + n, out)
+
+    def test_required_missing_plan(self):
+        code, rep, _ = self.stage("captions")
+        self.assertEqual(code, 0)
+        self.assertFalse(rep["ready"])
+        self.assertEqual(rep["suggested_features"], ["captions"])
+        self.assertEqual(rep["plan"]["features"][0]["key"], "captions")
+        self.assertEqual(rep["plan_command"], "setup_tools.py --plan captions")
+
+    def test_choice_recommended_first_and_default_plan(self):
+        _, rep, _ = self.stage("voice")
+        ch = rep["choices"][0]
+        self.assertEqual(ch["status"], "needs_choice")
+        self.assertEqual([o["value"] for o in ch["options"]], ["edge", "kokoro", "elevenlabs"])
+        self.assertTrue(ch["options"][0]["recommended"])
+        self.assertEqual(rep["suggested_features"], ["voice-edge"])
+
+    def test_choose_changes_plan(self):
+        _, rep, _ = self.stage("voice", "--choose", "voice=kokoro", "--with", "captions")
+        self.assertEqual(rep["suggested_features"], ["voice-kokoro", "captions"])
+        _, rep, _ = self.stage("voice", "--choose", "voice=recorded")
+        self.assertEqual(rep["suggested_features"], [])
+        self.assertTrue(rep["ready"])
+        self.assertIsNone(rep["plan"])
+        _, rep, _ = self.stage("qa", "--choose", "ocr=qa-ocr-tesseract")
+        self.assertEqual(rep["choices"][0]["chosen"], "qa-ocr-tesseract")
+
+    def test_platform_features(self):
+        _, rep, _ = self.stage("capture")
+        self.assertEqual([r["feature"] for r in rep["required"]], ["capture"])
+        self.assertTrue(rep["platform_assumed"])
+        _, rep, _ = self.stage("scenes", "--platform", "android")
+        self.assertEqual([r["feature"] for r in rep["required"]], ["capture", "capture-android"])
+        self.assertFalse(rep["platform_assumed"])
+
+    def test_installed_is_ready(self):
+        real = setup_tools.feature_states
+        setup_tools.feature_states = lambda ctx, keys: {k: {"status": "installed", "reason": None} for k in keys}
+        self.addCleanup(lambda: setattr(setup_tools, "feature_states", real))
+        for n in setup_tools.STAGES:
+            _, rep, _ = self.stage(n)
+            self.assertTrue(rep["ready"], n)
+            self.assertIsNone(rep["plan"], n)
+
+    def test_overview(self):
+        for argv in (("--stage",), ("--stages",)):
+            code, out, _ = run(*argv, "--json", "--venv", self.venv)
+            self.assertEqual(code, 0)
+            self.assertEqual([r["stage"] for r in json.loads(out)["stages"]], list(setup_tools.STAGES))
+        code, out, _ = run("--stages", "--venv", self.venv)
+        self.assertIn("information only", out)
+
+    def test_usage_errors(self):
+        self.assertEqual(run("--stage", "nope", "--venv", self.venv)[0], 2)
+        self.assertEqual(run("--stage", "voice", "--choose", "ocr=none", "--venv", self.venv)[0], 2)
+        self.assertEqual(run("--stage", "voice", "--choose", "voice=zzz", "--venv", self.venv)[0], 2)
+        self.assertEqual(run("--stage", "mix", "--with", "captions", "--venv", self.venv)[0], 2)
+        self.assertEqual(run("--stage", "scenes", "--platform", "tv", "--venv", self.venv)[0], 2)
+        self.assertEqual(run("--stage", "mix", "--list")[0], 2)
+
+    def test_read_only(self):
+        self.stage("voice")
+        self.assertFalse(os.path.exists(self.venv))
+
+
 if __name__ == "__main__":
     unittest.main()
