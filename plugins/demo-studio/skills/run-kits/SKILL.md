@@ -12,7 +12,7 @@ Plugin files: `${CLAUDE_PLUGIN_ROOT}/…`. Commands: `/demo-studio:<name>`. Only
 | Agent | One job | Writes | Model |
 |---|---|---|---|
 | `demo-director` | classify request, pick pipeline, delegate, keep resume point, record the user's decisions | `.demo/STATE.md`, user decisions in `demo.yaml` | opus |
-| `toolsmith` | check/install only the features a job needs, after user approval | `.demo/.venv`, `toolkit.json` | haiku |
+| `toolsmith` | `suggest` (read-only): what a stage needs, options, plan · `install`: only the approved features | `.demo/.venv`, `toolkit.json` | haiku |
 | `demo-strategist` | audience, goal, message, CTA (prose) and the initial video properties | `brief.md`, `demo.yaml` (create) | inherit |
 | `app-scout` | explore app, check it matches `platform` in `demo.yaml`, map flows/selectors, flag sensitive elements | `app-map.md` | inherit |
 | `storyboarder` | scenes and shots: on-screen action, camera intent, duration | `storyboard.md` | opus |
@@ -39,14 +39,14 @@ Plugin files: `${CLAUDE_PLUGIN_ROOT}/…`. Commands: `/demo-studio:<name>`. Only
 | Command | For | Pipeline | Gates |
 |---|---|---|---|
 | `run` | any request; empty = resume | director classifies, then runs one below | per pipeline |
-| `new` | video from scratch | toolsmith → strategist → scout → storyboarder → scriptwriter → (localizer) → voice-producer → scene-automator → capture-operator → (blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa → packager | G1, G2, G3 |
+| `new` | video from scratch | strategist → scout → storyboarder → scriptwriter → (localizer) → voice-producer → scene-automator → capture-operator → (blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa → packager | G1, G2, G3 |
 | `script` | pre-production only | strategist → scout → storyboarder → scriptwriter → (localizer) | G1, G2 |
-| `shoot` | approved script → render | toolsmith → voice-producer → scene-automator → capture-operator → (blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa | G3 (needs G2) |
+| `shoot` | approved script → render | voice-producer → scene-automator → capture-operator → (blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa | G3 (needs G2) |
 | `rerecord` | UI changed in a scene | scene-automator → capture-operator → (blurrer ∥ sync-editor) → motion-designer → render-engineer → demo-qa | G3 |
 | `revoice` | new text, voice or language | scriptwriter → (localizer) → voice-producer → sync-editor → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa | G2 (text), G3 |
 | `cut` | new aspect ratio or shorter cut | (sync-editor if scenes are dropped) → (motion-designer ∥ caption-writer) → render-engineer → demo-qa | G3 |
 | `fix` | symptom text; empty = read `qa.md` + `#checks` | director diagnoses → owner → dependent keys → render → qa | G3 |
-| `tools` | view/install toolkit | `--list`/`--check` → ask → toolsmith | install approval |
+| `tools` | view/install toolkit | `--list`/`--options`/`--stages` → toolsmith `suggest` → ask → toolsmith `install` | install approval |
 | `review` | inspect existing video, no edits | demo-qa | — |
 | `status` | where are we | read `STATE.md` only | — |
 
@@ -109,7 +109,7 @@ notes: <issues; questions with options + recommended default>
 
 Only two kinds of video file: raw clips and finals. Blur, motion, captions and mix are instructions in `project.json`, not intermediate videos. Templates in `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
-**Files → owner:** `brief.md` demo-strategist (prose; user approves at G1) · `demo.yaml` **the user** (demo-strategist creates it at G1; demo-director records the user's decisions in it: motion level, voice, install choices; every other agent reads only) · `.demo.applied.json` snapshot written by `config.py apply` (director: after G1 as baseline, after every G3) · `app-map.md` app-scout · `storyboard.md` storyboarder · `narration.md` scriptwriter (in `language`) · `localization.md`, `narration.<voice.language>.md` localizer (only when `language` ≠ `voice.language`; voice-producer reads the latter when it exists) · `qa.md` demo-qa.
+**Files → owner:** `brief.md` demo-strategist (prose; user approves at G1) · `demo.yaml` **the user** (demo-strategist creates it at G1; demo-director records the user's decisions in it: motion level, voice, tool choices, install choices; every other agent reads only) · `.demo.applied.json` snapshot written by `config.py apply` (director: after G1 as baseline, after every G3) · `app-map.md` app-scout · `storyboard.md` storyboarder · `narration.md` scriptwriter (in `language`) · `localization.md`, `narration.<voice.language>.md` localizer (only when `language` ≠ `voice.language`; voice-producer reads the latter when it exists) · `qa.md` demo-qa.
 
 **`demo.yaml`** controls the video's properties: `platform`, `length_s`, `formats`, `voice {engine, name, language, lexicon}`, `motion {level}`, `music {style, duck_db}`, `captions {burn_in, layout, max_chars}`, `targets {lufs, true_peak, max_drift_ms, caption_offset_ms}`, `privacy {blur, real_data}`, `install {approved, declined}`. Template with allowed values and defaults: `${CLAUDE_PLUGIN_ROOT}/templates/demo.yaml`. A value lives only there; agents read it, never copy it.
 
@@ -157,7 +157,7 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 
 ## 8. Toolkit
 
-`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/.venv`, records `.demo/toolkit.json`. It never prompts.
+`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--options [capability]` (alternatives per job, see below) · `--stage [name]` / `--stages` (read-only: what a pipeline stage needs, alternatives, suggested `--plan`; `--platform`, `--choose cap=value`, `--with feature`, `--json`) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/.venv`, records `.demo/toolkit.json`. It never prompts.
 
 | Feature | Gives |
 |---|---|
@@ -168,16 +168,26 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 | `mix` | ducking and loudness normalisation |
 | `blur` | region blur (OpenCV) |
 | `motion-basic` / `motion-cinematic` | ffmpeg zoom/fade (0 MB) / Remotion titles and callouts (Node ≥18, ~400 MB) |
-| `qa-ocr` | OCR check for leftover sensitive text; recommended with real data |
+| `qa-ocr` (default) / `qa-ocr-tesseract` | OCR check for leftover sensitive text, recommended with real data: RapidOCR + onnxruntime (~120 MB, Python 3.10-3.13) / Tesseract (~60 MB, needs the `tesseract` program on PATH) |
 | `package` | thumbnails |
 
 Features not yet in `--list` are not installed by the script; report `blocked` rather than improvising.
 
-**Install-approval flow:**
-1. An agent runs `--check <feature>`; missing → handoff `needs-input` with the `--plan` output.
-2. Director asks the user (options with size and effect, a recommended default; e.g. motion: none / basic / cinematic).
-3. Approved → toolsmith `--install`, then `--check`; the agent continues. Declined → fall back (cinematic → basic, word captions → sentence captions) and continue.
-4. Director records the choice in `demo.yaml` (`install.approved` / `install.declined`, plus the decision itself, e.g. `motion.level`, `voice.engine`) so it is not asked again. Never install a feature nobody needs.
+**Choosing the tool (capabilities).** Where several features do the same job, the user picks; no agent hard-codes one. `setup_tools.py --options [ocr|voice|motion] [--json]` lists the alternatives (tool, effect, size, needs, installed / missing / blocked, recommended first) and the `demo.yaml` field that records the choice:
+
+| Capability | demo.yaml | Values (features) |
+|---|---|---|
+| `ocr` | `tools.ocr` | `qa-ocr` (recommended) · `qa-ocr-tesseract` · `none` |
+| `voice` | `voice.engine` | `edge` (`voice-edge`) · `kokoro` · `elevenlabs` · `recorded` (no feature) |
+| `motion` | `motion.level` | `basic` (`motion-basic`) · `cinematic` · `none` |
+
+Resolving **OCR tool** (demo-qa, render-engineer, privacy-blurrer, `/review`): `config.py get tools.ocr` → that feature is the one to `--check`. `null` = not chosen: use the first installed option of `--options ocr --json`; none installed → handoff `needs-input` and the director asks (options table, recommended first). `none` = no OCR: the agent checks frames by eye and says so in `notes` (render-engineer: blur row detail `ocr skipped (tools.ocr none)`). Call patterns per tool: `media-specs` (Render checks). A new alternative = a `CATALOG` entry with `capability`, its `CAPABILITIES` value and the matching enum in `config.py`.
+
+**Just-in-time flow (nothing is installed at the start of a pipeline).** The stage map lives in `setup_tools.py` (`--stages`); the pipelines name each step's stage.
+1. Right before a step the director runs `--stage <name> --platform <p> --json`. `ready` → run the step.
+2. Not ready → toolsmith `suggest` for that stage only (reads `tools.ocr`, `voice.engine`, `motion.level`, `platform`, `voice.lexicon`, `install.declined` from `demo.yaml`; returns `needs-input` with options table, recommended default and `--plan`, or `done`).
+3. Director asks the user (install recommended / alternative / skip with fallback / cancel). Approved → toolsmith `install` (`--plan` check, `--install`, `--check`), then the step runs. Declined → fall back (cinematic → basic, word captions → sentence captions) and continue.
+4. Director records the decision in `demo.yaml` (`install.approved` / `install.declined`, plus the choice itself: `tools.ocr`, `motion.level`, `voice.engine`) so it is not asked again. Agents keep their own `--check` as a safety net: a missing feature → `needs-input` with the `--plan`, handled by steps 2-4. Never install a feature nobody needs yet.
 
 ## 9. Resume
 

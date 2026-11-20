@@ -42,6 +42,8 @@ diff mapping (field -> pre agents; first project.json keys; downstream follows p
   targets.caption_offset_ms captions (+ checks, delivery)
   privacy.*                blur (+ checks, delivery)
   install.*                nothing
+  tools.*                  nothing (which tool does a job, e.g. tools.ocr: it changes how checks are
+                           measured, not what the video contains)
   Only platform re-runs events; only voice.* (and platform) re-run voice.
 
 Parser: one built-in strict parser (stdlib only, so validation never depends on what is installed) for a documented subset:
@@ -125,6 +127,11 @@ SCHEMA = {
     "privacy": {
         "blur": leaf("list", [], min_items=0),
         "real_data": leaf("bool", False),
+    },
+    "tools": {
+        # which toolkit feature does a job several features can do (setup_tools.py --options);
+        # null = not chosen yet (the director asks once); none = skip the job
+        "ocr": leaf("enum", None, enum=["qa-ocr", "qa-ocr-tesseract", "none"], nullable=True),
     },
     "install": {
         "approved": leaf("list", [], pattern=FEATURE_RE, unique=True),
@@ -635,6 +642,7 @@ FIELD_MAP = [
     ("targets.max_drift_ms", {"keys": ["timeline"]}),
     ("targets.caption_offset_ms", {"keys": ["captions"]}),
     ("privacy.*", {"keys": ["blur"]}),
+    ("tools.*", {"note": "tool choice only: nothing to re-run"}),
     ("install.*", {"note": "install choices only: nothing to re-run"}),
 ]
 
@@ -801,7 +809,7 @@ def cmd_init(args, path):
 
 def cmd_validate(args, path):
     cfg = load_config(path)
-    unset = [p for p in ("platform", "length_s", "motion.level") if flatten(cfg).get(p) is None]
+    unset = [p for p in ("platform", "length_s", "motion.level", "tools.ocr") if flatten(cfg).get(p) is None]
     print("ok: %s%s" % (path, " (not set yet: %s)" % ", ".join(unset) if unset else ""))
     return 0
 

@@ -36,7 +36,7 @@ Thresholds are the defaults; the project's `demo.yaml` overrides them (key in th
 | vo | each `sNN.vo.wav` clean: lead <= 200, trail <= 150, gaps <= 500 ms except declared pauses; `#voice` fields present | `vo.py check <file> [--pause-ms N...]` exit 0 (run before mixing) | voice-producer |
 | sync | rendered scene length vs timeline | drift <= `targets.max_drift_ms` (80) per scene | render-engineer knows each scene's cut points; `ffprobe` the final and compare scene durations/VO onsets with `#timeline` | sync-editor |
 | loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP | `ffmpeg -nostats -i F -af ebur128=peak=true -f null -` (read summary `I:` and `True peak`) | sound-mixer |
-| blur | readable text in blur regions | 0 | for each `#blur` region OCR ROI crops (not full frames) every 0.5 s plus first/last and every frame in a tracked transit, mapped to output coordinates and final time per Spaces and time (feature `qa-ocr`); match the sensitive value's pattern, not a bare `@`; positive control on an unblurred crop | privacy-blurrer |
+| blur | readable text in blur regions | 0 | for each `#blur` region OCR ROI crops (not full frames) every 0.5 s plus first/last and every frame in a tracked transit, mapped to output coordinates and final time per Spaces and time (OCR tool from `tools.ocr`); match the sensitive value's pattern, not a bare `@`; positive control on an unblurred crop | privacy-blurrer |
 | black | black frames not intended | none (>0.2 s) outside `allow.black` | `-vf blackdetect=d=0.2:pix_th=0.10 -an -f null -` | capture-operator |
 | freeze | frozen video not intended | none (>=3 s) outside `allow.freeze` | `-vf freezedetect=n=-60dB:d=3 -an -f null -` | capture-operator |
 | captions | chars/line, lines, onset offset | <= `captions.max_chars` (42), <= 2 lines; **for EVERY cue** `|t_start - onset of its first word| <= targets.caption_offset_ms` (200) | parse `final.vtt`; measure each word onset in the final audio: 10 ms RMS window, onset = first window above -40 dBFS after a silence, merging silences < 150 ms; match cues to words by order in `narration.md`. Report the max over all cues and the count over the limit; one cue over = fail | caption-writer |
@@ -52,6 +52,21 @@ ffmpeg -i media/final-16x9.mp4 -vf "blackdetect=d=0.2:pix_th=0.10,freezedetect=n
 # blur-region frame for OCR (mapped output px; repeat per sample time T)
 ffmpeg -y -ss T -i media/final-16x9.mp4 -frames:v 1 -vf crop=W:H:X:Y blur_check.png
 ```
+OCR call (run with the toolkit interpreter, `python -I`; build the engine once, not per frame). `tools.ocr: qa-ocr` (RapidOCR 3.x, `from rapidocr import RapidOCR`; the old `rapidocr_onnxruntime` package is gone):
+```
+import cv2
+from rapidocr import RapidOCR
+ocr = RapidOCR(params={"Global.log_level": "error"})
+r = ocr(cv2.imread("blur_check.png"))          # BGR array or path
+texts = list(r.txts or ())                     # r.txts / r.boxes (4x2 px) / r.scores are None when nothing is found
+```
+`tools.ocr: qa-ocr-tesseract` (needs the `tesseract` program; other languages need their traineddata, pass `lang="vie"`):
+```
+import cv2, pytesseract
+d = pytesseract.image_to_data(cv2.imread("blur_check.png"), output_type=pytesseract.Output.DICT)
+texts = [t for t, c in zip(d["text"], d["conf"]) if t.strip() and float(c) > 30]   # d has left/top/width/height per word
+```
+Whatever the tool, run the positive control on an unblurred crop first; a tool that cannot read it is no evidence. Tesseract reads small UI text worse than RapidOCR: crop tight and upscale 2x before calling it.
 Blur filter (static region; privacy-blurrer verifies one preview frame per region):
 ```
 [0:v]split[a][b];[b]crop=W:H:X:Y,boxblur=lr=min(25\,H/4):lp=3[bl];[a][bl]overlay=X:Y:enable='between(t,T0,T1)'

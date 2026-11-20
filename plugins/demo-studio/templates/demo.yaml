@@ -1,6 +1,6 @@
 # demo.yaml - the properties of this demo video. You own this file: edit it any time.
 # demo-strategist creates it at G1, demo-director records your decisions in it
-# (motion level, voice, install choices). Every other agent only reads it.
+# (motion level, voice, tools, install choices). Every other agent only reads it.
 #
 # After an edit the director runs `config.py diff` and re-runs only what changed.
 # Check it yourself: python <plugin>/scripts/config.py --slug <slug> validate
@@ -68,6 +68,13 @@ targets:
 privacy:
   blur: []           # extra things to always blur, e.g. ["customer email", "API token"]. Default: []
   real_data: false   # true = the app shows real personal data (qa-ocr check is then recommended). Default: false
+
+tools:
+  # Which tool does a job when several can. Ask the director for the options table
+  # (python <plugin>/scripts/setup_tools.py --options ocr). voice.engine and motion.level above are
+  # the same kind of choice for narration and motion.
+  ocr: null          # qa-ocr (RapidOCR, recommended) | qa-ocr-tesseract (light, needs the tesseract program)
+                     # | none (no OCR: blur checked by eye only). Default: null (director asks you once)
 
 install:
   approved: []       # toolkit features you approved, e.g. [motion-cinematic]. Default: []

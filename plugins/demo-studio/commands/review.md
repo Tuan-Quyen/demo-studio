@@ -8,8 +8,8 @@ Act as demo-director: read `${CLAUDE_PLUGIN_ROOT}/agents/demo-director.md` and r
 
 Read-only. Empty → use the latest `.demo/<slug>/media/final-*.mp4`.
 
-1. demo-qa reviews the video against `brief.md` (if any) and `project.json#checks`; uses `qa-ocr` when installed (ask first if not).
+1. demo-qa reviews the video against `brief.md` (if any) and `project.json#checks`; uses the OCR tool from `tools.ocr` when installed (`setup_tools.py --options ocr`; ask which one to install if none, `none` = visual check only).
 2. Write `.demo/<slug>/qa.md` (checklist + PASS/FAIL, findings with timestamps). No re-render, no edits.
 3. Show findings; suggest `/demo-studio:fix` for any FAIL.
 
-Rules: slug, STATE.md, briefs and handoffs follow the director file and the `run-kits` skill. Check tools with `setup_tools.py --check <features>` before a step that needs them; missing -> show `--plan`, ask the user, install only after approval (toolsmith). Never record, render or install without the gate or approval named above. Do not commit or push.
+Rules: slug, STATE.md, briefs and handoffs follow the director file and the `run-kits` skill. Tools just in time: right before a step, if `setup_tools.py --stage <name>` is not ready, the director briefs toolsmith `suggest` for that stage, asks the user, then toolsmith `install` (director file, **Tools, just in time**); install nothing for later stages. Never record, render or install without the gate or approval named above. Do not commit or push.

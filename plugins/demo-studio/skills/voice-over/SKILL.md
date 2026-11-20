@@ -5,7 +5,7 @@ description: Load when choosing a voice engine or voice, setting `voice` in demo
 
 # Voice-over
 
-Settings live in `demo.yaml` (`config.py --slug <slug> get voice`): `engine`, `name`, `language`, `rate`, `pitch`, `lexicon`. Never copy values elsewhere. Owner of the audio: voice-producer. Decisions are the user's; the director asks and records them.
+Settings live in `demo.yaml` (`config.py --slug <slug> get voice`): `engine`, `name`, `language`, `rate`, `pitch`, `lexicon`. Never copy values elsewhere. Owner of the audio: voice-producer. Decisions are the user's; the director asks and records them. `setup_tools.py --options voice` shows the engines with status and size.
 
 ## 1. Engines
 | Engine | Cost / key | Quality | Vietnamese | Toolkit feature | Settings |
