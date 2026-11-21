@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > - Don't run the demo pipelines (`/demo-studio:*`) against this repo or create a `.demo/` workspace here unless you're asked to test the team on `example/`.
 > - Judge a change by its effect on agent behaviour: clear ownership, no overlapping roles, consistent contracts between agents, gates kept.
 
-A Claude Code plugin marketplace (`demo-record-teams`, `.claude-plugin/marketplace.json`) shipping one plugin, `plugins/demo-studio/`: 18 agents that turn a product into a narrated, captioned, privacy-safe demo video (web, desktop, Android, iOS). Most of the "code" is Markdown prompts; the only executable code is four stdlib-only Python CLIs in `plugins/demo-studio/scripts/`. `README.md` is the user-facing spec — keep it in sync when behaviour changes.
+A Claude Code plugin marketplace (`demo-record-teams`, `.claude-plugin/marketplace.json`) shipping one plugin, `plugins/demo-studio/`: 18 agents that turn a product into a narrated, captioned, privacy-safe demo video (web, desktop, Android, iOS). Most of the "code" is Markdown prompts; the executable code is four stdlib-only Python CLIs in `plugins/demo-studio/scripts/` and the Remotion render engine in `plugins/demo-studio/remotion/` (Node/React, the default renderer for every pipeline). `README.md` is the user-facing spec — keep it in sync when behaviour changes.
 
 ```
 plugins/demo-studio/
@@ -18,7 +18,8 @@ plugins/demo-studio/
 ├── agents/     one file per role; demo-director orchestrates, the rest do one job
 ├── skills/     shared reference loaded by agents (run-kits = roster, pipelines, briefs, handoffs)
 ├── templates/  copied into the user's .demo/<slug>/ workspace
-└── scripts/    config.py  project.py  setup_tools.py  vo.py  (+ tests/, requirements/)
+├── scripts/    config.py  project.py  setup_tools.py  vo.py  (+ tests/, requirements/)
+└── remotion/   render engine: render.mjs (CLI) + src/ (composition); copied to .demo/remotion/ by setup_tools
 example/        static demo app + a full .demo/ run, used as a reference fixture
 ```
 
@@ -59,12 +60,15 @@ Only two kinds of video file exist: raw clips (`sNN.raw.*`) and finals. Blur, mo
 
 **Toolkit.** Nothing is pre-installed. Agents run `setup_tools.py --check <feature>`; if missing they return `needs-input` with `--plan` output, the director asks the user, and only `toolsmith` runs `--install` (into `.demo/.venv`, recorded in `.demo/toolkit.json`). Toolkit code always runs via the interpreter from `setup_tools.py --python`, never a hard-coded path. Feature → pip deps live in `scripts/requirements/<feature>.txt`.
 
+**Render engine.** Remotion is the default renderer for every pipeline (feature `remotion`); ffmpeg filters (`motion-basic`) are the fallback when the user declines it or Node ≥18 is missing (then `cinematic` drops to `basic`; `config.py diff` re-runs motion when the engine flips). The plugin ships only source (`remotion/`, exact versions pinned in its `package.json`); `setup_tools.py --install remotion` copies it into `.demo/remotion/` (hash in `.sync.json`, re-synced after a plugin change) and installs `node_modules` + headless Chrome there. Agents run `node .demo/remotion/render.mjs` and never edit that copy. To try it on the fixture, install into a scratch project, then `node <scratch>/.demo/remotion/render.mjs --project example/.demo/ai-video-trends-v2/project.json --still 61300 --out x.png`.
+
 ## Things to keep consistent when editing
 
 - Agent/command Markdown references scripts as `python ${CLAUDE_PLUGIN_ROOT}/scripts/...`; keep that form.
 - Changing a `demo.yaml` field means updating together: `config.py` `SCHEMA`, `templates/demo.yaml` (every field commented with allowed values + default), the README `demo.yaml` section, and any agent that reads it.
 - Changing `project.json` keys/owners/deps means updating `project.py` `OWNERS`/`DOWNSTREAM`, the README ownership table, the `media-specs` skill schemas, and the owning agent.
 - The agent roster, pipelines, `/fix` routing and handoff format are defined in `skills/run-kits/SKILL.md`; the README tables mirror it.
+- `remotion/`: never commit `node_modules`; pin exact versions; keep `render.mjs` flags and exit codes (0 ok, 1 render failed, 2 usage/bad data) in sync with `motion-fx`, `render-engineer` and the README. A new effect type means updating `src/`, the `motion-fx` recipes and the `media-specs` `#motion` schema together. Verify any blur change on a rendered frame: CSS `backdrop-filter` and plain `blur()` both leak in headless Chrome (see the comment in `src/DemoVideo.tsx`).
 - Scripts must stay stdlib-only (`vo.py` targets Python 3.9+, the rest 3.10+). Exit codes are part of the agent contract (e.g. `vo.py`: 0 ok, 1 check failed, 2 usage; `project.py`: 4 wrong writer).
 - Privacy rule: sensitive data is blurred, never replaced with fake data.
 - Pipelines never commit or push.

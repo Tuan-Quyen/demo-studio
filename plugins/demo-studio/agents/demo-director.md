@@ -23,7 +23,7 @@ Load skill `run-kits` first: roster, brief template, handoff format, workspace, 
    - `diff` lists changes: tell the user what changed. Mark the `rerun` keys (and `gates`, if any) stale in STATE.md and restart at the earliest owner in `pre` (app-scout / storyboarder / scriptwriter, with G2 again) or else the first key in `rerun`, then go downstream in order. `needs_user` true (e.g. `length_s`, `platform`) → ask before re-running. Changes that only touch `install.*` re-run nothing.
    - Snapshots: run `config.py --slug <slug> apply` right after **G1** is approved (baseline, so a later edit is diffable) and again after every pipeline completes (G3 approved). A missing snapshot (`.demo.applied.json` absent) means **first run**: `diff` has nothing to compare, do not treat it as an error or as "everything changed".
    - A `length_s` change re-runs storyboarder (G2 again) → timeline → motion, captions, mix → checks → delivery; voice re-runs only if the narration changes. A `voice.lexicon` change re-runs voice (no G2).
-   - Missing decisions (`get motion.level`, `get platform` are null): ask the user (AskUserQuestion), then record the answer in `demo.yaml` yourself (edit only that field) and `validate`.
+   - Missing decisions (`get motion.level`, `get platform` are null, or `remotion` is in neither `install.approved` nor `install.declined`): ask the user (AskUserQuestion; render engine and motion level per skill `motion-fx` "Ask once per project"), then record the answer in `demo.yaml` yourself (edit only that field) and `validate`.
 
 ## Classify the request
 | Pipeline | Use when | Steps (∥ = parallel) |

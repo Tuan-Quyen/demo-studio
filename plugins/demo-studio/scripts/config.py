@@ -41,7 +41,8 @@ diff mapping (field -> pre agents; first project.json keys; downstream follows p
   targets.max_drift_ms     timeline (+ motion, captions, mix, checks, delivery)
   targets.caption_offset_ms captions (+ checks, delivery)
   privacy.*                blur (+ checks, delivery)
-  install.*                nothing
+  install.*                nothing, except "remotion" entering or leaving install.declined: that switches
+                           the render engine (Remotion <-> ffmpeg fallback) -> motion (+ checks, delivery)
   Only platform re-runs events; only voice.* (and platform) re-run voice.
 
 Parser: one built-in strict parser (stdlib only, so validation never depends on what is installed) for a documented subset:
@@ -635,7 +636,7 @@ FIELD_MAP = [
     ("targets.max_drift_ms", {"keys": ["timeline"]}),
     ("targets.caption_offset_ms", {"keys": ["captions"]}),
     ("privacy.*", {"keys": ["blur"]}),
-    ("install.*", {"note": "install choices only: nothing to re-run"}),
+    ("install.*", {"dynamic": "engine"}),
 ]
 
 
@@ -655,6 +656,11 @@ def localization_pre(path, old, new):
             return None  # same effective source language
         return ["scriptwriter", "localizer"]
     return ["localizer"] if ln and ln != vn else ["scriptwriter"]
+
+
+def render_engine(cfg):
+    """remotion (default) unless the user declined it; then the ffmpeg fallback (motion-fx)."""
+    return "ffmpeg" if "remotion" in ((cfg.get("install") or {}).get("declined") or []) else "remotion"
 
 
 def flatten(cfg, prefix=""):
@@ -692,6 +698,15 @@ def compute_diff(old, new):
                     res["notes"].append(note)
                 continue
             rule = {"pre": lpre, "gates": ["G2"], "keys": ["voice"], "needs_user": True}
+        elif rule.get("dynamic") == "engine":
+            eo, en = render_engine(old), render_engine(new)
+            if eo == en:
+                note = "install choices only: nothing to re-run"
+                if note not in res["notes"]:
+                    res["notes"].append(note)
+                continue
+            rule = {"keys": ["motion"],
+                    "note": "render engine changed (%s -> %s): motion re-planned for the engine" % (eo, en)}
         if rule.get("all"):
             keys.update(project.RUN_ORDER)
         for k in rule.get("keys", []):

@@ -157,7 +157,7 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 
 ## 8. Toolkit
 
-`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/.venv`, records `.demo/toolkit.json`. It never prompts.
+`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/` (`.venv`, `remotion/`, `appium/`), records `.demo/toolkit.json`. It never prompts.
 
 | Feature | Gives |
 |---|---|
@@ -167,7 +167,7 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 | `captions` | word-level timing (faster-whisper) |
 | `mix` | ducking and loudness normalisation |
 | `blur` | region blur (OpenCV) |
-| `motion-basic` / `motion-cinematic` | ffmpeg zoom/fade (0 MB) / Remotion titles and callouts (Node ≥18, ~400 MB) |
+| `remotion` (default) / `motion-basic` | render engine for every pipeline: Remotion, all motion levels (Node ≥18, ~550 MB, `.demo/remotion/`) / ffmpeg fallback, motion none + basic only (0 MB) |
 | `qa-ocr` | OCR check for leftover sensitive text; recommended with real data |
 | `package` | thumbnails |
 
@@ -175,8 +175,8 @@ Features not yet in `--list` are not installed by the script; report `blocked` r
 
 **Install-approval flow:**
 1. An agent runs `--check <feature>`; missing → handoff `needs-input` with the `--plan` output.
-2. Director asks the user (options with size and effect, a recommended default; e.g. motion: none / basic / cinematic).
-3. Approved → toolsmith `--install`, then `--check`; the agent continues. Declined → fall back (cinematic → basic, word captions → sentence captions) and continue.
+2. Director asks the user (options with size and effect, a recommended default; e.g. render engine Remotion / ffmpeg fallback, asked once at G1 together with the motion level, see `motion-fx`).
+3. Approved → toolsmith `--install`, then `--check`; the agent continues. Declined → fall back (Remotion → ffmpeg with cinematic → basic, word captions → sentence captions) and continue.
 4. Director records the choice in `demo.yaml` (`install.approved` / `install.declined`, plus the decision itself, e.g. `motion.level`, `voice.engine`) so it is not asked again. Never install a feature nobody needs.
 
 ## 9. Resume

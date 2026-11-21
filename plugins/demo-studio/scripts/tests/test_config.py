@@ -632,6 +632,15 @@ class DiffMapping(Workspace):
         self.assertEqual(res["rerun"], [])
         self.assertEqual(len(res["changed"]), 1)
 
+    def test_declining_remotion_switches_engine(self):
+        res = self.diff("install:\n  approved: [remotion]\n", "install:\n  declined: [remotion]\n")
+        self.assertEqual(self.keys(res), ["motion", "checks", "delivery"])
+        self.assertTrue(any("render engine changed (remotion -> ffmpeg)" in n for n in res["notes"]))
+
+    def test_approving_remotion_keeps_engine(self):
+        res = self.diff("", "install:\n  approved: [remotion]\n")
+        self.assertEqual(res["rerun"], [])
+
     def test_multiple_changes_run_order_and_owners(self):
         res = self.diff("", "music:\n  style: calm\nprivacy:\n  real_data: true\n")
         self.assertEqual(self.keys(res), ["blur", "mix", "checks", "delivery"])

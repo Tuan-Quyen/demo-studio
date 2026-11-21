@@ -19,7 +19,7 @@ This repo is a plugin marketplace (`demo-record-teams`) that ships one plugin: `
 |---|---|
 | Python 3.10+ | always (toolkit and `project.py` are stdlib-only scripts) |
 | ffmpeg | comes with the `capture` toolkit feature (bundled via imageio-ffmpeg); no system install needed |
-| Node.js >= 18 | only for Remotion (`motion-cinematic`), Android/iOS Appium, and macOS desktop capture |
+| Node.js >= 18 | for the Remotion render engine (`remotion`, the default for every video; without Node the ffmpeg fallback renders basic motion), Android/iOS Appium, and macOS desktop capture |
 | macOS + Xcode | only for iOS (`capture-ios`); on other systems it reports `blocked` |
 | `adb` on PATH | only for Android |
 | `ELEVENLABS_API_KEY` | only for the paid `voice-elevenlabs` option |
@@ -153,7 +153,7 @@ python scripts/project.py owner blur     # privacy-blurrer
 
 ## Toolkit
 
-Nothing is installed up front. When a step needs a feature, the agent runs a check; if it is missing, **you are asked first** with the size and effect (and a recommended default). Declined features fall back (cinematic to basic motion, word captions to sentence captions). Installs go into `.demo/.venv` and are recorded in `.demo/toolkit.json`. Your choice is saved in `demo.yaml` (`install.approved` / `install.declined`), so you are not asked twice.
+Nothing is installed up front. When a step needs a feature, the agent runs a check; if it is missing, **you are asked first** with the size and effect (and a recommended default). Declined features fall back (Remotion to the ffmpeg renderer with basic motion, word captions to sentence captions). Installs go into `.demo/` (`.venv`, `remotion/`, `appium/`) and are recorded in `.demo/toolkit.json`. Your choice is saved in `demo.yaml` (`install.approved` / `install.declined`), so you are not asked twice.
 
 ```
 python scripts/setup_tools.py --list | --check [features] | --plan <features> | --install <features>
@@ -171,8 +171,19 @@ python scripts/setup_tools.py --list | --check [features] | --plan <features> | 
 | `captions` | Word timing (faster-whisper), SRT/ASS | ~150 MB |
 | `mix` | Music ducking, loudness normalisation | ~30 MB |
 | `blur` | Blur emails, tokens, faces in frames | ~60 MB |
-| `motion-basic` | Zoom/pan, overlays, fades via ffmpeg | ~0 MB |
-| `motion-cinematic` | Titles, transitions, animated captions via Remotion | ~400 MB |
+| `remotion` | Default render engine for every video: blur, motion (all levels), captions, audio in one pass | ~550 MB |
+| `motion-basic` | Fallback renderer via ffmpeg filters (motion none/basic) | ~0 MB |
+
+### Render engine (Remotion)
+
+Every pipeline renders through one Remotion composition that ships with the plugin in `plugins/demo-studio/remotion/` (`render.mjs` + `src/`). The plugin never holds `node_modules`: `setup_tools.py --install remotion` copies that source into the project's `.demo/remotion/` (stamped with a source hash in `.sync.json`), then runs `npm install` and downloads headless Chrome there. After a plugin update, `--check remotion` reports the copy as out of date and `--install remotion` re-syncs it. Agents only run it, never edit it:
+
+```
+node .demo/remotion/render.mjs --project .demo/<slug>/project.json --ratio 16x9 --out .demo/<slug>/media/final-16x9.mp4
+     [--audio .demo/<slug>/media/render/mix.wav] [--burn-in] [--layout overlay|band] [--from-ms A --to-ms B | --still MS]
+```
+
+Remotion is free for individuals and companies of up to 3 people; larger companies need a [Remotion company license](https://www.remotion.dev/license). Without Node, or with `remotion` declined, the ffmpeg fallback renders motion none/basic.
 | `qa-ocr` | OCR the finished video to verify text and redactions | ~120 MB |
 | `package` | Thumbnails, posters, covers | ~10 MB |
 

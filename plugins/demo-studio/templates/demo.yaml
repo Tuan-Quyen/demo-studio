@@ -47,7 +47,9 @@ voice:
   lexicon: {}
 
 motion:
-  level: null        # none | basic | cinematic. Default: null (director asks you once)
+  level: null        # none | basic | cinematic (cinematic needs the Remotion engine). Default: null (director asks you once)
+                     # Render engine: Remotion (feature remotion, Node >= 18) unless remotion is in
+                     # install.declined; then the ffmpeg fallback renders none/basic only.
 
 music:
   style: null        # text such as "calm electronic", or null for voice only. Default: null
@@ -70,5 +72,5 @@ privacy:
   real_data: false   # true = the app shows real personal data (qa-ocr check is then recommended). Default: false
 
 install:
-  approved: []       # toolkit features you approved, e.g. [motion-cinematic]. Default: []
+  approved: []       # toolkit features you approved, e.g. [remotion]. Default: []
   declined: []       # toolkit features you declined, e.g. [voice-kokoro]. Default: []

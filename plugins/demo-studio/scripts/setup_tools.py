@@ -16,6 +16,11 @@ then runs ``--install``.
 bin/python) for agent briefs: exit 0 if it exists, exit 3 (one line on stderr) if not.
 --json prints {"python": path, "exists": bool}.
 
+Workspace = ``.demo`` under the current directory (``--workspace`` overrides).
+Feature ``remotion`` (the default render engine) copies the plugin's ``remotion/`` source into
+<workspace>/remotion/ and runs ``npm install`` there; the plugin itself never holds node_modules.
+The copy is stamped with a hash of the source (``.sync.json``): after a plugin update ``--check``
+reports it out of date and ``--install remotion`` re-syncs it.
 Appium-based features (capture-desktop on macOS, capture-android, capture-ios) share one
 Appium install in <workspace>/appium/ (APPIUM_HOME). Env DEMO_STUDIO_OS=win|mac|linux
 overrides OS detection (testing only).
@@ -26,6 +31,7 @@ Exit codes: 0 ok, 3 --python: venv not found, 1 a requested feature is missing /
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -41,7 +47,8 @@ if sys.version_info < (3, 10):
 
 REQ_DIR = Path(__file__).resolve().parent / "requirements"
 MIN_NODE_MAJOR = 18
-REMOTION_PKGS = ["remotion", "@remotion/cli", "@remotion/captions"]
+REMOTION_SRC = Path(__file__).resolve().parent.parent / "remotion"  # plugin source, no node_modules
+REMOTION_SKIP = {"node_modules", "package-lock.json", "out", ".sync.json"}
 APPIUM_CORE_MB = 250  # shared Appium npm install (counted once per plan)
 APPIUM_DRIVER_PKGS = {  # driver id -> npm package (node_modules detection)
     "uiautomator2": "appium-uiautomator2-driver",
@@ -201,7 +208,7 @@ CATALOG: dict[str, dict] = {
         "agents": ["privacy-blurrer"],
     },
     "motion-basic": {
-        "effect": "Zoom/pan, overlays and fades via ffmpeg filters (no extra packages)",
+        "effect": "Fallback render engine (ffmpeg filters) when Remotion is declined or Node is missing",
         "reqs": None,
         "modules": ["imageio_ffmpeg"],
         "post": [],
@@ -212,16 +219,16 @@ CATALOG: dict[str, dict] = {
         "size_note": "uses ffmpeg from capture",
         "agents": ["motion-designer"],
     },
-    "motion-cinematic": {
-        "effect": "Cinematic titles, transitions and animated captions rendered with Remotion",
+    "remotion": {
+        "effect": "Default render engine: blur, motion, captions and audio in one pass (all motion levels)",
         "reqs": None,
         "modules": [],
         "post": ["remotion"],
         "requires": [],
         "env": None,
         "node": True,
-        "size_mb": 400,
-        "size_note": "npm packages in <workspace>/remotion/",
+        "size_mb": 550,
+        "size_note": "npm packages + headless Chrome in .demo/remotion/",
         "agents": ["motion-designer", "render-engineer"],
     },
     "qa-ocr": {
@@ -260,7 +267,7 @@ class Ctx:
         self.demo_dir = self.cwd / ".demo"
         self.toolkit = self.demo_dir / "toolkit.json"
         self.venv = Path(venv).expanduser().resolve() if venv else (self.demo_dir / ".venv")
-        self.workspace = Path(workspace).expanduser().resolve() if workspace else self.cwd
+        self.workspace = Path(workspace).expanduser().resolve() if workspace else self.demo_dir
         self.remotion_dir = self.workspace / "remotion"
         self.appium_dir = self.workspace / "appium"
         self.appium_queued = False  # core npm install already scheduled in this run
@@ -473,6 +480,50 @@ def node_info() -> dict:
     return {"ok": True, "version": ver, "npm": npm, "reason": None}
 
 
+def remotion_source_files() -> list[Path]:
+    out = []
+    for f in sorted(REMOTION_SRC.rglob("*")):
+        rel = f.relative_to(REMOTION_SRC)
+        if f.is_file() and not (set(rel.parts) & REMOTION_SKIP):
+            out.append(f)
+    return out
+
+
+def remotion_source_hash() -> str:
+    h = hashlib.sha256()
+    for f in remotion_source_files():
+        h.update(f.relative_to(REMOTION_SRC).as_posix().encode() + b"\0" + f.read_bytes() + b"\0")
+    return h.hexdigest()[:16]
+
+
+def remotion_synced(ctx: Ctx) -> bool:
+    try:
+        data = json.loads((ctx.remotion_dir / ".sync.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return data.get("hash") == remotion_source_hash()
+
+
+def sync_remotion(ctx: Ctx) -> None:
+    """Copy the plugin's remotion/ source into the workspace (node_modules stay there)."""
+    dst = ctx.remotion_dir
+    dst.mkdir(parents=True, exist_ok=True)
+    keep = {f.relative_to(REMOTION_SRC) for f in remotion_source_files()}
+    for f in sorted(dst.rglob("*"), reverse=True):  # drop files the plugin no longer ships
+        rel = f.relative_to(dst)
+        if set(rel.parts) & REMOTION_SKIP:
+            continue
+        if f.is_file() and rel not in keep:
+            f.unlink()
+        elif f.is_dir() and not any(f.iterdir()):
+            f.rmdir()
+    for rel in sorted(keep):
+        (dst / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REMOTION_SRC / rel, dst / rel)
+    (dst / ".sync.json").write_text(json.dumps({"hash": remotion_source_hash(), "source": str(REMOTION_SRC),
+                                                "synced_at": now()}, indent=2) + "\n", encoding="utf-8")
+
+
 def remotion_installed(ctx: Ctx) -> str | None:
     pj = ctx.remotion_dir / "node_modules" / "remotion" / "package.json"
     try:
@@ -542,9 +593,12 @@ def feature_states(ctx: Ctx, keys: list[str]) -> dict[str, dict]:
             return {"status": "blocked", "reason": "; ".join(bins), "hard": True, "env_block": True}
         if is_remotion(f):
             ver = remotion_installed(ctx)
-            if ver and k in record:
-                return {"status": "installed", "reason": f"remotion {ver}"}
-            return {"status": "missing", "reason": f"remotion not installed in {ctx.remotion_dir}"}
+            if not (ver and k in record):
+                return {"status": "missing", "reason": f"remotion not installed in {ctx.remotion_dir}"}
+            if not remotion_synced(ctx):
+                return {"status": "missing",
+                        "reason": "remotion source out of date (plugin changed); re-run --install remotion"}
+            return {"status": "installed", "reason": f"remotion {ver} in {ctx.remotion_dir}"}
         if not ctx.venv_exists:
             return {"status": "missing", "reason": f"venv not found at {ctx.venv}"}
         absent = [m for m in pos(f, "modules", []) if not mods.get(m)]
@@ -609,10 +663,14 @@ def feature_commands(ctx: Ctx, key: str) -> list[dict]:
                          "cmd": [str(ctx.vpy), "-m", "playwright", "install", "chromium"], "cwd": None})
         elif step == "remotion":
             npm = shutil.which("npm") or "npm"
-            if not (ctx.remotion_dir / "package.json").exists():
-                cmds.append({"label": "npm init", "cmd": [npm, "init", "-y"], "cwd": str(ctx.remotion_dir)})
-            cmds.append({"label": "npm install remotion",
-                         "cmd": [npm, "install", *REMOTION_PKGS], "cwd": str(ctx.remotion_dir)})
+            npx = shutil.which("npx") or "npx"
+            rdir = str(ctx.remotion_dir)
+            cmds.append({"label": "copy remotion source", "cmd": ["copy", str(REMOTION_SRC), rdir],
+                         "cwd": None, "fn": lambda: sync_remotion(ctx)})
+            cmds.append({"label": "npm install (remotion)",
+                         "cmd": [npm, "install", "--no-audit", "--no-fund"], "cwd": rdir})
+            cmds.append({"label": "remotion browser ensure",
+                         "cmd": [npx, "--no-install", "remotion", "browser", "ensure"], "cwd": rdir})
     drivers = pos(f, "appium") or []
     if drivers:
         npm = shutil.which("npm") or "npm"
@@ -752,6 +810,12 @@ def cmd_check(args, ctx: Ctx, keys: list[str]) -> int:
 
 
 def run_step(step: dict, capture: bool) -> tuple[int, str]:
+    if step.get("fn"):
+        try:
+            step["fn"]()
+            return 0, ""
+        except OSError as e:
+            return 1, str(e)
     cwd = step["cwd"]
     if cwd:
         Path(cwd).mkdir(parents=True, exist_ok=True)
@@ -880,7 +944,9 @@ def feature_states_after_install(ctx: Ctx, key: str, record: dict) -> str | None
     """Return an error string if the feature is not usable after its steps ran."""
     f = CATALOG[key]
     if is_remotion(f):
-        return None if remotion_installed(ctx) else "remotion not found in node_modules after install"
+        if not remotion_installed(ctx):
+            return "remotion not found in node_modules after install"
+        return None if remotion_synced(ctx) else "remotion source copy does not match the plugin"
     wanted = pos(f, "modules", [])
     mods = probe_modules(ctx, wanted)
     absent = [m for m in wanted if not mods.get(m)]
@@ -905,7 +971,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--dry-run", action="store_true", help="with --install: print commands only")
     ap.add_argument("--venv", help="venv directory (default: .demo/.venv under the current directory)")
-    ap.add_argument("--workspace", help="workspace root; Remotion goes in <workspace>/remotion (default: cwd)")
+    ap.add_argument("--workspace", help="workspace root; Remotion and Appium go in <workspace>/remotion and "
+                    "<workspace>/appium (default: .demo under the current directory)")
     args = ap.parse_args(argv)
     ctx = Ctx(args.venv, args.workspace)
     try:
