@@ -68,6 +68,22 @@ targets:
 privacy:
   blur: []           # extra things to always blur, e.g. ["customer email", "API token"]. Default: []
   real_data: false   # true = the app shows real personal data (qa-ocr check is then recommended). Default: false
+  data_mode: real-redacted   # real-redacted = the app shows real data; every sensitive value is masked at
+                     # capture and/or blurred, then verified on every output (default, always used in auto mode)
+                     # seeded = the data is invented; needs seed_confirmation below. Default: real-redacted
+  seed_confirmation: null    # written ONLY by demo-director at G1 after the user confirms the data is
+                     # invented (quote their answer and the date). data_mode: seeded without it is rejected
+                     # by `config.py validate`. Default: null
+  selectors: []      # CSS selectors of elements to mask at capture, e.g. [".user-email", "[data-secret]"]. Default: []
+  regexes: []        # patterns of sensitive text masked/verified, e.g. ["sk-[A-Za-z0-9]{8,}"]. Never put the
+                     # real value here, only its pattern. Default: []
+  seed_values: []    # known sensitive literals to look for in the output (verify only). They are
+                     # redacted from runs.jsonl. Default: []
+  mask_style: opaque # opaque = solid pill (default, safe) | blur (radius >= 0.35 x font size). Default: opaque
+  raw_retention: delete-after-delivery   # delete-after-delivery (default for real data) | keep (explicit choice):
+                     # raw clips can contain the secrets. Default: delete-after-delivery
+  capture_mask: true # false = skip the capture-time mask and blur everything in post (same pipeline,
+                     # slower). Default: true
 
 tools:
   # Which tool does a job when several can. Ask the director for the options table

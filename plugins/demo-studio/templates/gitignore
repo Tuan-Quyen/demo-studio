@@ -1,0 +1,6 @@
+# demo-studio: sensitive or bulky artefacts that must never be committed or delivered
+# (docs/redesign §6.5). Copy these lines into the project's .gitignore.
+.demo/*/media/preview/
+.demo/*/.secret/
+.demo/*/raw/
+.demo/*/media/*.raw.*

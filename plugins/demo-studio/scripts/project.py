@@ -7,9 +7,13 @@ Usage:
     get <key> [--version]   --version prints the stored version (the value itself has no
                             version field; also see `keys`, which lists all versions)
     set <key> --as <agent> [--file PATH | --json TEXT | (stdin)] [--expect-version N]
+        [--input-file PATH ...]   record a fingerprint (size, mtime_ns, inode) of each input file
+                                  (path relative to the project folder) in _meta.keys.<key>.inputs;
+                                  sha256 is computed only when that triple changed (cache/hashes.json)
     keys
     deps <key> [--json]   keys to re-run after <key> changes (transitive, run order)
     owner <key>           agent that owns <key>
+    migrate [--dry-run]   upgrade a schema 1 project to schema 2 (backup first, see below)
   (deps/owner need no project file)
   --slug walks up from cwd to the nearest `.demo/<slug>`; inside `.demo/` with none above it, or
   with a path containing `.demo/.demo`, it refuses (exit 2). `set` prints "<key> version N (<path>)"
@@ -19,16 +23,25 @@ Exit codes:
   0  ok
   2  usage / validation error (bad JSON, unknown key, missing/corrupt file)
   3  version conflict (--expect-version differs from the stored version)
-  4  owner mismatch (--as agent does not own the key)
+  4  owner mismatch (--as agent does not own the key; `set checks` always, see below)
   5  lock timeout
+
+Schema 2 (docs/redesign §4.5): `_meta.keys.<k>.inputs` = versions of the keys it was built from plus
+file fingerprints. `checks` is written ONLY by write_checks() (imported by checks.py / blur.py
+verify); `project.py set checks` is always refused (exit 4). `migrate` (schema 1 -> 2): backs up to
+project.json.schema1.bak, sets inputs {} on every key, marks every existing clip
+events.clips.*.masked=false, keeps every #blur region unmerged (source "legacy", the old source text
+moves to "label"), reports data_mode real-redacted. Schema 1 files stay readable and writable.
 
 Writes take an exclusive lock file "<project>.lock" (O_CREAT|O_EXCL), re-read the
 file under the lock, change only the target key and its _meta entry, and replace
 the file atomically (temp file in the same directory + os.replace).
 """
 import argparse
+import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -62,8 +75,16 @@ DOWNSTREAM = {
 RUN_ORDER = ["voice", "events", "timeline", "blur", "motion", "captions", "mix",
              "checks", "delivery"]
 
+# direct inputs of each key (reverse of DOWNSTREAM); recorded as versions in _meta.keys.<k>.inputs
+UPSTREAM = {}
+for _k, _ds in DOWNSTREAM.items():
+    for _d in _ds:
+        UPSTREAM.setdefault(_d, []).append(_k)
+
 STALE_LOCK_SECONDS = 30.0
-SCHEMA = 1
+SCHEMA = 2          # schema written for new projects
+LEGACY_SCHEMA = 1   # a file without _meta.schema is a schema 1 file
+CHECKS_WRITERS = ("checks.py", "blur.py")  # the only callers of write_checks()
 
 
 class CliError(Exception):
@@ -145,7 +166,7 @@ def read_project(path):
     meta = data.get("_meta")
     if not isinstance(meta, dict):
         meta = data["_meta"] = {}
-    meta.setdefault("schema", SCHEMA)
+    meta.setdefault("schema", LEGACY_SCHEMA)
     if not isinstance(meta.get("keys"), dict):
         meta["keys"] = {}
     return data
@@ -267,29 +288,152 @@ def load_value(args):
         raise CliError(2, "invalid JSON value: %s" % e)
 
 
+def file_fingerprint(project_dir, rel):
+    """(size, mtime_ns, inode) of a file under the project folder. sha256 is computed (and cached in
+    cache/hashes.json) only when that triple differs from the cached one: a plain `set` never
+    re-hashes hundreds of MB [RT-17]."""
+    full = os.path.join(project_dir, rel)
+    try:
+        st = os.stat(full)
+    except OSError as e:
+        raise CliError(2, "cannot fingerprint input %r: %s" % (rel, e))
+    triple = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "ino": st.st_ino}
+    cache_path = os.path.join(project_dir, "cache", "hashes.json")
+    try:
+        with open(cache_path, "r", encoding="utf-8") as f:
+            cache = json.load(f)
+        if not isinstance(cache, dict):
+            cache = {}
+    except (OSError, ValueError):
+        cache = {}
+    old = cache.get(rel)
+    if not (isinstance(old, dict) and all(old.get(k) == v for k, v in triple.items())):
+        h = hashlib.sha256()
+        with open(full, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        cache[rel] = dict(triple, sha256=h.hexdigest())
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        atomic_write(cache_path, cache)
+    return triple
+
+
+def build_inputs(data, key, project_dir, input_files):
+    """Versions of the keys `key` is built from (those that exist) + fingerprints of input files."""
+    keys = data["_meta"]["keys"]
+    inputs = {}
+    for up in UPSTREAM.get(key, []):
+        e = keys.get(up)
+        if isinstance(e, dict) and "version" in e:
+            inputs[up] = e["version"]
+    for rel in input_files:
+        inputs["file:" + rel.replace(os.sep, "/")] = file_fingerprint(project_dir, rel)
+    return inputs
+
+
+def deep_merge(base, over, depth=2):
+    """Merge dicts `depth` levels deep; below that the new value replaces the old one."""
+    if depth > 0 and isinstance(base, dict) and isinstance(over, dict):
+        out = dict(base)
+        for k, v in over.items():
+            out[k] = deep_merge(base[k], v, depth - 1) if k in base else v
+        return out
+    return over
+
+
+def store_key(path, key, owner, value, timeout, expect_version=None, input_files=(), merge=False):
+    """Lock, re-read, replace/merge one key and its _meta entry, write atomically, read back.
+    Returns the stored version."""
+    with FileLock(path, timeout):
+        data = read_project(path) if os.path.exists(path) else empty_project()
+        keys = data["_meta"]["keys"]
+        entry = keys.get(key)
+        current = entry.get("version", 0) if isinstance(entry, dict) else 0
+        if expect_version is not None and expect_version != current:
+            raise CliError(3, "version conflict on %r: expected %d, current version is %d"
+                           % (key, expect_version, current))
+        if merge and isinstance(data.get(key), dict):
+            value = deep_merge(data[key], value)
+        inputs = build_inputs(data, key, os.path.dirname(path), input_files)
+        data[key] = value
+        keys[key] = {"version": current + 1, "owner": owner, "updated": now_iso(), "inputs": inputs}
+        atomic_write(path, data)
+        back = read_project(path)  # read back under the lock: report what is really stored
+        stored = back["_meta"]["keys"].get(key, {}).get("version")
+        if back.get(key) != value or stored != current + 1:
+            raise CliError(2, "read-back mismatch after writing %r to %s" % (key, path))
+    return stored
+
+
+def write_checks(path, value, writer, timeout=10.0, merge=False):
+    """The ONLY way to write `checks` (RT-11). `writer` must be checks.py or blur.py (blur.py verify
+    passes merge=True with {"blur": {<aspect>: {...}}}: merged two levels deep, so a new
+    verdict for one aspect replaces that aspect's entry and keeps the others). `project.py set checks` is always refused."""
+    if writer not in CHECKS_WRITERS:
+        raise CliError(4, "owner mismatch: #checks is written only by %s, not %r"
+                       % (" / ".join(CHECKS_WRITERS), writer))
+    return store_key(path, "checks", OWNERS["checks"], value, timeout, merge=merge)
+
+
 def cmd_set(args, path):
     check_key(args.key)
+    if args.key == "checks":
+        raise CliError(4, "#checks cannot be written with `set`: it is written only by checks.py / "
+                          "blur.py verify through project.write_checks()")
     owner = OWNERS[args.key]
     if args.agent != owner:
         raise CliError(4, "owner mismatch: key %r is owned by %r, not %r"
                        % (args.key, owner, args.agent))
     value = load_value(args)
-    with FileLock(path, args.timeout):
-        data = read_project(path) if os.path.exists(path) else empty_project()
-        keys = data["_meta"]["keys"]
-        entry = keys.get(args.key)
-        current = entry.get("version", 0) if isinstance(entry, dict) else 0
-        if args.expect_version is not None and args.expect_version != current:
-            raise CliError(3, "version conflict on %r: expected %d, current version is %d"
-                           % (args.key, args.expect_version, current))
-        data[args.key] = value
-        keys[args.key] = {"version": current + 1, "owner": owner, "updated": now_iso()}
-        atomic_write(path, data)
-        back = read_project(path)  # read back under the lock: report what is really stored
-        stored = back["_meta"]["keys"].get(args.key, {}).get("version")
-        if back.get(args.key) != value or stored != current + 1:
-            raise CliError(2, "read-back mismatch after writing %r to %s" % (args.key, path))
+    stored = store_key(path, args.key, owner, value, args.timeout, args.expect_version,
+                       args.input_file or ())
     print("%s version %d (%s)" % (args.key, stored, path))
+    return 0
+
+
+def migrate_data(data):
+    """Pure schema 1 -> 2 upgrade of a parsed project (see module doc). Returns a change summary."""
+    summary = {"keys": 0, "clips_masked_false": 0, "blur_regions_kept": 0,
+               "data_mode": "real-redacted"}
+    for e in data["_meta"]["keys"].values():
+        if isinstance(e, dict):
+            e["inputs"] = {}  # unknown fingerprint = stale on the next run of its downstream keys
+            summary["keys"] += 1
+    clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
+    if isinstance(clips, dict):
+        for clip in clips.values():
+            if isinstance(clip, dict):
+                clip["masked"] = False  # recorded before v0.3: no capture-time mask
+                summary["clips_masked_false"] += 1
+    blur = data.get("blur")
+    if isinstance(blur, dict) and isinstance(blur.get("regions"), list):
+        for r in blur["regions"]:  # keep every region, unmerged
+            if isinstance(r, dict):
+                if r.get("source") != "legacy":
+                    if r.get("source") is not None:
+                        r.setdefault("label", r["source"])
+                    r["source"] = "legacy"
+                summary["blur_regions_kept"] += 1
+    data["_meta"]["schema"] = SCHEMA
+    return summary
+
+
+def cmd_migrate(args, path):
+    with FileLock(path, args.timeout):
+        data = read_project(path)
+        if data["_meta"].get("schema", LEGACY_SCHEMA) >= SCHEMA:
+            print(json.dumps({"status": "ok", "migrated": False, "schema": data["_meta"]["schema"]}))
+            return 0
+        summary = migrate_data(data)
+        res = dict(status="ok", migrated=not args.dry_run, dry_run=bool(args.dry_run), schema=SCHEMA,
+                   **summary)
+        if not args.dry_run:
+            bak = path + ".schema1.bak"
+            if not os.path.exists(bak):
+                shutil.copyfile(path, bak)
+            atomic_write(path, data)
+            res["backup"] = bak
+    print(json.dumps(res))
     return 0
 
 
@@ -367,6 +511,8 @@ def build_parser():
     s.add_argument("--json", help="JSON value as text")
     s.add_argument("--expect-version", type=int, dest="expect_version",
                    help="fail with exit 3 if stored version differs")
+    s.add_argument("--input-file", action="append", dest="input_file", metavar="PATH",
+                   help="input file (relative to the project folder) to fingerprint; repeatable")
     sub.add_parser("keys", parents=[common], help="list keys with version/owner/updated")
     d = sub.add_parser("deps", parents=[common],
                        help="keys to re-run after <key> changes (transitive, in run order)")
@@ -374,6 +520,9 @@ def build_parser():
     d.add_argument("--json", action="store_true", help="JSON output")
     o = sub.add_parser("owner", parents=[common], help="print the agent that owns <key>")
     o.add_argument("key")
+    m = sub.add_parser("migrate", parents=[common], help="upgrade a schema 1 project to schema 2")
+    m.add_argument("--dry-run", action="store_true", dest="dry_run",
+                   help="print what would change, write nothing")
     return p
 
 
@@ -385,7 +534,7 @@ def main(argv=None):
             pass
     args = build_parser().parse_args(argv)
     handlers = {"init": cmd_init, "get": cmd_get, "set": cmd_set, "keys": cmd_keys,
-                "deps": cmd_deps, "owner": cmd_owner}
+                "deps": cmd_deps, "owner": cmd_owner, "migrate": cmd_migrate}
     try:
         path = None if args.cmd in ("deps", "owner") else project_path(args)
         return handlers[args.cmd](args, path)

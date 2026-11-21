@@ -88,6 +88,7 @@ def leaf(kind, default, **kw):
 
 FORMATS = ["16:9", "9:16", "1:1"]
 LANG_RE = re.compile(r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$")
+DATA_MODES = ["real-redacted", "seeded"]
 FEATURE_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 # Defaults mirror skills/media-specs, skills/motion-fx and run-kits.
@@ -127,6 +128,16 @@ SCHEMA = {
     "privacy": {
         "blur": leaf("list", [], min_items=0),
         "real_data": leaf("bool", False),
+        # redesign §4.5/§6.1: real-redacted = real data shown, everything masked/blurred/verified;
+        # seeded = invented data, only valid with a seed_confirmation written by the director at G1
+        "data_mode": leaf("enum", "real-redacted", enum=DATA_MODES),
+        "seed_confirmation": leaf("str", None, nullable=True),
+        "selectors": leaf("list", []),
+        "regexes": leaf("list", []),
+        "seed_values": leaf("list", []),
+        "mask_style": leaf("enum", "opaque", enum=["opaque", "blur"]),
+        "raw_retention": leaf("enum", "delete-after-delivery", enum=["delete-after-delivery", "keep"]),
+        "capture_mask": leaf("bool", True),
     },
     "tools": {
         # which toolkit feature does a job several features can do (setup_tools.py --options);
@@ -260,6 +271,15 @@ def cross_check(cfg):
     both = set(cfg["install"]["approved"]) & set(cfg["install"]["declined"])
     if both:
         errs.append("install: %s in both approved and declined" % ", ".join(sorted(both)))
+    priv = cfg["privacy"]
+    if priv["data_mode"] == "seeded" and not (priv["seed_confirmation"] or "").strip():
+        errs.append("privacy.data_mode: seeded needs privacy.seed_confirmation (the user's own "
+                    "confirmation recorded by the director at G1; auto mode always uses real-redacted)")
+    for i, rx in enumerate(priv["regexes"]):
+        try:
+            re.compile(rx)
+        except re.error as e:
+            errs.append("privacy.regexes[%d]: not a valid regular expression (%s)" % (i, e))
     return errs
 
 
