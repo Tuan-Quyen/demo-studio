@@ -18,7 +18,7 @@ Usage:
                           clips / tmp-video / capture specs once #delivery exists (dry listing without
                           --apply; refuses with exit 3 before delivery unless --force). The hook a
                           packager or command calls after delivery.
-    doctor [--clean]      flag (exit 10) / remove stale media/.tmp-*/ capture dirs (raw unmasked video)
+    doctor [--clean] [--include-outside]      flag (exit 10) / remove stale media/.tmp-*/ capture dirs (raw unmasked video)
     stale <key>           list upstream keys whose version changed since <key> was written (exit 10)
   (deps/owner need no project file). `init` also writes <.demo>/.gitignore (sensitive/bulky paths).
   --slug walks up from cwd to the nearest `.demo/<slug>`; inside `.demo/` with none above it, or
@@ -569,13 +569,25 @@ def _clip_dirs(sdir, data):
 
 def stale_tmp_dirs(sdir, data):
     """`.tmp-<sid>-<pid>/` capture dirs: the raw UNMASKED video survives there after a SIGKILL / OOM."""
+    clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
+    sids = [re.escape(k) for k in (clips or {})] or [r"[\w-]+"]
+    own = re.compile(r"^\.tmp-(?:%s)-\d+$" % "|".join(sids))   # capture's own names only
     out = []
     for d in _clip_dirs(sdir, data) + [sdir]:
         for n in os.listdir(d):
             full = os.path.join(d, n)
-            if n.startswith(".tmp-") and os.path.isdir(full):
+            if own.match(n) and os.path.isdir(full):
                 out.append(full)
     return sorted(set(out))
+
+
+def split_inside(sdir, paths):
+    """(inside, outside) by realpath (symlinks resolved) relative to the slug folder."""
+    root = os.path.realpath(sdir)
+    ins, outs = [], []
+    for p in paths:
+        (ins if os.path.realpath(p).startswith(root + os.sep) else outs).append(p)
+    return ins, outs
 
 
 def raw_artifacts(sdir, data):
@@ -660,9 +672,11 @@ def cmd_doctor(args, path):
     --clean removes them."""
     data = read_project(path)
     sdir = os.path.dirname(path)
-    tmp = stale_tmp_dirs(sdir, data)
+    tmp, outside = split_inside(sdir, stale_tmp_dirs(sdir, data))
+    if args.include_outside:
+        tmp, outside = tmp + outside, []
     res = {"status": "ok" if not tmp else "stale-tmp", "stale_tmp": [os.path.relpath(t, sdir).replace(os.sep, "/") for t in tmp],
-           "cleaned": []}
+           "outside_project": [os.path.realpath(t) for t in outside], "cleaned": []}
     if tmp and args.clean:
         for t in tmp:
             shutil.rmtree(t, ignore_errors=True)
@@ -774,6 +788,9 @@ def build_parser():
                         "(default: listed as outside_project and skipped)")
     dc = sub.add_parser("doctor", parents=[common], help="flag stale .tmp-* capture dirs (raw video)")
     dc.add_argument("--clean", action="store_true", help="delete them")
+    dc.add_argument("--include-outside", action="store_true", dest="include_outside",
+                    help="also handle `.tmp-<sid>-<pid>` dirs resolving outside .demo/<slug>/ "
+                         "(default: listed as outside_project, never deleted)")
     st = sub.add_parser("stale", parents=[common], help="upstream keys changed since <key> was written")
     st.add_argument("key")
     m = sub.add_parser("migrate", parents=[common], help="upgrade a schema 1 project to schema 2")

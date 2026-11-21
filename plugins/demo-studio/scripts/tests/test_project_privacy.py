@@ -78,7 +78,7 @@ class RetentionTests(Base):
         self.touch("media/s01.mask.jsonl")
         self.touch("media/s01.sync.json")
         self.touch("media/s01.probe.jsonl")
-        self.touch("media/.tmp-s02-123/video.webm")
+        self.touch("media/.tmp-s01-123/video.webm")
         self.touch("media/tmp-video/a.webm")
         self.touch("media/final-16x9.mp4")
         self.touch("media/preview/contact-s01.png")
@@ -101,7 +101,7 @@ class RetentionTests(Base):
         code, out, _ = run(["--slug", "vid", "retention", "--apply"], self.root)
         self.assertEqual(code, 0, out)
         for gone in ("media/s01.raw.webm", "media/s01.mask.jsonl", "media/s01.sync.json", "media/s01.probe.jsonl",
-                     "media/.tmp-s02-123", "media/tmp-video"):
+                     "media/.tmp-s01-123", "media/tmp-video"):
             self.assertFalse(os.path.exists(os.path.join(self.sdir, gone)), gone)
         for kept in ("media/final-16x9.mp4", "media/preview/contact-s01.png", "project.json"):
             self.assertTrue(os.path.exists(os.path.join(self.sdir, kept)), kept)
@@ -153,6 +153,39 @@ class RetentionTests(Base):
         code, out, _ = run(["--slug", "vid", "doctor", "--clean"], self.root)
         self.assertEqual(code, 0)
         self.assertFalse(os.path.exists(os.path.join(self.sdir, "media", ".tmp-s01-42")))
+
+    def test_doctor_never_touches_foreign_dirs_outside_the_project(self):   # R-18
+        self.init()
+        ext = os.path.join(self.root, "ext")
+        os.makedirs(os.path.join(ext, ".tmp-keepme"))
+        os.makedirs(os.path.join(ext, ".tmp-s01-4242"))
+        open(os.path.join(ext, "s01.raw.webm"), "w").write("x")
+        project.store_key(self.pj, "events", "capture-operator",
+                          {"clips": {"s01": {"file": "../../ext/s01.raw.webm"}}}, 5)
+        self.touch("media/.tmp-notmine/x")                 # not capture's name: never matched
+        code, out, _ = run(["--slug", "vid", "doctor", "--clean"], self.root)
+        res = json.loads(out)
+        self.assertEqual(code, 0, res)
+        self.assertTrue(os.path.isdir(os.path.join(ext, ".tmp-keepme")))
+        self.assertTrue(os.path.isdir(os.path.join(ext, ".tmp-s01-4242")))
+        self.assertTrue(os.path.isdir(os.path.join(self.sdir, "media", ".tmp-notmine")))
+        self.assertEqual([os.path.basename(p) for p in res["outside_project"]], [".tmp-s01-4242"])
+        run(["--slug", "vid", "doctor", "--clean", "--include-outside"], self.root)
+        self.assertFalse(os.path.exists(os.path.join(ext, ".tmp-s01-4242")))
+        self.assertTrue(os.path.isdir(os.path.join(ext, ".tmp-keepme")))
+
+    def test_doctor_symlinked_tmp_dir_is_outside(self):
+        self.init()
+        victim = os.path.join(self.root, "victim")
+        os.makedirs(victim)
+        open(os.path.join(victim, "f"), "w").write("x")
+        os.makedirs(os.path.join(self.sdir, "media"))
+        os.symlink(victim, os.path.join(self.sdir, "media", ".tmp-s01-7"))
+        project.store_key(self.pj, "events", "capture-operator", {"clips": {"s01": {}}}, 5)
+        code, out, _ = run(["--slug", "vid", "doctor", "--clean"], self.root)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(json.loads(out)["outside_project"]), 1)
+        self.assertTrue(os.path.exists(os.path.join(victim, "f")))
 
     def test_keep_deletes_nothing(self):
         self.setup_raw(True)

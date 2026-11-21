@@ -84,7 +84,8 @@ privacy:
                      # raw clips can contain the secrets. Default: delete-after-delivery
   accepted: []       # user decisions that accept a weaker capture gate (soft frames, raised thresholds,
                      # accepted unmaskable surfaces): "s03: <why, the user's own words, date>". Written by the
-                     # director from the user's answer, never by another agent. Default: []
+                     # director from the user's answer, never by another agent. "*: <reason>" covers every
+                     # scene; the reason needs at least 10 characters or the entry counts for nothing. Default: []
   capture_mask: true # false = skip the capture-time mask and blur everything in post (same pipeline,
                      # slower). Default: true
 

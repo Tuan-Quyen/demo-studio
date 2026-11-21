@@ -557,7 +557,7 @@ def run(args):
             res["blur"] = blur_result(cur, aspects, rendered, files, sdir)
         pc = privacy_capture(cur, real, cfg["privacy"].get("accepted") or [],
                              [os.path.relpath(t, sdir).replace(os.sep, "/")
-                              for t in project.stale_tmp_dirs(sdir, cur)])
+                              for t in project.split_inside(sdir, project.stale_tmp_dirs(sdir, cur))[0]])
         missing = [r for r in REQUIRED if r not in res]
         failures = [{"id": k, "owner": r["owner"],
                      "class": "leak" if (k == "blur" and r.get("verdict") == "leak")
