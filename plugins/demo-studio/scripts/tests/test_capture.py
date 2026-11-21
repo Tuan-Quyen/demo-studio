@@ -33,7 +33,7 @@ def run_capture(*argv):
     return code, json.loads(out.getvalue().strip().splitlines()[-1])
 
 
-def make_clip(path, leak=False, n=40, w=320, h=180):
+def make_clip(path, leak=False, n=40, w=320, h=180, plain=False):
     """frame 0 = calibration magenta, then white pages with a pill (or glyph-like noise when leak) at RECT."""
     rng = np.random.RandomState(3)
     cmd = [capture.ffmpeg_exe(), "-nostdin", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % (w, h),
@@ -47,7 +47,7 @@ def make_clip(path, leak=False, n=40, w=320, h=180):
             x, y, rw, rh = RECT
             if leak:
                 f[y:y + rh, x:x + rw] = rng.choice([0, 255], size=(rh, rw, 1)).repeat(3, 2)
-            else:
+            elif not plain:
                 f[y:y + rh, x:x + rw] = PILL
         p.stdin.write(f.tobytes())
     p.stdin.close()
@@ -56,7 +56,7 @@ def make_clip(path, leak=False, n=40, w=320, h=180):
 
 def write_case(d, leak=False, log_kind="ok", w=320, h=180):
     clip = os.path.join(d, "s01.raw.webm")
-    make_clip(clip, leak, w=w, h=h)
+    make_clip(clip, leak, w=w, h=h, plain=(log_kind == "plain"))
     times = capture.probe_clip(clip)["times"]
     entries = [{"t": E0 + times[5] * 1000.0, "kind": "tick", "items": 1, "frames": 1}]
     for tv in times[5:]:
@@ -104,8 +104,12 @@ class EvalRules(unittest.TestCase):
     def test_s02_bad_decides_even_with_soft_in_narrow(self):
         self.assertEqual(self.ev([self.entry(0, self.A), self.entry(40, self.PLAIN)]), "bad")
 
-    def test_s02_strict_in_same_window_wins(self):
-        self.assertEqual(self.ev([self.entry(0, self.A), self.entry(40, self.B)]), "strict")
+    def test_s19_bad_nearest_entry_decides_even_with_a_strict_neighbour(self):
+        self.assertEqual(self.ev([self.entry(0, self.A), self.entry(40, self.B)]), "bad")
+
+    def test_s19_strict_nearest_wins_and_strict_neighbour_of_soft_nearest_is_resync(self):
+        self.assertEqual(self.ev([self.entry(0, self.B), self.entry(40, self.A)]), "strict")
+        self.assertEqual(self.ev([self.entry(0, self.PLAIN), self.entry(40, self.B)]), "resync")
 
     def test_s02_wide_strict_only_is_resync_not_ok(self):
         self.assertEqual(self.ev([self.entry(0, self.PLAIN), self.entry(200, self.B)]), "resync")
@@ -136,6 +140,65 @@ class EvalRules(unittest.TestCase):
         self.assertEqual((g, ticks), ({}, []))
 
 
+class PassProbes(unittest.TestCase):
+    """Round 2 synthetic probes on _pass (S-18, S-20): they must fail closed."""
+    W, H, R = 200, 100, [40, 30, 120, 30]
+
+    def setUp(self):
+        if np is None:
+            self.skipTest("numpy missing")
+
+    def text_frame(self, alpha):
+        f = np.full((self.H, self.W, 3), 255, np.uint8)
+        x, y, w, h = self.R
+        reg = np.full((h, w, 3), 255, np.float32)
+        reg[:, ::4] = 0
+        f[y:y + h, x:x + w] = (np.array(PILL, np.float32) * (1 - alpha) + reg * alpha).round().astype(np.uint8)
+        return f
+
+    def run_pass(self, frames, log, ready=0.0):
+        old = capture.iter_frames
+        capture.iter_frames = lambda v, w, h, b: iter(enumerate(frames))
+        try:
+            return capture._pass("x", {"w": self.W, "h": self.H}, [i * 0.04 for i in range(len(frames))], {"s": log}, 0.0, ready, PILL, 10)
+        finally:
+            capture.iter_frames = old
+
+    def entries(self, n, rect=None):
+        return [{"t": i * 40.0, "kind": "masked", "selector": "s", "rects": [rect or self.R], "state": "masked"} for i in range(n)]
+
+    def test_s18_slow_fade_is_not_carried_forever(self):
+        fr = [self.text_frame(0)] * 5 + [self.text_frame(min(1, (i + 1) / 30)) for i in range(30)] + [self.text_frame(1)] * 5
+        r = self.run_pass(fr, self.entries(len(fr)))
+        self.assertGreater(r["frames_unmasked"], 20)            # was 0 (32 readable frames carried)
+        self.assertLessEqual(r["frames_carried"], 3 * 5)
+
+    def test_s18_carry_run_is_capped(self):
+        fr = [self.text_frame(0)] + [self.text_frame(0)] * 8
+        log = self.entries(9)
+        for e in log[1:]:
+            e["rects"] = [[0, 0, 30, 20]]        # nothing the gate can match: every frame needs the carry
+        r = self.run_pass(fr, log)
+        self.assertLessEqual(r["frames_carried"], capture.CARRY_MAX)
+
+    def test_s20_soft_through_the_end_never_strict(self):
+        fr = [np.full((self.H, self.W, 3), 255, np.uint8)] * 40
+        r = self.run_pass(fr, self.entries(40))
+        self.assertEqual(r["strict_frames"], 0)
+        self.assertGreater(r["rect_checks"], 0)
+
+    def test_s19_stale_strict_does_not_trump_bad(self):
+        r2 = [40, 60, 120, 30]
+        f = np.full((self.H, self.W, 3), 255, np.uint8)
+        f[30:60, 40:160] = PILL                  # overlay still at the old rect ...
+        f[60:90, 40:160:4] = 0                   # ... text visible at the new rect
+        fr = [self.text_frame(0)] * 3 + [f] + [self.text_frame(0)] * 3
+        log = self.entries(7)
+        log[3] = dict(log[3], rects=[r2])
+        r = self.run_pass(fr, log)
+        self.assertGreaterEqual(r["frames_unmasked"], 1)
+
+
 class Unmaskable(unittest.TestCase):
     def test_contract_fields_in_clip_ms_and_px(self):
         ent = [{"t": E0 + 100 + 17 * i, "kind": "unmaskable", "surface": "iframe", "selector": "iframe",
@@ -145,6 +208,8 @@ class Unmaskable(unittest.TestCase):
         u = out[0]
         self.assertEqual({"surface", "selector", "reason", "t_start", "t_end", "bbox"}, set(u))
         self.assertEqual((u["t_start"], u["t_end"]), (100, 168))
+        p = capture.aggregate_unmaskable(ent, E0, pad_ms=300)[0]       # S-23: padded by a detection interval
+        self.assertEqual((p["t_start"], p["t_end"]), (0, 468))
         self.assertEqual(u["bbox"], [10, 20, 300, 84])
 
     def test_gap_splits_intervals_and_accept_marks(self):
@@ -203,6 +268,28 @@ class GateSynthetic(unittest.TestCase):
         code, res = self.gate(clip, log, sync)
         self.assertEqual(code, 11)
         self.assertIn("viewport_ne_clip_size", res["gate_fail"])
+
+    def test_s20_no_strict_evidence_fails_gate(self):
+        clip, log, sync = write_case(self.d, log_kind="plain")
+        code, res = self.gate(clip, log, sync)
+        self.assertEqual((code, res["masked"]), (11, False))
+        self.assertIn("no_strict_evidence", res["gate_fail"])
+
+    def test_s24_thresholds_recorded_in_events(self):
+        import project
+        sdir = os.path.join(self.d, ".demo", "demo")
+        os.makedirs(os.path.join(sdir, "media"))
+        pj = os.path.join(sdir, "project.json")
+        project.main(["--project", pj, "init"])
+        clip, log, sync = write_case(os.path.join(sdir, "media"))
+        old = os.getcwd()
+        os.chdir(self.d)
+        self.addCleanup(os.chdir, old)
+        code, res = self.gate(clip, log, sync, "--slug", "demo", "--max-soft", "3", "--max-resync", "2", "--accept-unmaskable", "canvas")
+        self.assertEqual(code, 0, json.dumps(res)[:300])
+        m = project.read_project(pj)["events"]["clips"]["s01"]["mask"]
+        self.assertEqual(m["thresholds"], {"max_soft": 3, "max_resync": 2, "accepted_unmaskable": ["canvas"]})
+        self.assertIn("frames_soft", m)
 
     def test_blur_style_is_never_masked_true(self):
         cfg = os.path.join(self.d, "m.json")

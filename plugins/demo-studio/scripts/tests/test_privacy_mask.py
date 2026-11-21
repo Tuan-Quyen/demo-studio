@@ -84,6 +84,11 @@ class Recording(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
+    def setUp(self):
+        # one failed recording must be ONE failure (test_zero_frames...), not seven: the others skip with the reason
+        if self.code != 0 and not self._testMethodName.startswith("test_zero_frames"):
+            self.skipTest("shared recording failed (exit %s): see test_zero_frames_leak_and_zero_tolerance_used" % self.code)
+
     def test_zero_frames_leak_and_zero_tolerance_used(self):
         xc = self.res["cross_check"]
         self.assertEqual((self.code, self.res["status"]), (0, "ok"), json.dumps(self.res.get("gate_fail")) + json.dumps(xc.get("failures")))
@@ -91,10 +96,10 @@ class Recording(unittest.TestCase):
         self.assertGreater(xc["frames_with_masks"], 80)
         self.assertGreater(xc["rect_checks"], 200)
         self.assertGreater(xc["oracle_rect_checks"], 100)       # the independent DOM oracle was checked too
-        print("\nleak counts: frames=%d verified_masked=%d unmasked=%d soft=%d resynced=%d carried=%d unverified_leadin=%d "
+        print("\nleak counts: frames=%d verified_masked=%d unmasked=%d soft=%d resynced=%d carried=%d strict=%d unverified_leadin=%d "
               "rect_checks=%d oracle=%d check_s=%s recal=%s" % (
                   xc["frames_total"], xc["frames_with_masks"], xc["frames_unmasked"], xc["frames_soft"], xc["frames_resynced"],
-                  xc["frames_carried"], xc["frames_unverified"], xc["rect_checks"], xc["oracle_rect_checks"], xc["check_s"], xc["recalibrated"]))
+                  xc["frames_carried"], xc["strict_frames"], xc["frames_unverified"], xc["rect_checks"], xc["oracle_rect_checks"], xc["check_s"], xc["recalibrated"]))
 
     def test_events_contract_and_temp_cleanup(self):
         ev = json.load(open(self.res["events"]))
@@ -328,6 +333,105 @@ class Variants(unittest.TestCase):
         code, res = self._record("--regex", REGEXES[2], script=EXTRA, scene="s03", url=fx("typed.html"))
         self.assertEqual((code, res["status"]), (2, "input"))
         self.assertEqual(leftovers(self.out), [])
+
+
+@unittest.skipUnless(HAVE, "python playwright + chromium / ffmpeg / numpy not available")
+class Round2(unittest.TestCase):
+    """Repros of the round 2 security findings (fake data), each must fail closed or be masked."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="dsmask-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.out = os.path.join(self.tmp, "o")
+
+    def rec(self, scene, url, *extra):
+        return run_capture("run", "--url", fx(url), "--scene", scene, "--scene-script", EXTRA, "--out-dir", self.out,
+                           "--regex", REGEXES[0], *extra)
+
+    def assert_masked(self, code, res):
+        xc = res["cross_check"]
+        self.assertEqual((code, xc["frames_unmasked"]), (0, 0), json.dumps({k: res.get(k) for k in ("gate_fail", "cross_check")})[:1200])
+        self.assertTrue(res["masked"])
+        return capture.load_log(res["mask_log"])
+
+    def test_s17_programmatic_value_is_masked_and_logged(self):
+        code, res = self.rec("s06", "typed.html")
+        log = self.assert_masked(code, res)
+        self.assertTrue([e for e in log if e["kind"] == "masked" and e["selector"].startswith("regex#") and e["rects"]], "value never logged")
+        self.assertGreater(res["cross_check"]["oracle_rect_checks"], 10)
+        self.assertGreater(res["cross_check"]["strict_frames"], 10)
+
+    def test_s17_value_set_then_cleared_is_still_masked_while_visible(self):
+        code, res = self.rec("s11", "typed.html")
+        log = self.assert_masked(code, res)
+        self.assertTrue([e for e in log if e["kind"] == "oracle" and e["rects"]], "oracle blind to the value")
+
+    def test_s17_unlogged_final_regex_hit_fails_the_gate(self):
+        """gate-level: the final assertion saw a regex hit but the log never had that group (mask blind) -> exit 11."""
+        code, res = self.rec("s06", "typed.html")
+        self.assertEqual(code, 0)
+        sync = json.load(open(res["sync"]))
+        sync["final"]["regex_labels"] = ["regex#0", "regex#7"]
+        json.dump(sync, open(res["sync"], "w"))
+        code, g = run_capture("gate", "--clip", res["video"], "--mask-log", res["mask_log"], "--sync", res["sync"], "--scene", "s06",
+                              "--regex", REGEXES[0])
+        self.assertEqual(code, 11)
+        self.assertIn("regex_hits_not_logged", g["gate_fail"])
+
+    def test_s22_modal_dialog_top_layer_is_masked(self):
+        code, res = self.rec("s07", "dialog.html")
+        self.assert_masked(code, res)
+
+    def test_s08_split_typing_is_premasked(self):
+        code, res = self.rec("s08", "typed.html")
+        log = self.assert_masked(code, res)
+        self.assertTrue([e for e in log if e["kind"] == "masked" and e["selector"] == "regex#typed"])
+
+    def test_s08_locator_press_and_handle_type_and_keyboard_down(self):
+        for sc in ("s09", "s10", "s12"):
+            shutil.rmtree(self.out, ignore_errors=True)
+            code, res = self.rec(sc, "typed.html")
+            log = self.assert_masked(code, res)
+            self.assertTrue([e for e in log if e["kind"] == "masked" and e["selector"] == "regex#typed"], sc)
+
+    def test_s08_fields_are_premasked_even_without_a_regex_match(self):
+        """fail closed: every field that receives typing is masked while regexes are configured."""
+        code, res = run_capture("run", "--url", fx("typed.html"), "--scene", "s08", "--scene-script", EXTRA, "--out-dir", self.out,
+                                "--regex", r"zzz@never\.match")
+        log = capture.load_log(res["mask_log"])
+        self.assertTrue([e for e in log if e["kind"] == "masked" and e["selector"] == "regex#typed" and e["rects"]], json.dumps(res)[:300])
+
+    def test_s21_pointer_events_none_owner_is_not_proven_occluded(self):
+        code, res = self.rec("s01", "pe.html")
+        log = self.assert_masked(code, res)
+        self.assertFalse([e for e in log if e["kind"] in ("masked", "oracle") and e.get("skip")], "ancestor hit taken for an occluder")
+        self.assertGreater(res["cross_check"]["rect_checks"], 50)
+
+    def test_s25_events_write_failure_rolls_back(self):
+        import project
+        sdir = os.path.join(self.tmp, ".demo", "demo")
+        os.makedirs(os.path.join(sdir, "media"))
+        pj = os.path.join(sdir, "project.json")
+        project.main(["--project", pj, "init"])
+        old = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, old)
+        args = ["run", "--url", fx("typed.html"), "--slug", "demo", "--scene", "s01", "--scene-script", EXTRA, "--regex", REGEXES[0]]
+        code, res = run_capture(*args)
+        self.assertEqual(code, 0)
+        media = os.path.join(sdir, "media")
+        before = {f: open(os.path.join(media, f), "rb").read() for f in os.listdir(media)}
+        real = capture.write_events
+
+        def boom(*a, **k):
+            raise capture.Fail(70, "events write failed")
+        capture.write_events = boom
+        self.addCleanup(setattr, capture, "write_events", real)
+        code, res = run_capture(*args)
+        self.assertEqual(code, 70)
+        self.assertEqual({f: open(os.path.join(media, f), "rb").read() for f in os.listdir(media)}, before)   # old files restored
+        self.assertFalse(project.read_project(pj)["events"]["clips"]["s01"]["masked"])
+        self.assertEqual(leftovers(media), [])
 
 
 @unittest.skipUnless(HAVE, "python playwright + chromium / ffmpeg / numpy not available")

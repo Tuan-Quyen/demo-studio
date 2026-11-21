@@ -31,6 +31,7 @@
   const BOXES = new Set(['IMG', 'CANVAS', 'VIDEO', 'IFRAME', 'OBJECT', 'EMBED', 'PICTURE']);
   const cache = new Map();           // key node/element -> {kind:'range', node, spans:[[a,b]]} | {kind:'box', el}
   const out = [];
+  const forms = new Set();           // every form control seen: its value is re-tested each frame (programmatic .value writes fire no event)
 
   function matchesAny(el) { for (const s of sels) { try { if (el.closest(s)) return true; } catch (e) { /* skip */ } } return false; }
   function spansOf(text) {
@@ -50,6 +51,7 @@
     cache.delete(el);
     if (SKIP.has(el.tagName)) return;
     const form = el.matches && el.matches(FORM);
+    if (form) forms.add(el);
     let sensitive = false;
     for (const s of sels) { try { if (el.matches(s)) { sensitive = true; break; } } catch (e) { /* skip */ } }
     if (form && (sensitive || matchesAny(el))) { cache.set(el, { kind: 'box', el }); return; }
@@ -109,9 +111,17 @@
       if (x1 - x0 < 0.5 || y1 - y0 < 0.5) continue;
       let hit = 0, proven = true;
       for (const f of [0.25, 0.5, 0.75]) {
-        const e = document.elementFromPoint(x0 + (x1 - x0) * f, (y0 + y1) / 2);
-        if (e && (owner.contains(e) || e === owner || (e.getRootNode && e.getRootNode() !== document))) hit++;
-        else if (!e || !opaque(e)) proven = false;
+        const px = x0 + (x1 - x0) * f, py = (y0 + y1) / 2;
+        const e = document.elementFromPoint(px, py);
+        if (e && (owner.contains(e) || e === owner || (e.getRootNode && e.getRootNode() !== document))) { hit++; continue; }
+        let reached = false; const occ = [];     // what is above the owner; its ancestors are not occluders; owner absent = no proof
+        for (const n of document.elementsFromPoint(px, py)) {
+          if (n === owner || owner.contains(n)) { reached = true; break; }
+          if (n.contains(owner) || (n.getRootNode && n.getRootNode() !== document)) continue;
+          occ.push(n);
+        }
+        if (!occ.length) { hit++; continue; }
+        if (!reached || !occ.every(opaque)) proven = false;
       }
       if (hit < 3 && proven) skip.push(rects.length);
       rects.push([Math.round(x0 * 10) / 10, Math.round(y0 * 10) / 10, Math.round((x1 - x0) * 10) / 10, Math.round((y1 - y0) * 10) / 10]);
@@ -120,6 +130,7 @@
   function frame(ts) {
     requestAnimationFrame(frame);   // armed first: one callback per frame (timing deliberately differs from the mask loop)
     try {
+      for (const f of forms) { if (!f.isConnected) { forms.delete(f); cache.delete(f); } else addEl(f); }
       const t = performance.timeOrigin + ts, rects = [], skip = [], c2 = new Map();
       for (const [k, it] of cache) {
         if (!k.isConnected) { cache.delete(k); continue; }

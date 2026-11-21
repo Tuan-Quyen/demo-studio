@@ -1089,6 +1089,18 @@ def sample_schedule(rois, dur, fps, stride_s, fullframe):
     return dict(sorted(sched.items()))
 
 
+def similar_text(a, b, min_run=4, min_ratio=0.5):
+    """True when two OCR texts share a common run of >= min_run alphanumerics (case-insensitive) or are
+    >= min_ratio similar: the blurred text is still (partly) the protected one."""
+    import difflib
+    x = "".join(re.findall(r"[a-z0-9]", a.lower()))
+    y = "".join(re.findall(r"[a-z0-9]", b.lower()))
+    if not x or not y:
+        return False
+    sm = difflib.SequenceMatcher(None, x, y, autojunk=False)
+    return sm.find_longest_match(0, len(x), 0, len(y)).size >= min_run or sm.ratio() >= min_ratio
+
+
 def hit_hash(key, text):
     return hmac_mod.new(key, text.encode("utf-8"), hashlib.sha256).hexdigest()[:16]
 
@@ -1137,11 +1149,16 @@ def run_verify(video, rois, ocr, dur, fps, wh, *, budget_s, stride_s, fullframe,
             for roi, (y0, y1) in zip(rs, bands):
                 texts = [it_["text"] for it_ in items if it_.get("box") is None
                          or y0 - 2 <= (it_["box"][1] + it_["box"][3]) / 2 <= y1 + 2]
-                n = max([roi["matcher"](t) for t in texts] or [0])
+                cands = texts
+                if roi.get("ctrl_text") and not roi.get("has_pattern"):
+                    # generic matcher (no pattern): blur fuzz is not a leak. Count only text that shares
+                    # a >= 4 char run or >= 50% similarity with what the raw crop reads (R-16)
+                    cands = [t for t in texts if similar_text(t, roi["ctrl_text"])]
+                n = max([roi["matcher"](t) for t in cands] or [0])
                 if n:
                     hit = {"region": roi["id"], "t_ms": int(round(pts * 1000)), "match_len": n}
                     if hmac_key:
-                        hit["hmac"] = hit_hash(hmac_key, max(texts, key=roi["matcher"]))
+                        hit["hmac"] = hit_hash(hmac_key, max(cands, key=roi["matcher"]))
                     hits.append(hit)
             sampled += sum(len(e["rois"]) for e in ents)
         if full:
@@ -1192,7 +1209,7 @@ def positive_controls(rois, clips, slug_dir, ocr, budget_s, ffmpeg="ffmpeg", tmp
     matcher accepts, else the OCR/pattern is no evidence. Each roi carries "ctrl": (scene, clip time
     s, source bbox). Crops live only in memory / tmpdir."""
     t0 = clock()
-    res, by_clip, seen = {}, {}, set()
+    res, by_clip, seen, ctext = {}, {}, set(), {}
     for roi in rois:
         if roi["id"] in seen:  # a region split by transform segments has one control
             continue
@@ -1225,7 +1242,13 @@ def positive_controls(rois, clips, slug_dir, ocr, budget_s, ffmpeg="ffmpeg", tmp
             if clock() - t0 >= budget_s:  # every OCR call is budget-checked (R-14)
                 raise BlurError(3, "budget of %.0f s exceeded during the positive controls: verdict "
                                    "incomplete" % budget_s)
-            res[roi["id"]] = any(roi["matcher"](i["text"]) for i in ocr(mbuf, mw, mh))
+            readable = [i["text"] for i in ocr(mbuf, mw, mh) if roi["matcher"](i["text"])]
+            res[roi["id"]] = bool(readable)
+            if readable:  # kept in memory only (never stored): what the UNBLURRED region reads as
+                ctext[roi["id"]] = max(readable, key=len)
+    for roi in rois:
+        if roi["id"] in ctext:
+            roi["ctrl_text"] = ctext[roi["id"]]
     return res
 
 

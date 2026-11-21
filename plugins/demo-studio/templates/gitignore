@@ -5,10 +5,13 @@
 .demo/*/.secret/
 .demo/*/raw/
 .demo/*/media/*.raw.*
-.demo/*/media/*.spec.json
+.demo/*/media/.tmp-*/
+.demo/*/.tmp-*/
+.demo/*/media/*.mask.jsonl
+.demo/*/media/*.sync.json
+.demo/*/media/*.probe.jsonl
 .demo/*/media/tmp-video/
 .demo/*/tmp-video/
-.demo/*/*.spec.json
 .demo/*/runs.jsonl
 .demo/*/*.schema1.bak
 .demo/*/cache/

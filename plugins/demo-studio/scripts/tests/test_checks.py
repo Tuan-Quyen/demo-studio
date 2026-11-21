@@ -312,6 +312,49 @@ class StalenessTests(unittest.TestCase):
         code, res = e.run()
         self.assertEqual(code, 0, res)
 
+    def weak_clip(self, **mask):
+        m = {"rects_checked": 4, "frames_unmasked": 0}
+        m.update(mask)
+        return {"masked": True, "mask": m}
+
+    def test_soft_frames_and_raised_thresholds_need_a_recorded_decision(self):   # S-24
+        e = self.good()
+        for mask in ({"frames_soft": 2}, {"thresholds": {"max_soft": 3, "max_resync": 0}},
+                     {"thresholds": {"max_soft": 0, "max_resync": 0, "accepted_unmaskable": ["canvas"]}}):
+            e.put("events", {"clips": {"s01": self.weak_clip(**mask)}})
+            e.blur("16x9")
+            code, res = e.run()
+            self.assertEqual(code, 10, (mask, res))
+            self.assertEqual(res["privacy_capture"]["undecided"], ["s01"])
+            self.assertEqual(res["failures"][-1], {"id": "privacy_capture", "owner": "demo-director",
+                                                   "class": "finding"})
+        # the user's recorded decision (demo.yaml privacy.accepted) is the only way through
+        with open(os.path.join(e.sdir, "demo.yaml"), "a") as f:
+            f.write('privacy:\n  accepted: ["s01: user accepted 2 soft frames on 2026-11-21"]\n')
+        code, res = e.run()
+        self.assertEqual(code, 0, res)
+        self.assertIn("s01", res["privacy_capture"]["weakened"])
+        # a reason-less entry is no decision
+        with open(os.path.join(e.sdir, "demo.yaml"), "w") as f:
+            f.write('formats: ["16:9"]\nlength_s: 6\nprivacy:\n  accepted: ["s01: ok"]\n')
+        self.assertEqual(e.run()[0], 10)
+
+    def test_default_thresholds_without_soft_frames_pass(self):
+        e = self.good()
+        e.put("events", {"clips": {"s01": self.weak_clip(frames_soft=0, thresholds={
+            "max_soft": 0, "max_resync": 0, "accepted_unmaskable": []})}})
+        e.blur("16x9")
+        self.assertEqual(e.run()[0], 0)
+
+    def test_stale_tmp_capture_dir_is_a_finding(self):
+        e = self.good()
+        e.put("events", {"clips": {"s01": self.weak_clip()}})
+        e.blur("16x9")
+        os.makedirs(os.path.join(e.sdir, "media", ".tmp-s01-77"))
+        code, res = e.run()
+        self.assertEqual(code, 10, res)
+        self.assertEqual(res["privacy_capture"]["stale_tmp"], ["media/.tmp-s01-77"])
+
     def test_unmaskable_without_region_is_incomplete(self):
         e = self.good()
         e.put("events", {"clips": {"s01": {"masked": True, "offset_ms": 0, "mask": {"rects_checked": 3},

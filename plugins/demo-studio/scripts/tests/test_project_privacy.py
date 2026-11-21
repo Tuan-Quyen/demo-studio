@@ -50,7 +50,8 @@ class GitignoreTests(Base):
     def test_init_writes_demo_gitignore_with_sensitive_paths(self):
         self.init()
         text = open(os.path.join(self.demo, ".gitignore")).read()
-        for must in ("*/.secret/", "*/media/preview/", "*/media/*.spec.json", "*/media/tmp-video/",
+        for must in ("*/.secret/", "*/media/preview/", "*/media/.tmp-*/", "*/media/*.mask.jsonl", "*/media/*.sync.json",
+                     "*/media/*.probe.jsonl", "*/media/tmp-video/",
                      "*/runs.jsonl", "*/*.schema1.bak", "*/cache/", "*/raw/", "*/media/*.raw.*"):
             self.assertIn(must, text.splitlines())
 
@@ -74,7 +75,10 @@ class RetentionTests(Base):
     def setup_raw(self, delivered):
         self.init()
         self.touch("media/s01.raw.webm")
-        self.touch("media/s01.spec.json")
+        self.touch("media/s01.mask.jsonl")
+        self.touch("media/s01.sync.json")
+        self.touch("media/s01.probe.jsonl")
+        self.touch("media/.tmp-s02-123/video.webm")
         self.touch("media/tmp-video/a.webm")
         self.touch("media/final-16x9.mp4")
         self.touch("media/preview/contact-s01.png")
@@ -96,7 +100,8 @@ class RetentionTests(Base):
         self.setup_raw(True)
         code, out, _ = run(["--slug", "vid", "retention", "--apply"], self.root)
         self.assertEqual(code, 0, out)
-        for gone in ("media/s01.raw.webm", "media/s01.spec.json", "media/tmp-video"):
+        for gone in ("media/s01.raw.webm", "media/s01.mask.jsonl", "media/s01.sync.json", "media/s01.probe.jsonl",
+                     "media/.tmp-s02-123", "media/tmp-video"):
             self.assertFalse(os.path.exists(os.path.join(self.sdir, gone)), gone)
         for kept in ("media/final-16x9.mp4", "media/preview/contact-s01.png", "project.json"):
             self.assertTrue(os.path.exists(os.path.join(self.sdir, kept)), kept)
@@ -108,6 +113,46 @@ class RetentionTests(Base):
         self.assertTrue(os.path.exists(os.path.join(self.sdir, "media", "s01.raw.webm")))
         self.assertEqual(run(["--slug", "vid", "retention", "--apply", "--force"], self.root)[0], 0)
         self.assertFalse(os.path.exists(os.path.join(self.sdir, "media", "s01.raw.webm")))
+
+    def test_clip_outside_media_is_found_through_its_event_record(self):   # --out-dir
+        self.init()
+        out = os.path.join(self.root, "elsewhere")
+        os.makedirs(os.path.join(out, ".tmp-s01-9"))
+        for n in ("s01.raw.webm", "s01.mask.jsonl", ".tmp-s01-9/v.webm"):
+            open(os.path.join(out, n), "w").write("x")
+        project.store_key(self.pj, "events", "capture-operator",
+                          {"clips": {"s01": {"file": "../../elsewhere/s01.raw.webm"}}}, 5)
+        code, o, _ = run(["--slug", "vid", "retention", "--apply", "--force"], self.root)
+        res = json.loads(o)      # default: outside files are listed and kept
+        self.assertTrue(any(p.endswith("s01.raw.webm") for p in res["outside_project"]))
+        self.assertIn("s01.raw.webm", os.listdir(out))
+        run(["--slug", "vid", "retention", "--apply", "--force", "--include-outside"], self.root)
+        self.assertEqual(sorted(os.listdir(out)), [])
+
+    def test_symlink_pointing_outside_is_never_followed_by_default(self):
+        self.init()
+        outside = os.path.join(self.root, "precious")
+        os.makedirs(outside)
+        target = os.path.join(outside, "keep.raw.webm")
+        open(target, "w").write("x")
+        os.makedirs(os.path.join(self.sdir, "media"))
+        os.symlink(target, os.path.join(self.sdir, "media", "s01.raw.webm"))
+        os.symlink(outside, os.path.join(self.sdir, "media", ".tmp-s01-5"))
+        code, o, _ = run(["--slug", "vid", "retention", "--apply", "--force"], self.root)
+        res = json.loads(o)
+        self.assertEqual(res["deleted"], [])
+        self.assertEqual(len(res["outside_project"]), 2)
+        self.assertTrue(os.path.exists(target))
+        self.assertTrue(os.path.islink(os.path.join(self.sdir, "media", "s01.raw.webm")))
+
+    def test_doctor_flags_and_cleans_stale_tmp_capture_dirs(self):
+        self.init()
+        self.touch("media/.tmp-s01-42/video.webm")
+        code, out, _ = run(["--slug", "vid", "doctor"], self.root)
+        self.assertEqual((code, json.loads(out)["stale_tmp"]), (10, ["media/.tmp-s01-42"]))
+        code, out, _ = run(["--slug", "vid", "doctor", "--clean"], self.root)
+        self.assertEqual(code, 0)
+        self.assertFalse(os.path.exists(os.path.join(self.sdir, "media", ".tmp-s01-42")))
 
     def test_keep_deletes_nothing(self):
         self.setup_raw(True)

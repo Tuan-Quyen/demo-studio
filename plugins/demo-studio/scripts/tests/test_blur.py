@@ -644,6 +644,26 @@ class VerdictLifecycleTests(Workspace):
         boxes = {roi["bbox"][0] for roi in rois}
         self.assertEqual(len(boxes), 2)                       # same region, two different output boxes
 
+    def test_blur_fuzz_is_not_a_hit_but_readable_text_is(self):   # R-16
+        clips = {"s01": dict(CLIPS["s01"])}
+        tl = {"scenes": [{"id": "s01", "in": 0, "out": 4000, "speed": 1.0, "start": 0, "end": 4000}]}
+        tr = blur.default_transform("16x9", (640, 360), (640, 360))
+
+        def run(read):
+            rois = blur.build_rois(blur._as_v2([self.region()], clips), blur.TimeMap("final", clips, tl),
+                                   clips, tr, (640, 360), 25, [])
+            for r in rois:
+                r["ctrl_text"] = "demo@example.com"
+            ocr = lambda rgb, w, h: [{"text": read, "box": None}]   # noqa: E731
+            return blur.run_verify(self.blurred, rois, ocr, 4.0, 25.0, (640, 360), budget_s=30,
+                                   stride_s=2.0, fullframe=False, full_matcher=blur.make_matcher([r"x"]),
+                                   controls={"b1": True})["verdict"]
+        self.assertEqual(run("Bengngie con"), "pass")
+        self.assertEqual(run("demo@example.com"), "leak")
+        self.assertEqual(run("demo@exampl"), "leak")        # a real partial read (>= 4 char run)
+        self.assertTrue(blur.similar_text("Demo @ Example.com", "demo@example.com"))
+        self.assertFalse(blur.similar_text("Bengngie con", "demo@example.com"))
+
     def test_seeded_values_are_searched_full_frame(self):
         self.write_project([])
         with open(os.path.join(self.sdir, "demo.yaml"), "w") as f:
@@ -722,10 +742,9 @@ class RealOcrVerifyTests(Workspace):
 
     def test_real_engine_reads_unblurred_not_blurred(self):
         self.make_raw()
-        # text_h 64 = a heavier blur (lr 16) than the 32 px text needs: the generic matcher counts ANY
-        # readable text as a hit, and a real engine still reads fuzz out of lr 8 (strength rule: tune
-        # per font; this test only needs a clearly unreadable result)
-        self.write_project([self.region(text_h=64)])
+        # 32 px text with the strength-rule floor (lr 8): the real engine still reads fuzz out of it
+        # ("Bengngie con"), which is NOT the protected text: pass (R-16). A raw output stays a leak.
+        self.write_project([self.region()])
         blurred = os.path.join(self.root, "blurred.mp4")
         self.render_with_graph(blurred)
 

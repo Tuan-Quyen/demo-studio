@@ -138,6 +138,8 @@ SCHEMA = {
         "mask_style": leaf("enum", "opaque", enum=["opaque", "blur"]),
         "raw_retention": leaf("enum", "delete-after-delivery", enum=["delete-after-delivery", "keep"]),
         "capture_mask": leaf("bool", True),
+        # recorded user decisions that accept a weaker capture gate (S-24): "<scene>: <reason, quote and date>"
+        "accepted": leaf("list", []),
     },
     "tools": {
         # which toolkit feature does a job several features can do (setup_tools.py --options);

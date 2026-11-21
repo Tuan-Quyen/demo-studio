@@ -28,7 +28,9 @@ run_bounded (wall 0.3 x duration + 60 s, stall 30 s). Checks:
   vo        every #voice scene file passes vo.check (lead/trail/gaps).
 Also aggregates events.clips.*.mask.frames_unmasked into #checks.privacy_capture; clips that capture did
 not verify (masked false, mask_style blur, rect_checks 0) are listed as `uncaptured` and, with real data,
-need a #blur region (else incomplete, owner privacy-blurrer).
+need a #blur region (else incomplete, owner privacy-blurrer). A weaker capture gate (frames_soft > 0, raised
+mask.thresholds, accepted unmaskable surfaces) is a finding (owner demo-director) unless demo.yaml
+privacy.accepted holds "<scene>: <reason>" for that scene; stale media/.tmp-*/ dirs (raw video) are a finding.
 
 `pass` is recomputed from scratch on every run from THIS run's results and the live blur verdicts: a
 subset (`--only`) never inherits an old pass, and any REQUIRED check not run makes `pass` false. #checks
@@ -435,7 +437,33 @@ def clip_uncaptured(c):
     return (not c.get("masked") or style == "blur" or int(m.get("rects_checked", m.get("rect_checks")) or 0) == 0)
 
 
-def privacy_capture(data, real=True):
+def weakened(c):
+    """Why a clip's capture gate is weaker than the default (S-24), or []: soft frames, raised
+    thresholds, accepted unmaskable surfaces."""
+    m = c.get("mask") if isinstance(c.get("mask"), dict) else {}
+    th = m.get("thresholds") if isinstance(m.get("thresholds"), dict) else {}
+    why = []
+    if int(m.get("frames_soft") or 0) > 0:
+        why.append("%d soft frame(s)" % int(m["frames_soft"]))
+    if int(th.get("max_soft") or 0) > 0 or int(th.get("max_resync") or 0) > 0:
+        why.append("raised thresholds (max_soft=%s, max_resync=%s)" % (th.get("max_soft", 0), th.get("max_resync", 0)))
+    acc = list(th.get("accepted_unmaskable") or []) + [u for u in (c.get("unmaskable") or [])
+                                                      if isinstance(u, dict) and u.get("accepted")]
+    if acc:
+        why.append("%d accepted unmaskable surface(s)" % len(acc))
+    return why
+
+
+def decision_for(sid, accepted):
+    """A recorded user decision in demo.yaml privacy.accepted: "<scene>: <reason>" (or "*: ...")."""
+    for entry in accepted or []:
+        head, _, reason = str(entry).partition(":")
+        if head.strip() in (sid, "*") and len(reason.strip()) >= 10:
+            return str(entry)
+    return None
+
+
+def privacy_capture(data, real=True, accepted=(), tmp_dirs=()):
     clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
     if not isinstance(clips, dict) or not clips:
         return None
@@ -448,6 +476,8 @@ def privacy_capture(data, real=True):
             if r.get("scene"):
                 covered.add(r["scene"])
             covered.update(sp[2] for sp in r.get("spans") or [] if isinstance(sp, list) and len(sp) == 3)
+    weak = {k: w for k, c in cl.items() for w in [weakened(c)] if w}
+    undecided = sorted(k for k in weak if not decision_for(k, accepted))
     return {"clips": len(clips),
             "masked": sum(1 for c in cl.values() if c.get("masked")),
             "frames_unmasked": sum(int(((c.get("mask") or {}).get("frames_unmasked")) or 0)
@@ -455,7 +485,8 @@ def privacy_capture(data, real=True):
             "rects_checked": sum(int(((c.get("mask") or {}).get("rects_checked")) or 0)
                                  for c in cl.values()),
             "uncaptured": unc,
-            "needs_blur": [k for k in unc if real and k not in covered]}
+            "needs_blur": [k for k in unc if real and k not in covered],
+            "weakened": weak, "undecided": undecided, "stale_tmp": list(tmp_dirs)}
 
 
 # =========================================================================== command
@@ -524,7 +555,9 @@ def run(args):
         res = dict(results)
         if "blur" in res:
             res["blur"] = blur_result(cur, aspects, rendered, files, sdir)
-        pc = privacy_capture(cur, real)
+        pc = privacy_capture(cur, real, cfg["privacy"].get("accepted") or [],
+                             [os.path.relpath(t, sdir).replace(os.sep, "/")
+                              for t in project.stale_tmp_dirs(sdir, cur)])
         missing = [r for r in REQUIRED if r not in res]
         failures = [{"id": k, "owner": r["owner"],
                      "class": "leak" if (k == "blur" and r.get("verdict") == "leak")
@@ -532,6 +565,10 @@ def run(args):
                     for k, r in res.items() if not r.get("pass")]
         if pc and pc["frames_unmasked"] > 0:
             failures.append({"id": "privacy_capture", "owner": "capture-operator", "class": "leak"})
+        if pc and pc["undecided"]:   # a weaker capture gate needs the user's recorded decision
+            failures.append({"id": "privacy_capture", "owner": "demo-director", "class": "finding"})
+        if pc and pc["stale_tmp"]:   # raw unmasked video left by a killed capture
+            failures.append({"id": "privacy_capture", "owner": "capture-operator", "class": "finding"})
         if pc and pc["needs_blur"]:
             failures.append({"id": "privacy_capture", "owner": "privacy-blurrer", "class": "incomplete"})
         total_pass = (all(r.get("pass") for r in res.values()) and not missing

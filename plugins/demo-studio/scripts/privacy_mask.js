@@ -64,6 +64,20 @@
     return Object.assign({}, SEL_STYLE.solid);
   })();
 
+  // S-17: programmatic `.value` writes (v-model, prefill, page.evaluate) fire no event and no mutation. Every input-like
+  // element ever seen is tracked and re-tested each frame, and the value setters are hooked for an immediate re-test.
+  const inputs = new Set();
+  const touched = [];
+  try {
+    for (const C of [HTMLInputElement, HTMLTextAreaElement]) {
+      const d = Object.getOwnPropertyDescriptor(C.prototype, 'value');
+      if (d && d.set) {
+        Object.defineProperty(C.prototype, 'value', { configurable: true, enumerable: d.enumerable, get: d.get,
+          set: function (v) { d.set.call(this, v); touched.push(this); } });
+      }
+    }
+  } catch (e) { /* the per-frame re-test still covers it */ }
+
   const configErrors = [];
   const selectors = [];
   for (const s of ['[data-sensitive]'].concat(RAW.selectors || [])) {
@@ -164,8 +178,28 @@
       pool = [];
     }
     root.appendChild(host);
+    topShow();
     state.hostOk = host.isConnected;
     return state.hostOk;
+  }
+  // S-22: <dialog>.showModal() and popovers paint in the top layer, above any z-index. The host is a manual popover
+  // so it can join the top layer, and is re-shown (moved on top) whenever the set of top-layer elements changes.
+  let topSig = '';
+  const HAS_POPOVER = typeof HTMLElement !== 'undefined' && typeof HTMLElement.prototype.showPopover === 'function';
+  function topLayerCount() { try { return document.querySelectorAll(':modal, :popover-open').length; } catch (e) { return 0; } }
+  function topShow() {
+    if (!HAS_POPOVER || !host) return;
+    try {
+      if (!host.hasAttribute('popover')) host.setAttribute('popover', 'manual');
+      if (host.matches(':popover-open')) host.hidePopover();
+      host.showPopover();
+      topSig = String(topLayerCount());
+    } catch (e) { /* not connected yet: retried next frame */ }
+  }
+  function topCheck() {
+    if (!host || !HAS_POPOVER) return;
+    const sig = String(topLayerCount());
+    if (sig !== topSig || !host.matches(':popover-open')) topShow();
   }
   function drawOverlay(rects) { // rects: [{x,y,w,h,box}] viewport px
     if (!rects.length && !host) return;
@@ -239,6 +273,7 @@
     const inputLike = el.matches(INPUT_SEL);
     // input / textarea: value and placeholder
     if (inputLike) {
+      inputs.add(el);
       const forcedPrev = items.get(el);
       if (forcedPrev && forcedPrev.forced) return;
       let label = self || matchSel(el);
@@ -292,6 +327,7 @@
     const t0 = performance.now();
     stats.mutation_batches++;
     clipCache = new WeakMap();
+    dirtyDetect = true;
     for (const m of muts) {
       const tg = m.target;
       if (host && (tg === host || (tg.nodeType === 1 && host.contains && tg !== document.documentElement && host.contains(tg)))) continue;
@@ -366,9 +402,19 @@
     const w = x1 - x0, h = y1 - y0;
     let hit = 0, proven = true;
     for (const f of [0.25, 0.5, 0.75]) {
-      const e = document.elementFromPoint(x0 + w * f, y0 + h / 2);
-      if (e && (owner.contains(e) || e === owner || (host && e === host))) hit++;
-      else if (!e || !opaqueProof(e)) proven = false;
+      const px = x0 + w * f, py = y0 + h / 2;
+      const e = document.elementFromPoint(px, py);
+      if (e && (owner.contains(e) || e === owner || (host && e === host))) { hit++; continue; }
+      // something else answers the hit test: list what is above the owner (S-21: its own ancestors are not occluders,
+      // and when the owner is not in the list at all, e.g. pointer-events:none, no opacity proof is possible)
+      let reached = false; const occ = [];
+      for (const n of document.elementsFromPoint(px, py)) {
+        if (n === owner || owner.contains(n)) { reached = true; break; }
+        if (n === host || n.contains(owner)) continue;
+        occ.push(n);
+      }
+      if (!occ.length) { hit++; continue; }
+      if (!reached || !occ.every(opaqueProof)) proven = false;
     }
     const q = (v) => Math.round(v * 10) / 10;
     return { rect: [q(x0), q(y0), q(w), q(h)], occluded: hit === 0, partial: hit > 0 && hit < 3, opaque: hit < 3 && proven, fixed: !!fixedCache.get(owner) };
@@ -381,7 +427,7 @@
   const unm = new Map();     // key -> {surface, selector, reason, el}
   const ids = new WeakMap(); let idSeq = 0;
   const idOf = (el) => { let i = ids.get(el); if (!i) { i = ++idSeq; ids.set(el, i); } return i; };
-  let lastDetect = -1e9;
+  let lastDetect = -1e9, dirtyDetect = false;
   function visibleBox(el) {
     if (!el || !el.isConnected) return null;
     const b = el.getBoundingClientRect();
@@ -418,6 +464,9 @@
       if (!h || !r) { shadowRefs.splice(i, 1); continue; }
       if (!h.isConnected || !visibleBox(h)) continue;
       if (shadowSensitive(r, 0)) add(h, h, 'shadow-dom', 'sensitive text or selector inside a shadow root (not scanned)');
+    }
+    if (!HAS_POPOVER && topLayerCount()) {
+      for (const el of document.querySelectorAll(':modal')) { if (visibleBox(el)) add(el, el, 'top-layer', 'top-layer element paints above the overlay host (no popover support)'); }
     }
     // pseudo-element content, broken-image alt text, hovered title tooltips
     const all = document.querySelectorAll('*');
@@ -471,6 +520,8 @@
   }
   function frameBody(ts, f0) {
     if (!document.documentElement) return;
+    if (touched.length) { for (const el of touched.splice(0)) if (el.isConnected) handleElement(el); }
+    for (const el of inputs) { if (!el.isConnected) { inputs.delete(el); dropItem(el); continue; } handleElement(el); }
     if (!state.sheetOk || (HAS_ADOPT && sheet && !document.adoptedStyleSheets.includes(sheet)) || (styleEl && !styleEl.isConnected)) installSheet();
     if (hl && CSS.highlights.get('ds-mask') !== hl) CSS.highlights.set('ds-mask', hl);
     const t = performance.timeOrigin + ts;
@@ -513,6 +564,7 @@
       }
     }
     drawOverlay(overlayRects);
+    topCheck();
     for (const [selector, g] of groups) {
       if (!g.rects.length && !g.hidden) continue;
       const entry = { t, kind: 'masked', selector, count: g.count, rects: g.rects, state: g.ok ? 'masked' : 'unmasked' };
@@ -523,7 +575,7 @@
       if (g.hidden) entry.hidden = g.hidden;
       log.push(entry);
     }
-    if (ts - lastDetect > 250) detectUnmaskable(ts);
+    if ((dirtyDetect && ts - lastDetect > 60) || ts - lastDetect > 250) { dirtyDetect = false; detectUnmaskable(ts); }   // S-23: on mutation too
     for (const u of unm.values()) {
       const r = u.surface === 'scan-budget' ? [0, 0, vw(), vh()] : visibleBox(u.el);
       if (r) log.push({ t, kind: 'unmaskable', surface: u.surface, selector: u.selector, reason: u.reason, rect: r });
@@ -593,10 +645,10 @@
       checked.push({ selector: s, matched: els.length, rendered, masked });
     }
     // regex hits must be registered too (rescanAll just did it; verify the registry is live)
-    let regexHits = 0;
-    for (const it of items.values()) if (/^regex#/.test(it.selector || '')) regexHits++;
+    let regexHits = 0; const regexLabels = new Set();
+    for (const it of items.values()) if (/^regex#/.test(it.selector || '')) { regexHits++; regexLabels.add(it.selector); }
     const unmaskable = unmaskableSnapshot();
-    return { ok: failures.length === 0, unmaskable, ready: state.ready, mode: HAS_HL ? 'highlight' : 'overlay', style_sheet: HAS_ADOPT ? 'adopted' : 'element', regex_hits: regexHits, checked, failures };
+    return { ok: failures.length === 0, unmaskable, ready: state.ready, mode: HAS_HL ? 'highlight' : 'overlay', style_sheet: HAS_ADOPT ? 'adopted' : 'element', regex_hits: regexHits, regex_labels: Array.from(regexLabels), checked, failures };
   }
 
   const api = {
@@ -610,8 +662,10 @@
     // S-08: pre-mask the element a regex-matching text is about to be typed into (overlay box from the next frame on)
     forceMask: (el) => {
       if (!el || el.nodeType !== 1 || !el.matches || !el.matches(INPUT_SEL)) return false;
+      const had = items.get(el);
       items.set(el, { kind: 'input', el, selector: 'regex#typed', ranges: [], valueHit: true, forced: true });
-      return true;
+      inputs.add(el);
+      return had && had.forced ? 1 : 2;      // 2 = newly masked (the caller waits for the overlay to paint)
     },
     activeElement: () => document.activeElement,
   };

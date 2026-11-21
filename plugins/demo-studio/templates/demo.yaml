@@ -82,6 +82,9 @@ privacy:
   mask_style: opaque # opaque = solid pill (default, safe) | blur (radius >= 0.35 x font size). Default: opaque
   raw_retention: delete-after-delivery   # delete-after-delivery (default for real data) | keep (explicit choice):
                      # raw clips can contain the secrets. Default: delete-after-delivery
+  accepted: []       # user decisions that accept a weaker capture gate (soft frames, raised thresholds,
+                     # accepted unmaskable surfaces): "s03: <why, the user's own words, date>". Written by the
+                     # director from the user's answer, never by another agent. Default: []
   capture_mask: true # false = skip the capture-time mask and blur everything in post (same pipeline,
                      # slower). Default: true
 

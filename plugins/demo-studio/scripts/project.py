@@ -14,10 +14,11 @@ Usage:
     deps <key> [--json]   keys to re-run after <key> changes (transitive, run order)
     owner <key>           agent that owns <key>
     migrate [--dry-run]   upgrade a schema 1 project to schema 2 (backup first, see below)
-    retention [--apply] [--force]   privacy.raw_retention: with `delete-after-delivery`, delete raw
+    retention [--apply] [--force] [--include-outside]   privacy.raw_retention: with `delete-after-delivery`, delete raw
                           clips / tmp-video / capture specs once #delivery exists (dry listing without
                           --apply; refuses with exit 3 before delivery unless --force). The hook a
                           packager or command calls after delivery.
+    doctor [--clean]      flag (exit 10) / remove stale media/.tmp-*/ capture dirs (raw unmasked video)
     stale <key>           list upstream keys whose version changed since <key> was written (exit 10)
   (deps/owner need no project file). `init` also writes <.demo>/.gitignore (sensitive/bulky paths).
   --slug walks up from cwd to the nearest `.demo/<slug>`; inside `.demo/` with none above it, or
@@ -259,10 +260,13 @@ def empty_project():
 # Paths (relative to the `.demo/` folder) that must never be committed or delivered (§6.5, S-11).
 # templates/gitignore is the same list prefixed with `.demo/` for a repo-level .gitignore.
 GITIGNORE_LINES = [
-    "*/media/preview/", "*/.secret/", "*/raw/", "*/media/*.raw.*", "*/media/*.spec.json",
-    "*/media/tmp-video/", "*/tmp-video/", "*/*.spec.json", "*/runs.jsonl", "*/*.schema1.bak",
+    "*/media/preview/", "*/.secret/", "*/raw/", "*/media/*.raw.*",
+    "*/media/.tmp-*/", "*/.tmp-*/",                      # raw unmasked video left by a killed capture
+    "*/media/*.mask.jsonl", "*/media/*.sync.json", "*/media/*.probe.jsonl",
+    "*/media/tmp-video/", "*/tmp-video/", "*/runs.jsonl", "*/*.schema1.bak",
     "*/cache/", "*/*.lock",
 ]
+CAPTURE_SIDECARS = (".mask.jsonl", ".sync.json", ".probe.jsonl")
 GITIGNORE_HEADER = "# demo-studio: sensitive or bulky artefacts (docs/redesign section 6.5); managed by project.py init"
 
 
@@ -552,28 +556,48 @@ def cmd_migrate(args, path):
     return 0
 
 
-def raw_artifacts(sdir, data):
-    """Paths (absolute) of raw / unverified capture artefacts under the slug folder."""
-    found = set()
+def _clip_dirs(sdir, data):
+    """Folders capture wrote clips to: media/ plus the folder of every #events.clips[*].file (so a
+    clip recorded with --out-dir outside media/ is found through its own record)."""
+    dirs = {os.path.join(sdir, "media")}
     clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
     for c in (clips or {}).values():
         if isinstance(c, dict) and isinstance(c.get("file"), str):
-            found.add(os.path.join(sdir, c["file"]))
+            dirs.add(os.path.dirname(os.path.normpath(os.path.join(sdir, c["file"]))))
+    return sorted(d for d in dirs if os.path.isdir(d))
+
+
+def stale_tmp_dirs(sdir, data):
+    """`.tmp-<sid>-<pid>/` capture dirs: the raw UNMASKED video survives there after a SIGKILL / OOM."""
+    out = []
+    for d in _clip_dirs(sdir, data) + [sdir]:
+        for n in os.listdir(d):
+            full = os.path.join(d, n)
+            if n.startswith(".tmp-") and os.path.isdir(full):
+                out.append(full)
+    return sorted(set(out))
+
+
+def raw_artifacts(sdir, data):
+    """Paths (absolute) of raw / unverified capture artefacts: clip files named by #events (wherever
+    --out-dir put them), `*.raw.*`, the mask log / sync / probe sidecars, `.tmp-*` dirs, raw/, tmp-video/."""
+    found = set()
+    clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
+    for c in (clips or {}).values():
+        if isinstance(c, dict):
+            for k in ("file", "mask_log", "sync"):
+                if isinstance(c.get(k), str):
+                    found.add(os.path.normpath(os.path.join(sdir, c[k])))
     for pat in ("raw", os.path.join("media", "tmp-video"), "tmp-video"):
         full = os.path.join(sdir, pat)
         if os.path.isdir(full):
             found.add(full)
-    media = os.path.join(sdir, "media")
-    if os.path.isdir(media):
-        for n in os.listdir(media):
-            if ".raw." in n or n.endswith(".spec.json"):
-                found.add(os.path.join(media, n))
-    for n in os.listdir(sdir) if os.path.isdir(sdir) else ():
-        if n.endswith(".spec.json"):
-            found.add(os.path.join(sdir, n))
-    root = os.path.realpath(sdir)
-    return sorted(p for p in found if os.path.realpath(p).startswith(root + os.sep)
-                  and os.path.exists(p))
+    for d in _clip_dirs(sdir, data):
+        for n in os.listdir(d):
+            if ".raw." in n or n.endswith(CAPTURE_SIDECARS):
+                found.add(os.path.join(d, n))
+    found.update(stale_tmp_dirs(sdir, data))
+    return sorted(p for p in found if os.path.exists(p))
 
 
 def cmd_retention(args, path):
@@ -589,10 +613,16 @@ def cmd_retention(args, path):
     except Exception as e:  # noqa: BLE001
         raise CliError(2, "demo.yaml: %s" % getattr(e, "msg", e))
     mode = cfg["privacy"]["raw_retention"]
-    files = raw_artifacts(sdir, data)
+    root = os.path.realpath(sdir)
+    files, outside = [], []
+    for f in raw_artifacts(sdir, data):  # symlinks resolved: a link pointing out is outside
+        (files if os.path.realpath(f).startswith(root + os.sep) else outside).append(f)
+    if args.include_outside:
+        files, outside = files + outside, []
     delivered = isinstance(data.get("delivery"), dict) or "delivery" in data["_meta"]["keys"]
     res = {"status": "ok", "raw_retention": mode, "delivered": delivered, "apply": bool(args.apply),
-           "candidates": [os.path.relpath(f, sdir).replace(os.sep, "/") for f in files], "deleted": []}
+           "candidates": [os.path.relpath(f, sdir).replace(os.sep, "/") for f in files], "deleted": [],
+           "outside_project": [os.path.realpath(f) for f in outside]}
     if mode == "keep":
         res["note"] = "raw_retention is keep: nothing is deleted"
         print(json.dumps(res))
@@ -623,6 +653,23 @@ def cmd_retention(args, path):
     except Exception:  # noqa: BLE001
         pass
     return 0 if res["status"] == "ok" else 2
+
+
+def cmd_doctor(args, path):
+    """Flag leftovers that hold raw unmasked data: stale `.tmp-*` capture dirs (exit 10 when any).
+    --clean removes them."""
+    data = read_project(path)
+    sdir = os.path.dirname(path)
+    tmp = stale_tmp_dirs(sdir, data)
+    res = {"status": "ok" if not tmp else "stale-tmp", "stale_tmp": [os.path.relpath(t, sdir).replace(os.sep, "/") for t in tmp],
+           "cleaned": []}
+    if tmp and args.clean:
+        for t in tmp:
+            shutil.rmtree(t, ignore_errors=True)
+            res["cleaned"].append(os.path.relpath(t, sdir).replace(os.sep, "/"))
+        res["status"] = "ok"
+    print(json.dumps(res))
+    return 10 if res["status"] != "ok" else 0
 
 
 def cmd_stale(args, path):
@@ -722,6 +769,11 @@ def build_parser():
     r = sub.add_parser("retention", parents=[common], help="apply privacy.raw_retention after delivery")
     r.add_argument("--apply", action="store_true", help="delete (default: only list)")
     r.add_argument("--force", action="store_true", help="delete even before #delivery exists")
+    r.add_argument("--include-outside", action="store_true", dest="include_outside",
+                   help="also delete #events clip files that resolve outside .demo/<slug>/ "
+                        "(default: listed as outside_project and skipped)")
+    dc = sub.add_parser("doctor", parents=[common], help="flag stale .tmp-* capture dirs (raw video)")
+    dc.add_argument("--clean", action="store_true", help="delete them")
     st = sub.add_parser("stale", parents=[common], help="upstream keys changed since <key> was written")
     st.add_argument("key")
     m = sub.add_parser("migrate", parents=[common], help="upgrade a schema 1 project to schema 2")
@@ -739,7 +791,7 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     handlers = {"init": cmd_init, "get": cmd_get, "set": cmd_set, "keys": cmd_keys,
                 "deps": cmd_deps, "owner": cmd_owner, "migrate": cmd_migrate,
-                "retention": cmd_retention, "stale": cmd_stale}
+                "retention": cmd_retention, "stale": cmd_stale, "doctor": cmd_doctor}
     try:
         path = None if args.cmd in ("deps", "owner") else project_path(args)
         return handlers[args.cmd](args, path)

@@ -109,7 +109,11 @@ class Ctx:
 
 # ------------------------------------------------------------------ typed-text guard (S-08)
 class TypeGuard:
-    """Check text about to be typed against the privacy regexes (browser, JS semantics) and mask the target first."""
+    """While privacy regexes are configured, EVERY field that receives typing is masked before the first key (S-08,
+    fail closed: no regex has to match, so split calls and prefixes cannot show). If the target cannot be pre-masked
+    (not an input/textarea/contenteditable) and the text (or the text typed so far) matches a regex, the run is
+    refused. Covered paths: Keyboard.type/press/down/insert_text, Locator/Page/Frame type, fill, press,
+    press_sequentially, ElementHandle type/fill/press."""
 
     def __init__(self, get_page):
         self.get_page = get_page
@@ -118,69 +122,70 @@ class TypeGuard:
         self._orig = []
 
     def _hit(self, text):
-        page = self.get_page()
-        return bool(page.evaluate("t => !!(window.__dsMask && window.__dsMask.testText(t))", text))
+        return bool(self.get_page().evaluate("t => !!(window.__dsMask && window.__dsMask.testText(t))", text))
 
-    def before(self, text, locator=None):
+    def before(self, text, locator=None, handle=None):
         if not self.active or not isinstance(text, str) or not text:
             return
         buf = (self.buf + text)[-400:]
-        if not (self._hit(text) or self._hit(buf)):
-            self.buf = buf
-            return
         page = self.get_page()
-        if locator is not None:
-            ok = locator.first.evaluate("el => !!window.__dsMask.forceMask(el)")
+        if handle is not None:
+            r = handle.evaluate("el => window.__dsMask.forceMask(el)")
+        elif locator is not None:
+            r = locator.first.evaluate("el => window.__dsMask.forceMask(el)")
         else:
-            ok = page.evaluate("() => !!window.__dsMask.forceMask(document.activeElement)")
-        if not ok:
-            raise Refused("typed text matches a privacy regex but the target cannot be masked before the first key "
-                          "(not an input/textarea/contenteditable): not typed")
-        # the overlay is drawn by the mask loop on its next frame: wait until it has painted, then type
-        page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))))")
+            r = page.evaluate("() => window.__dsMask.forceMask(document.activeElement)")
+        if not r:
+            if self._hit(text) or self._hit(buf):
+                raise Refused("typed text matches a privacy regex but the target cannot be masked before the first key "
+                              "(not an input/textarea/contenteditable): not typed")
+        elif r == 2:    # newly masked: the overlay is drawn by the mask loop on its next frame; wait until it has painted
+            page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))))")
         self.buf = buf
 
     def install(self):
-        from playwright.sync_api import Frame, Keyboard, Locator, Page
+        from playwright.sync_api import ElementHandle, Frame, Keyboard, Locator, Page
         guard = self
 
-        def wrap_loc(cls, name, argpos, reset=False):
+        def wrap(cls, name, kind, reset=False):
             orig = getattr(cls, name, None)
             if orig is None:
                 return
 
             def f(self_, *a, **kw):
-                text = a[argpos] if len(a) > argpos else kw.get("value" if name == "fill" else "text")
-                if cls is Locator:
-                    guard.before(text, self_)
+                if kind == "kb":
+                    text = a[0] if a else kw.get("text") or kw.get("key")
+                    if isinstance(text, str) and (len(text) == 1 or name in ("type", "insert_text")):
+                        guard.before(text)
+                elif kind == "loc":
+                    text = a[0] if a else kw.get("text") or kw.get("value") or kw.get("key")
+                    if name != "press" or (isinstance(text, str) and len(text) == 1):
+                        guard.before(text, locator=self_)
+                elif kind == "handle":
+                    text = a[0] if a else kw.get("text") or kw.get("value") or kw.get("key")
+                    if name != "press" or (isinstance(text, str) and len(text) == 1):
+                        guard.before(text, handle=self_)
                 else:   # Page / Frame: (selector, text)
-                    guard.before(text, self_.locator(a[0] if a else kw.get("selector")))
+                    text = a[1] if len(a) > 1 else kw.get("text") or kw.get("value") or kw.get("key")
+                    if name != "press" or (isinstance(text, str) and len(text) == 1):
+                        guard.before(text, locator=self_.locator(a[0] if a else kw.get("selector")))
                 if reset:
                     guard.buf = ""
                 return orig(self_, *a, **kw)
             setattr(cls, name, f)
             self._orig.append((cls, name, orig))
 
-        def wrap_kb(name):
-            orig = getattr(Keyboard, name)
-
-            def f(self_, *a, **kw):
-                text = a[0] if a else kw.get("text") or kw.get("key")
-                if isinstance(text, str) and (name != "press" or len(text) == 1):
-                    guard.before(text)
-                return orig(self_, *a, **kw)
-            setattr(Keyboard, name, f)
-            self._orig.append((Keyboard, name, orig))
-
-        for cls in (Locator,):
-            wrap_loc(cls, "type", 0)
-            wrap_loc(cls, "press_sequentially", 0)
-            wrap_loc(cls, "fill", 0, reset=True)
+        for n in ("type", "press_sequentially", "press"):
+            wrap(Locator, n, "loc")
+            wrap(ElementHandle, n, "handle")
+        wrap(Locator, "fill", "loc", reset=True)
+        wrap(ElementHandle, "fill", "handle", reset=True)
         for cls in (Page, Frame):
-            wrap_loc(cls, "type", 1)
-            wrap_loc(cls, "fill", 1, reset=True)
-        for n in ("type", "insert_text", "press"):
-            wrap_kb(n)
+            for n in ("type", "press"):
+                wrap(cls, n, "pf")
+            wrap(cls, "fill", "pf", reset=True)
+        for n in ("type", "insert_text", "press", "down"):
+            wrap(Keyboard, n, "kb")
 
     def uninstall(self):
         for cls, name, orig in reversed(self._orig):
@@ -205,7 +210,7 @@ def summarize(a):
     if not a:
         return None
     return {"ok": a.get("ok"), "mode": a.get("mode"), "checked": a.get("checked"), "failures": a.get("failures"),
-            "regex_hits": a.get("regex_hits"), "unmaskable": a.get("unmaskable")}
+            "regex_hits": a.get("regex_hits"), "regex_labels": a.get("regex_labels"), "unmaskable": a.get("unmaskable")}
 
 
 def present(*asserts):

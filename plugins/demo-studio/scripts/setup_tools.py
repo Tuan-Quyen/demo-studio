@@ -536,6 +536,18 @@ def probe_modules(ctx: Ctx, modules: list[str]) -> dict[str, bool]:
         return {m: False for m in mods}
 
 
+PLAYWRIGHT_PIN = (1, 63)   # keep in sync with requirements/capture.txt
+
+
+def playwright_version(ctx: Ctx):
+    """(major, minor, patch) of the venv's playwright, None when it cannot be read."""
+    if not ctx.venv_exists:
+        return None
+    rc, out = run_capture([str(ctx.vpy), "-I", "-c", "import importlib.metadata as m; print(m.version('playwright'))"])
+    m = re.match(r"(\d+)\.(\d+)\.?(\d*)", (out or "").strip().splitlines()[-1] if rc == 0 and (out or "").strip() else "")
+    return tuple(int(x or 0) for x in m.groups()) if m else None
+
+
 def req_names(reqs_file: str | None) -> list[str]:
     if not reqs_file:
         return []
@@ -661,6 +673,10 @@ def feature_states(ctx: Ctx, keys: list[str]) -> dict[str, dict]:
         absent = [m for m in pos(f, "modules", []) if not mods.get(m)]
         if absent:
             return {"status": "missing", "reason": f"not importable: {', '.join(absent)}"}
+        if k == "capture":   # R-17: Chromium pairing (requirements/capture.txt pins playwright 1.63.x)
+            pv = playwright_version(ctx)
+            if pv and pv[:2] != PLAYWRIGHT_PIN:
+                return {"status": "missing", "reason": "playwright %s installed, capture needs %d.%d.x (Chromium pairing)" % (".".join(map(str, pv)), *PLAYWRIGHT_PIN)}
         gone = appium_missing(ctx, pos(f, "appium")) if pos(f, "appium") else []
         if gone:
             return {"status": "missing", "reason": f"not installed in {ctx.appium_dir}: {', '.join(gone)}"}
