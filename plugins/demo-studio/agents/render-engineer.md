@@ -24,7 +24,7 @@ Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --pyth
 3. Measure the output and write all numbers:
    - sync drift per scene <= `targets.max_drift_ms` (default 80)
    - loudness `targets.lufs` (default -14) +/- 1 LUFS, true peak <= `targets.true_peak` (default -1) dBTP
-   - blur coverage: `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> check-blur` (geometric, no OCR; with `#timeline` present it checks only what reaches the final) exits 0; copy its `pass`, `tracks`, `samples`, `gaps`, `invalid`, `weak` into `results.blur` (owner privacy-blurrer; capture-operator when only `invalid` failed)
+   - blur coverage: `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> check-blur` (geometric, no OCR; with `#timeline` present it checks only what reaches the final) exits 0; copy its `pass`, `tracks`, `frames_checked`, `fps`, `gaps`, `invalid`, `weak` into `results.blur` (owner privacy-blurrer; capture-operator when only `invalid` failed)
    - no unintended black frames or freezes
    - captions <= `captions.max_chars` (default 42) chars/line and **every** cue within `targets.caption_offset_ms` (default 200) ms of the measured onset of its first word (method in `media-specs`)
    - total length within 10% of `length_s`

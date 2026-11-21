@@ -10,7 +10,7 @@ Usage:
     keys
     deps <key> [--json]   keys to re-run after <key> changes (transitive, run order)
     owner <key>           agent that owns <key>
-    check-blur [--step-ms N]  geometric privacy check (read-only, no OCR): every `sensitive`
+    check-blur            geometric privacy check (read-only, no OCR), at every rendered frame: every `sensitive`
                           marker of #events is covered by #blur in space and time; prints JSON,
                           exit 0 pass / 1 fail
   (deps/owner need no project file)
@@ -32,6 +32,7 @@ the file atomically (temp file in the same directory + os.replace).
 """
 import argparse
 import json
+import math
 import os
 import sys
 import tempfile
@@ -409,7 +410,29 @@ def sensitive_tracks(events):
     return tracks, ends
 
 
-def check_blur(data, step_ms=20):
+def _frame_times(clip, tl, end_t, fps_out):
+    """Scene-ms times of the frames that reach the picture, mirroring remotion/src/DemoVideo.tsx:
+    with a #timeline scene, output frames round(start)..round(start)+round(end-start)-1 at fps_out,
+    each showing clip ms round(in)/fps + k*speed/fps; without one, every clip frame of the scene."""
+    off = clip.get("offset_ms", 0)
+    if tl:
+        fr = lambda ms: int(math.floor(ms * fps_out / 1000.0 + 0.5))  # JS Math.round, not banker's
+        n = max(1, fr(tl["end"] - tl["start"]))
+        base = fr(tl["in"]) * 1000.0 / fps_out
+        speed = tl.get("speed") or 1
+        return [base + k * 1000.0 / fps_out * speed - off for k in range(n)]
+    cf = clip.get("fps") or fps_out
+    out, k = [], 0
+    while True:
+        t = k * 1000.0 / cf - off
+        if t > end_t:
+            return out
+        if t >= 0:
+            out.append(t)
+        k += 1
+
+
+def check_blur(data):
     events, blur = data.get("events"), data.get("blur")
     if not isinstance(events, dict) or not isinstance(events.get("clips"), dict):
         raise CliError(2, "#events with clips is required (owner capture-operator)")
@@ -418,13 +441,12 @@ def check_blur(data, step_ms=20):
     clips = events["clips"]
     regions = blur.get("regions") or []
     tracks, ends = sensitive_tracks(events)
-    # Only the part of a scene that reaches the final matters: #timeline in/out (clip ms) ->
-    # scene ms. Without #timeline (blur runs in parallel with sync-editor) the whole scene counts.
-    shown = {}
-    for s in (data.get("timeline") or {}).get("scenes") or []:
-        off = (clips.get(s.get("id")) or {}).get("offset_ms", 0)
-        if "in" in s and "out" in s:
-            shown[s["id"]] = (s["in"] - off, s["out"] - off)
+    # Checked at every frame that reaches the picture (render fps = lowest clip fps, as render.mjs).
+    # With #timeline only the selected in..out counts; without it (blur runs in parallel with
+    # sync-editor) every clip frame of the scene does.
+    fps_out = min([c["fps"] for c in clips.values() if isinstance(c, dict) and c.get("fps")] or [25])
+    tl_by_id = {s["id"]: s for s in (data.get("timeline") or {}).get("scenes") or []
+                if all(k in s for k in ("id", "in", "start", "end"))}
     invalid, weak, gaps = [], {}, {}
     samples = 0
     for (scene, label), pts in sorted(tracks.items()):
@@ -445,6 +467,7 @@ def check_blur(data, step_ms=20):
             continue
         end_t = ends.get(scene, clip.get("duration_ms", 0) - clip.get("offset_ms", 0))
         mine = [r for r in regions if r.get("scene") == scene]
+        frames = _frame_times(clip, tl_by_id.get(scene), end_t, fps_out)
         for i, (t0, b0) in enumerate(pts):
             if b0 is None:
                 continue
@@ -456,12 +479,9 @@ def check_blur(data, step_ms=20):
             box = [min(b0[0], b1[0]), min(b0[1], b1[1])]
             box += [max(b0[0] + b0[2], b1[0] + b1[2]) - box[0], max(b0[1] + b0[3], b1[1] + b1[3]) - box[1]]
             need = max(BLUR_MIN_STRENGTH, BLUR_STRENGTH_PER_H * max(b0[3], b1[3]))
-            times = list(range(int(t0), int(t1), max(1, step_ms))) or [t0]
-            if nxt is None or nxt[1] is None:
-                times.append(t1)
-            lo, hi = shown.get(scene, (float("-inf"), float("inf")))
-            for t in times:
-                if t < lo or t > hi:
+            last = nxt is None or nxt[1] is None
+            for fi, t in enumerate(frames):
+                if t < t0 or t > t1 or (t == t1 and not last):
                     continue
                 req = _rect(box, -EDGE_TOLERANCE_PX)
                 req = (max(0, req[0]), max(0, req[1]), min(fw, req[2]), min(fh, req[3]))
@@ -474,11 +494,12 @@ def check_blur(data, step_ms=20):
                 left = _uncovered_area(req, covers)
                 if left > 0:
                     spans = gaps.setdefault((scene, label), [])
-                    if not spans or t - spans[-1]["t_to"] > 1.5 * step_ms:
-                        spans.append({"scene": scene, "label": label, "t_from": t, "t_to": t,
-                                      "max_uncovered_px": 0, "at": None})
+                    if not spans or spans[-1]["_i"] != fi - 1:
+                        spans.append({"scene": scene, "label": label, "t_from": round(t), "t_to": round(t),
+                                      "frames": 0, "max_uncovered_px": 0, "at": None})
                     g = spans[-1]
-                    g["t_to"] = t
+                    g["t_to"], g["_i"] = round(t), fi
+                    g["frames"] += 1
                     if left > g["max_uncovered_px"]:
                         g["max_uncovered_px"], g["at"] = round(left), [round(v) for v in box]
                 for r in active:
@@ -491,17 +512,16 @@ def check_blur(data, step_ms=20):
                         w = weak.setdefault(rid, {"region": rid, "strength": r.get("strength", 25),
                                                   "mode": r.get("mode", "boxblur"), "needed": 0})
                         w["needed"] = max(w["needed"], round(need, 1))
-    gap_list = [dict(g, owner="privacy-blurrer") for spans in gaps.values() for g in spans]
+    gap_list = [dict({k: v for k, v in g.items() if k != "_i"}, owner="privacy-blurrer")
+                for spans in gaps.values() for g in spans]
     weak_list = [dict(w, owner="privacy-blurrer") for w in weak.values()]
     return {"pass": not (invalid or gap_list or weak_list), "tracks": len(tracks),
-            "regions": len(regions), "samples": samples, "step_ms": step_ms,
+            "regions": len(regions), "frames_checked": samples, "fps": fps_out,
             "gaps": gap_list, "invalid": invalid, "weak": weak_list}
 
 
 def cmd_check_blur(args, path):
-    if args.step_ms < 1:
-        raise CliError(2, "--step-ms must be >= 1")
-    res = check_blur(read_project(path), args.step_ms)
+    res = check_blur(read_project(path))
     print(json.dumps(res, ensure_ascii=False, indent=2))
     return 0 if res["pass"] else 1
 
@@ -546,10 +566,9 @@ def build_parser():
     d.add_argument("--json", action="store_true", help="JSON output")
     o = sub.add_parser("owner", parents=[common], help="print the agent that owns <key>")
     o.add_argument("key")
-    c = sub.add_parser("check-blur", parents=[common],
-                       help="geometric privacy check: #blur covers every sensitive marker (exit 1 = fail)")
-    c.add_argument("--step-ms", type=int, default=20, dest="step_ms",
-                   help="sample step inside each sensitive span (default 20)")
+    sub.add_parser("check-blur", parents=[common],
+                       help="geometric privacy check at every rendered frame: #blur covers every "
+                            "sensitive marker (exit 1 = fail)")
     return p
 
 

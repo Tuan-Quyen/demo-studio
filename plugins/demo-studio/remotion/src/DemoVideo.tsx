@@ -1,5 +1,5 @@
 import React from 'react';
-import {AbsoluteFill, Audio, OffthreadVideo, Sequence, staticFile, useCurrentFrame} from 'remotion';
+import {AbsoluteFill, Audio, Freeze, OffthreadVideo, Sequence, staticFile, useCurrentFrame} from 'remotion';
 import {Callout, Captions, Highlight, Ripple, TitleCard, dipOpacity} from './effects';
 import {blurBoxAt, cameraAt, pictureBox, unit} from './layout';
 import type {DemoProps, Effect, Point, Scene} from './types';
@@ -22,19 +22,32 @@ const SceneLayer: React.FC<{p: DemoProps; sc: Scene; t: number; lead: number; op
   const pic = pictureBox(p, sc, p.effects);
   const cam = cameraAt(t, sc, p.effects, pic);
   const px = (unit(p) / cam.s0); // 1 output px at 1080p, in source px before zoom
-  const trimBefore = Math.max(0, msToFrame(sc.inMs - lead * sc.speed, p.fps));
-  const video = (style: React.CSSProperties) => (
-    <OffthreadVideo
-      src={staticFile(sc.src)}
-      trimBefore={trimBefore}
-      playbackRate={sc.speed}
-      muted
-      style={{position: 'absolute', width: sc.w, height: sc.h, maxWidth: 'none', ...style}}
-    />
-  );
+  // Only the timeline's in..out of the clip may reach the picture (check-blur covers exactly that).
+  // A cross-fade that runs before the scene start or past its end holds the first / last selected
+  // frame instead of playing footage outside in..out. Frames are local to this scene's Sequence.
+  const local = useCurrentFrame();
+  const fIn = msToFrame(lead, p.fps);
+  const fOut = fIn + Math.max(0, msToFrame(sc.end - sc.start, p.fps) - 1);
+  const hold = local < fIn ? fIn : local > fOut ? fOut : null;
+  // Blur is evaluated at the time of the frame actually shown (held frame included).
+  const tb = Math.min(Math.max(t, sc.start), sc.start + ((fOut - fIn) / p.fps) * 1000);
+  const video = (style: React.CSSProperties) => {
+    const v = (
+      <Sequence from={fIn} layout="none">
+        <OffthreadVideo
+          src={staticFile(sc.src)}
+          trimBefore={msToFrame(sc.inMs, p.fps)}
+          playbackRate={sc.speed}
+          muted
+          style={{position: 'absolute', width: sc.w, height: sc.h, maxWidth: 'none', ...style}}
+        />
+      </Sequence>
+    );
+    return hold === null ? v : <Freeze frame={hold}>{v}</Freeze>;
+  };
   const device = p.effects.some((e) => e.type === 'device_frame' && e.scene === sc.id);
   const mine = p.effects.filter((e) => e.scene === sc.id && t >= e.t_start && t <= e.t_end);
-  const blurs = p.blur.filter((b) => b.scene === sc.id && t >= b.start && t <= b.end);
+  const blurs = p.blur.filter((b) => b.scene === sc.id && tb >= b.start && tb <= b.end);
   return (
     <AbsoluteFill style={{opacity}}>
       <div
@@ -67,7 +80,7 @@ const SceneLayer: React.FC<{p: DemoProps; sc: Scene; t: number; lead: number; op
               feFuncA table forces alpha to 1 (= normalized blur of the visible pixels, edge-clamp like).
               backdrop-filter is not used: headless Chrome renders it as a no-op. */}
           {blurs.map((b) => {
-            const [x, y, w, h] = blurBoxAt(t, b);
+            const [x, y, w, h] = blurBoxAt(tb, b);
             // Whole source px, rounded outward, so no sub-pixel sliver of the sharp frame stays visible.
             const bx = Math.floor(x - b.pad);
             const by = Math.floor(y - b.pad);

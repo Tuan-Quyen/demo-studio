@@ -100,14 +100,15 @@ class CheckBlurTests(unittest.TestCase):
         r = project.check_blur(_proj([_sens(100, [100, 100, 200, 40])],
                                      [_reg(100, 4000, [100, 100, 200, 40], pad=4)]))
         self.assertTrue(r["pass"], r)
-        self.assertGreater(r["samples"], 0)
+        self.assertGreater(r["frames_checked"], 0)
 
     def test_region_ending_early_is_a_gap_with_its_span(self):
         r = project.check_blur(_proj([_sens(100, [100, 100, 200, 40])],
                                      [_reg(100, 2000, [100, 100, 200, 40])]))
         self.assertFalse(r["pass"])
         [g] = r["gaps"]
-        self.assertEqual((g["t_from"], g["t_to"], g["owner"]), (2020, 4000, "privacy-blurrer"))
+        self.assertEqual((g["t_from"], g["t_to"], g["owner"]), (2040, 4000, "privacy-blurrer"))
+        self.assertEqual(g["frames"], 50)  # 25 fps clip: 2040, 2080, ... 4000
 
     def test_transit_needs_the_hull_not_only_the_endpoints(self):
         marks = [_sens(1000, [80, 600, 170, 40]), _sens(1300, [80, 100, 170, 40])]
@@ -139,8 +140,28 @@ class CheckBlurTests(unittest.TestCase):
         marks = [_sens(0, [10, 10, 50, 20])]
         regs = [_reg(0, 2000, [10, 10, 50, 20])]
         self.assertFalse(project.check_blur(_proj(marks, regs))["pass"])
-        cut = [{"id": "s01", "in": 0, "out": 1900}]
+        cut = [{"id": "s01", "in": 0, "out": 1900, "start": 0, "end": 1900, "speed": 1}]
         self.assertTrue(project.check_blur(_proj(marks, regs, timeline=cut))["pass"])
+
+    def test_every_rendered_frame_is_checked(self):
+        # gap 31..49 ms holds the 40 ms frame of a 25 fps render; 20 ms steps from 15 (15/35/55) missed it
+        marks = [_sens(15, [10, 10, 50, 20])]
+        regs = [_reg(0, 30, [10, 10, 50, 20], "a"), _reg(50, 4000, [10, 10, 50, 20], "b")]
+        r = project.check_blur(_proj(marks, regs))
+        self.assertFalse(r["pass"])
+        self.assertEqual([(g["t_from"], g["t_to"], g["frames"]) for g in r["gaps"]], [(40, 40, 1)])
+
+    def test_frames_follow_the_timeline_mapping(self):
+        # offset 100, in 300 (clip ms), speed 2 at 25 fps: scene ms 200, 280, 360, ...
+        data = _proj([_sens(0, [10, 10, 50, 20])], [_reg(0, 4000, [10, 10, 50, 20])],
+                     timeline=[{"id": "s01", "in": 300, "out": 1300, "start": 1000, "end": 1500, "speed": 2}])
+        data["events"]["clips"]["s01"]["offset_ms"] = 100
+        clip = data["events"]["clips"]["s01"]
+        self.assertEqual(project._frame_times(clip, data["timeline"]["scenes"][0], 3900, 25)[:3],
+                         [220.0, 300.0, 380.0])  # round(300 ms at 25 fps) = frame 8 = 320 ms clip
+        r = project.check_blur(data)
+        self.assertTrue(r["pass"], r)
+        self.assertEqual(r["frames_checked"], 13)  # round(500 ms * 25 fps / 1000) = 12.5 -> 13
 
     def test_cli_exit_codes(self):
         tmp = tempfile.TemporaryDirectory()

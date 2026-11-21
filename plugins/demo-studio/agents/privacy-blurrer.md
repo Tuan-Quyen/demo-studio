@@ -28,7 +28,7 @@ Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --pyth
 Generate fake data, edit the app or script, export or burn the blur into the video (render-engineer does), or decide what is sensitive beyond app-map, `privacy.blur` and visible PII.
 
 ## Verification
-`check-blur` exits 0 (paste its `tracks`, `samples` and `pass` in `facts`); one placement frame per region looked at; `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> get blur` returns the regions.
+`check-blur` exits 0 (paste its `tracks`, `frames_checked` and `pass` in `facts`); one placement frame per region looked at; `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> get blur` returns the regions.
 
 ## Handoff
 End your reply with exactly this block (`status` is `blocked` for a failure you cannot fix inside your job, `needs-input` when you need a decision or a missing tool is approved by nobody yet):
@@ -36,7 +36,7 @@ End your reply with exactly this block (`status` is `blocked` for a failure you 
 ### Handoff · privacy-blurrer
 status: done | needs-input | blocked
 wrote: project.json#blur
-facts: regions, scenes covered, check-blur pass/tracks/samples, uncovered items found
+facts: regions, scenes covered, check-blur pass/tracks/frames_checked, uncovered items found
 next: sync-editor
 notes: <issues; questions with options + recommended default>
 ```
