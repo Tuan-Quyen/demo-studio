@@ -59,6 +59,7 @@ EXIT_OK, EXIT_INPUT, EXIT_BUDGET, EXIT_TOOL, EXIT_STEP, EXIT_LEAK, EXIT_BUG = 0,
 
 DEFAULT_PILL = "#9aa3b2"
 STD_MAX = 12.0          # max per-channel std-dev inside a masked rect (VP8 noise tolerated, glyph edges are not)
+PILL_EDGE_FRAC = 0.5    # a non-uniform rect that is at least this much mask colour is a shifted pill edge (soft), not glyph edges (bad)
 COLOR_TOL = 34          # max per-channel |mean - pill| (VP8 chroma shift)
 SENTINEL_DROP = 20.0    # box ring must be this much darker (luma) than the interior
 FRAME_TOL_MS = 90.0     # log entry <-> frame match window (~2 frames at 25 fps: measured screencast jitter during fast scroll)
@@ -187,6 +188,9 @@ def check_rect(frame, rect, pill, is_box):
     reg = frame[iy0:iy1, ix0:ix1].reshape(-1, 3).astype(np.float32)
     mean, std = reg.mean(0), reg.std(0)
     if float(std.max()) > STD_MAX:
+        near_pill = float((np.abs(reg - np.array(pill, dtype=np.float32)).max(1) <= COLOR_TOL).mean())
+        if near_pill >= PILL_EDGE_FRAC:   # mostly mask colour: a rect shifted by scroll/pts jitter over the pill edge, not glyphs
+            return "interior_pill_edge(pill=%.2f)" % near_pill
         return "interior_not_uniform(std=%.1f)" % float(std.max())
     dev = np.abs(mean - np.array(pill, dtype=np.float32))
     if float(dev.max()) > COLOR_TOL:
@@ -253,7 +257,7 @@ def entry_verdict(fr, e, pill, res):
         why = check_rect(fr, r, pill, ri in boxes)
         if why is None:
             continue
-        if why.startswith("interior_not_mask_colour") or why == "rect_too_small":
+        if why.startswith("interior_not_mask_colour") or why.startswith("interior_pill_edge") or why == "rect_too_small":
             soft = True
             res["rects_uniform_nopill"] += 1
             continue
@@ -306,11 +310,11 @@ def eval_group(fr, cands, te, narrow, pill, res, edges=None):
     near.sort(key=lambda e: abs(e["t"] - te))                            # nearest first
     vs = [entry_verdict(fr, e, pill, res) for e in near]
     inner = [v for e, v in zip(near, vs) if abs(e["t"] - te) <= NEAR_MS] or vs[:1]   # "nearest" = within ~1.5 rAF (video pts are quantised to 40 ms)
+    bad = next((v for v in inner if v[0] == "bad"), None)
+    if bad:      # S-19: ANY glyph-edge entry within NEAR_MS fails the frame; a strict neighbour rescues only uniform / pill-edge ones
+        return "bad", bad[1], bad[2]
     if any(v[0] == "strict" for v in inner):
         return "strict", None, None
-    bad = next((v for v in inner if v[0] == "bad"), None)
-    if bad:      # S-19: nothing but a strict NEAREST entry rescues a frame whose nearest entry shows glyph edges
-        return "bad", bad[1], bad[2]
     if any(v[0] == "strict" for v in vs):
         return "resync", None, None      # the nearest entries are soft/skipped, a neighbour matches strictly: counted
     if all(v[0] == "skipped" for v in vs):
@@ -320,7 +324,7 @@ def eval_group(fr, cands, te, narrow, pill, res, edges=None):
             return "resync", None, None
     if any(not e["rects"] for e in cands if abs(e["t"] - te) <= narrow) or _boundary(cands, te, narrow) \
             or (edges and any(abs(t - te) <= EDGE_MS for t in edges)):
-        return "empty", None, None      # the element appears/disappears around this frame: uniform pixels, nothing readable
+        return "empty", "edge_soft", None      # the element appears/disappears around this frame: uniform pixels, nothing readable
     return "soft", None, None
 
 
@@ -371,7 +375,7 @@ def calibrate(video, clip, times, entries, t_flashes, t_page_epoch, scene_start,
 def _new_res(mask_kind):
     return {"frames_total": 0, "frames_with_masks": 0, "frames_unmasked": 0, "rect_checks": 0, "oracle_rect_checks": 0,
             "rects_failed": 0, "frames_resynced": 0, "frames_soft": 0, "rects_uniform_nopill": 0,
-            "rects_skipped_proven": 0, "frames_unverified": 0, "frames_carried": 0, "strict_frames": 0, "skipped_blur": mask_kind == "blur", "failures": [], "sync": None}
+            "rects_skipped_proven": 0, "frames_unverified": 0, "frames_carried": 0, "strict_frames": 0, "frames_edge_soft": 0, "skipped_blur": mask_kind == "blur", "failures": [], "sync": None}
 
 
 def ready_time(groups, ticks):
@@ -380,6 +384,7 @@ def ready_time(groups, ticks):
 
 
 DUP_MAX = 16     # a region whose every pixel is within this of the anchor frame is unchanged (stale screencast frame)
+CARRY_RECTS_MAX = 400   # above this many rects the carry compares the whole frame (fail closed)
 CARRY_MAX = 6    # consecutive frames that may be carried from one anchor (measured stale-screencast runs: 3-5 frames)
 
 
@@ -411,7 +416,7 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
     sel_t = {k: [e["t"] for e in es] for k, es in by_sel.items()}
     sel_edges = {k: run_edges(es) for k, es in by_sel.items()}
     bad_f, soft_f, resync_f, masked_f = set(), set(), set(), set()
-    n = unverified = carried = strict_frames = 0
+    n = unverified = carried = strict_frames = edge_soft_frames = 0
     anchor, run_len, seen_strict, leadin_end = None, 0, False, None
     for i, fr in iter_frames(video, clip["w"], clip["h"], budget_s):
         n += 1
@@ -422,6 +427,7 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
             unverified += 1     # before the page was fully parsed: not judged, safe_from_ms starts after these
             continue
         fbad, fsoft, fres, anym, wide_rects, fstrict, gap = [], False, False, False, [], False, False
+        others, edge_soft = False, False      # a group that is not strict and not simply empty / an edge-exempt soft frame
         for sel, es in by_sel.items():
             ts = sel_t[sel]
             lo, hi = bisect.bisect_left(ts, te - WIDE_TOL_MS), bisect.bisect_right(ts, te + WIDE_TOL_MS)
@@ -436,6 +442,10 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
             verdict, why, rect = eval_group(fr, cands, te, FRAME_TOL_MS, pill, res, sel_edges[sel])
             anym = anym or verdict != "empty"
             fstrict = fstrict or verdict == "strict"
+            if verdict == "empty" and why == "edge_soft":
+                edge_soft = True
+            elif verdict not in ("strict", "empty"):
+                others = True
             if verdict in ("soft", "resync", "bad"):    # carry only needs these groups' positions unchanged
                 wide_rects.extend(r for e in cands if abs(e["t"] - te) <= FRAME_TOL_MS for r in e["rects"])
             if verdict == "soft":
@@ -455,15 +465,18 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
             leadin_end = i
             continue
         was_carried = False
-        if not ok and anchor is not None and run_len < CARRY_MAX and _same_region(fr, anchor, None if gap else wide_rects[:400]):
+        if not ok and anchor is not None and run_len < CARRY_MAX and _same_region(fr, anchor, None if (gap or len(wide_rects) > CARRY_RECTS_MAX) else wide_rects):
             carried += 1
             run_len += 1
             fbad, fsoft, fres, ok, was_carried = [], False, False, True, True
         if not was_carried:
             seen_strict = seen_strict or fstrict
+            if edge_soft:
+                edge_soft_frames += 1          # S-27: uniform frames next to an appearing/disappearing element: counted, never an anchor
             if ok:
                 run_len = 0
-                anchor = fr
+                if fstrict and not others and not edge_soft:     # S-26: only a STRICTLY verified frame can anchor a carry
+                    anchor = fr
         if fstrict and not was_carried:
             strict_frames += 1
         if anym:
@@ -485,7 +498,7 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
         raise Fail(EXIT_BUG, "decoded %d frames, the probe lists %d" % (n, len(times)))
     res.update(frames_total=n, frames_with_masks=len(masked_f | bad_f), frames_unmasked=len(bad_f),
                frames_soft=len(soft_f), frames_resynced=len(resync_f), frames_unverified=unverified, frames_carried=carried,
-               strict_frames=strict_frames,
+               strict_frames=strict_frames, frames_edge_soft=edge_soft_frames,
                leadin_end_ms=round(times[leadin_end + 1] * 1000) if leadin_end is not None and leadin_end + 1 < len(times) else None)
     return res
 
@@ -709,7 +722,7 @@ def clip_record(rel_file, g, mask, sync_rel, log_rel, mode):
             "mask": {"mode": mode, "style": kind, "status": status, "frames_unmasked": g["frames_unmasked"],
                      "frames_total": g["frames_total"], "frames_with_masks": g["frames_with_masks"],
                      "rects_checked": g["rect_checks"], "oracle_rects_checked": g["oracle_rect_checks"],
-                     "frames_soft": g["frames_soft"], "frames_resynced": g["frames_resynced"], "thresholds": g["thresholds"],
+                     "frames_soft": g["frames_soft"], "frames_resynced": g["frames_resynced"], "frames_edge_soft": g.get("frames_edge_soft", 0), "thresholds": g["thresholds"],
                      "reasons": g["reasons"], "selectors": mask["selectors"], "n_regex": len(mask["regexes"])}}
 
 
@@ -910,7 +923,7 @@ def _result(a, g, rec, sync, attempts, t0, status, video):
            "safe_from_ms": g["safe_from_ms"], "gate_fail": g["gate_fail"], "unmaskable": g["unmaskable"],
            "cross_check": {k: g.get(k) for k in ("frames_total", "frames_with_masks", "frames_unmasked", "rect_checks",
                                                  "oracle_rect_checks", "rects_failed", "frames_soft", "frames_resynced",
-                                                 "rects_skipped_proven", "frames_unverified", "frames_carried", "strict_frames", "leadin_end_ms", "soft_detail", "rects_uniform_nopill", "failures", "sync", "check_s",
+                                                 "rects_skipped_proven", "frames_unverified", "frames_carried", "strict_frames", "frames_edge_soft", "leadin_end_ms", "soft_detail", "rects_uniform_nopill", "failures", "sync", "check_s",
                                                  "recalibrated")},
            "assertion": {k: _brief(sync.get(k)) for k in ("preflight", "inline", "final")},
            "overhead": sync.get("perf"), "probe_log": rec.get("probe_log"), "retries": attempts - 1,

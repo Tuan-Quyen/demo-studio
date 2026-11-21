@@ -18,7 +18,7 @@ def s01(ctx):
     b = page.locator("#hdr-email").bounding_box()
     ctx.sensitive([b["x"], b["y"], b["width"], b["height"]], "header email")
     page.wait_for_timeout(500)
-    page.evaluate(SMOOTH, {"to": 500, "ms": 1600})
+    page.evaluate(SMOOTH, {"to": 300, "ms": 4000})
     page.evaluate(SMOOTH_EL, {"selector": "#inner", "to": 300, "ms": 800})
     page.wait_for_timeout(1500)
     page.evaluate(SET_NOTE)

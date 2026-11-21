@@ -186,6 +186,14 @@
   // so it can join the top layer, and is re-shown (moved on top) whenever the set of top-layer elements changes.
   let topSig = '';
   const HAS_POPOVER = typeof HTMLElement !== 'undefined' && typeof HTMLElement.prototype.showPopover === 'function';
+  const topIds = new WeakMap(); let topSeq = 0;
+  // identities, not a count: swapping one dialog for another keeps the count but must put the host back on top (S-29)
+  function topLayerSig() {
+    try {
+      return Array.from(document.querySelectorAll(':modal, :popover-open')).filter((e) => e !== host)
+        .map((e) => { let i = topIds.get(e); if (!i) { i = ++topSeq; topIds.set(e, i); } return i; }).join(',');
+    } catch (e) { return ''; }
+  }
   function topLayerCount() { try { return document.querySelectorAll(':modal, :popover-open').length; } catch (e) { return 0; } }
   function topShow() {
     if (!HAS_POPOVER || !host) return;
@@ -193,12 +201,12 @@
       if (!host.hasAttribute('popover')) host.setAttribute('popover', 'manual');
       if (host.matches(':popover-open')) host.hidePopover();
       host.showPopover();
-      topSig = String(topLayerCount());
+      topSig = topLayerSig();
     } catch (e) { /* not connected yet: retried next frame */ }
   }
   function topCheck() {
     if (!host || !HAS_POPOVER) return;
-    const sig = String(topLayerCount());
+    const sig = topLayerSig();
     if (sig !== topSig || !host.matches(':popover-open')) topShow();
   }
   function drawOverlay(rects) { // rects: [{x,y,w,h,box}] viewport px
