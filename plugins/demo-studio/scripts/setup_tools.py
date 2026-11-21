@@ -196,7 +196,7 @@ CATALOG: dict[str, dict] = {
         "agents": ["sound-mixer"],
     },
     "blur": {
-        "effect": "Blur/redact sensitive regions (emails, tokens, faces) in recorded frames",
+        "effect": "Moving-region blur (OpenCV) for the ffmpeg fallback renderer; Remotion blurs by itself",
         "reqs": "blur.txt",
         "modules": ["cv2", "numpy"],
         "post": [],
@@ -205,7 +205,7 @@ CATALOG: dict[str, dict] = {
         "node": False,
         "size_mb": 60,
         "size_note": "",
-        "agents": ["privacy-blurrer"],
+        "agents": ["render-engineer"],
     },
     "motion-basic": {
         "effect": "Fallback render engine (ffmpeg filters) when Remotion is declined or Node is missing",
@@ -230,18 +230,6 @@ CATALOG: dict[str, dict] = {
         "size_mb": 550,
         "size_note": "npm packages + headless Chrome in .demo/remotion/",
         "agents": ["motion-designer", "render-engineer"],
-    },
-    "qa-ocr": {
-        "effect": "OCR the finished video to verify on-screen text, captions and redactions",
-        "reqs": "qa-ocr.txt",
-        "modules": ["rapidocr_onnxruntime", "cv2"],
-        "post": [],
-        "requires": [],
-        "env": None,
-        "node": False,
-        "size_mb": 120,
-        "size_note": "",
-        "agents": ["demo-qa"],
     },
     "package": {
         "effect": "Thumbnails, posters and cover images for delivery",

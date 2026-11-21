@@ -136,7 +136,7 @@ Locked and owner-checked, so parallel agents do not overwrite each other. Never 
 
 **Dependency order:** voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. A `length_s` change re-runs storyboarder (G2) → timeline → motion, captions, mix → checks → delivery; voice only if narration changes.
 
-**Render checks (`#checks`; thresholds from `demo.yaml` `targets`/`captions`, defaults in skill `media-specs`):** sync drift ≤`targets.max_drift_ms` (80) per scene → sync-editor · `targets.lufs` (−14) ±1 LUFS, ≤`targets.true_peak` (−1) dBTP → sound-mixer · 0 readable text in blur regions (OCR) → privacy-blurrer · no unintended black/freeze → capture-operator · captions ≤`captions.max_chars` (42) chars/line, ≤`targets.caption_offset_ms` (200) off → caption-writer · total length ±10% of `length_s` → storyboarder.
+**Render checks (`#checks`; thresholds from `demo.yaml` `targets`/`captions`, defaults in skill `media-specs`):** sync drift ≤`targets.max_drift_ms` (80) per scene → sync-editor · `targets.lufs` (−14) ±1 LUFS, ≤`targets.true_peak` (−1) dBTP → sound-mixer · every `sensitive` marker covered by `#blur` (`project.py check-blur`, geometric, no OCR) → privacy-blurrer · no unintended black/freeze → capture-operator · captions ≤`captions.max_chars` (42) chars/line, ≤`targets.caption_offset_ms` (200) off → caption-writer · total length ±10% of `length_s` → storyboarder.
 
 ## 7. /fix routing
 
@@ -166,9 +166,8 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 | `voice-edge` (default) / `voice-kokoro` / `voice-elevenlabs` | free online TTS / offline, heavy (torch) / paid, needs `ELEVENLABS_API_KEY` |
 | `captions` | word-level timing (faster-whisper) |
 | `mix` | ducking and loudness normalisation |
-| `blur` | region blur (OpenCV) |
+| `blur` | moving-region blur for the ffmpeg fallback renderer (OpenCV) |
 | `remotion` (default) / `motion-basic` | render engine for every pipeline: Remotion, all motion levels (Node ≥18, ~550 MB, `.demo/remotion/`) / ffmpeg fallback, motion none + basic only (0 MB) |
-| `qa-ocr` | OCR check for leftover sensitive text; recommended with real data |
 | `package` | thumbnails |
 
 Features not yet in `--list` are not installed by the script; report `blocked` rather than improvising.

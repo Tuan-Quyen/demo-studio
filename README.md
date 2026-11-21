@@ -149,6 +149,7 @@ Dependency order: voice → timeline, captions, mix · events → blur, timeline
 
 ```
 python scripts/project.py owner blur     # privacy-blurrer
+python scripts/project.py --slug <slug> check-blur   # blur covers every sensitive marker (exit 1 = gap)
 ```
 
 ## Toolkit
@@ -170,7 +171,7 @@ python scripts/setup_tools.py --list | --check [features] | --plan <features> | 
 | `voice-elevenlabs` | ElevenLabs voices; paid API | ~5 MB |
 | `captions` | Word timing (faster-whisper), SRT/ASS | ~150 MB |
 | `mix` | Music ducking, loudness normalisation | ~30 MB |
-| `blur` | Blur emails, tokens, faces in frames | ~60 MB |
+| `blur` | Moving-region blur for the ffmpeg fallback renderer (Remotion blurs by itself) | ~60 MB |
 | `remotion` | Default render engine for every video: blur, motion (all levels), captions, audio in one pass | ~550 MB |
 | `motion-basic` | Fallback renderer via ffmpeg filters (motion none/basic) | ~0 MB |
 
@@ -184,7 +185,6 @@ node .demo/remotion/render.mjs --project .demo/<slug>/project.json --ratio 16x9 
 ```
 
 Remotion is free for individuals and companies of up to 3 people; larger companies need a [Remotion company license](https://www.remotion.dev/license). Without Node, or with `remotion` declined, the ffmpeg fallback renders motion none/basic.
-| `qa-ocr` | OCR the finished video to verify text and redactions | ~120 MB |
 | `package` | Thumbnails, posters, covers | ~10 MB |
 
 ## Fixing a finished video
@@ -210,7 +210,7 @@ Owner unclear: it asks you. Same defect after two attempts: it stops and reports
 
 - Real data in the app is **blurred, not replaced**: `privacy-blurrer` never fakes or swaps content.
 - `app-scout` flags sensitive elements up front; scene scripts report their boxes with `mark()`.
-- The render check requires zero readable text inside blur regions (OCR); `qa-ocr` is recommended whenever the app shows real data.
+- Blur coverage is checked geometrically, not by OCR: `project.py check-blur` proves every `mark()`ed sensitive box is covered by a blur region for its whole time on screen (a moving element: the whole path between two marks). It runs in milliseconds and cannot hang.
 - `demo-qa` also looks for leaked personal data by eye before you reach G3.
 
 ## License

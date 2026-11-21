@@ -36,7 +36,7 @@ Thresholds are the defaults; the project's `demo.yaml` overrides them (key in th
 | vo | each `sNN.vo.wav` clean: lead <= 200, trail <= 150, gaps <= 500 ms except declared pauses; `#voice` fields present | `vo.py check <file> [--pause-ms N...]` exit 0 (run before mixing) | voice-producer |
 | sync | rendered scene length vs timeline | drift <= `targets.max_drift_ms` (80) per scene | render-engineer knows each scene's cut points; `ffprobe` the final and compare scene durations/VO onsets with `#timeline` | sync-editor |
 | loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP | `ffmpeg -nostats -i F -af ebur128=peak=true -f null -` (read summary `I:` and `True peak`) | sound-mixer |
-| blur | readable text in blur regions | 0 | for each `#blur` region OCR ROI crops (not full frames) every 0.5 s plus first/last and every frame in a tracked transit, mapped to output coordinates and final time per Spaces and time (feature `qa-ocr`); match the sensitive value's pattern, not a bare `@`; positive control on an unblurred crop | privacy-blurrer |
+| blur | every `sensitive` marker covered by `#blur` in space and time; bbox valid; strength enough | 0 gaps, 0 invalid, 0 weak | `project.py check-blur` (geometric, no OCR, milliseconds): samples every 20 ms of each sensitive span inside the rendered `#timeline` window; between two markers of a label the whole hull of both boxes must be covered (box shrunk 1 px for rounding); strength `>= max(8, 0.3 x box height)`, pixelate x1.6. Both renderers blur the source frame before zoom/reframe, so source px suffice | privacy-blurrer (`invalid`: capture-operator) |
 | black | black frames not intended | none (>0.2 s) outside `allow.black` | `-vf blackdetect=d=0.2:pix_th=0.10 -an -f null -` | capture-operator |
 | freeze | frozen video not intended | none (>=3 s) outside `allow.freeze` | `-vf freezedetect=n=-60dB:d=3 -an -f null -` | capture-operator |
 | captions | chars/line, lines, onset offset | <= `captions.max_chars` (42), <= 2 lines; **for EVERY cue** `|t_start - onset of its first word| <= targets.caption_offset_ms` (200) | parse `final.vtt`; measure each word onset in the final audio: 10 ms RMS window, onset = first window above -40 dBFS after a silence, merging silences < 150 ms; match cues to words by order in `narration.md`. Report the max over all cues and the count over the limit; one cue over = fail | caption-writer |
@@ -49,16 +49,18 @@ Measuring snippets:
 ffmpeg -nostats -i media/final-16x9.mp4 -vn -af ebur128=peak=true -f null - 2>&1 | tail -n 14
 # black + freeze in one pass
 ffmpeg -i media/final-16x9.mp4 -vf "blackdetect=d=0.2:pix_th=0.10,freezedetect=n=-60dB:d=3" -an -f null - 2>&1 | grep -E "black_start|freeze_start"
-# blur-region frame for OCR (mapped output px; repeat per sample time T)
-ffmpeg -y -ss T -i media/final-16x9.mp4 -frames:v 1 -vf crop=W:H:X:Y blur_check.png
+# blur coverage (exit 0 pass, 1 fail; JSON with gaps / invalid / weak)
+python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> check-blur
+# placement frame (privacy-blurrer, one per region): raw frame at clip time t + offset_ms, region box drawn
+ffmpeg -y -ss T -i media/sNN.raw.webm -frames:v 1 -vf drawbox=x=X:y=Y:w=W:h=H:color=red:t=3 media/preview/b1.png
 ```
-Blur filter (static region; privacy-blurrer verifies one preview frame per region):
+Blur filter, ffmpeg fallback only (Remotion draws its own blur from `#blur`):
 ```
 [0:v]split[a][b];[b]crop=W:H:X:Y,boxblur=lr=min(25\,H/4):lp=3[bl];[a][bl]overlay=X:Y:enable='between(t,T0,T1)'
 # stronger, text-proof alternative: pixelate
 [b]crop=W:H:X:Y,scale=iw/16:ih/16,scale=iw*16:ih*16:flags=neighbor[bl]
 ```
-Moving regions (scroll) use per-frame `keyframes` and the OpenCV path (feature `blur`). If OCR still reads text, switch to pixelate or enlarge the padding.
+Moving regions (scroll): one region over the hull of consecutive markers (see the blur check); `keyframes` are optional and must still cover that hull. Remotion interpolates `keyframes` itself; the ffmpeg fallback needs the OpenCV path (feature `blur`) for them.
 
 ## Voice lexicon
 Pronunciation rules, `apply-lexicon` and starter entries: skill `voice-over`.
@@ -83,7 +85,7 @@ Single source for every shape below; agents reference this section and never res
 ```json
 {"schema":1,"space":"source","time":"scene","regions":[{"id":"b1","scene":"s03","t_start":4100,"t_end":9200,"bbox":[820,300,420,60],"pad":12,"margin_ms":150,"mode":"boxblur","strength":25,"source":"events:sensitive:customer email","keyframes":null,"preview":"logs/b1.png"}]}
 ```
-Every `sensitive` marker in `#events` must be covered; `pad` px on all sides; `margin_ms` before/after. `mode`: `boxblur|pixelate`.
+Every `sensitive` marker in `#events` must be covered (verified by `project.py check-blur`); `pad` px on all sides; `margin_ms` before/after. `mode`: `boxblur|pixelate`. `preview` = the placement frame.
 
 **#motion** (motion-designer; recipes in `motion-fx`):
 ```json
@@ -116,7 +118,7 @@ Every `sensitive` marker in `#events` must be covered; `pad` px on all sides; `m
  "results":{"sync":{"pass":true,"measured_ms_max":42,"threshold_ms":80,"owner":"sync-editor","detail":""},
             "vo":{"pass":true,"scenes_checked":4,"failures":[],"owner":"voice-producer","detail":""},
             "loudness":{"pass":true,"lufs":-14.1,"tp_db":-1.6,"owner":"sound-mixer","detail":""},
-            "blur":{"pass":true,"regions_checked":3,"text_found":0,"owner":"privacy-blurrer","detail":""},
+            "blur":{"pass":true,"tracks":3,"samples":1240,"gaps":[],"invalid":[],"weak":[],"owner":"privacy-blurrer","detail":""},
             "black":{"pass":true,"hits":[],"owner":"capture-operator","detail":""},
             "freeze":{"pass":true,"hits":[],"owner":"capture-operator","detail":""},
             "captions":{"pass":true,"max_chars":38,"cues":24,"cues_over_offset":0,"max_offset_ms":120,"owner":"caption-writer","detail":""},

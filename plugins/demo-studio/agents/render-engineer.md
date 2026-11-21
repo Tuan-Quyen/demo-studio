@@ -11,7 +11,7 @@ Inputs: `media/`, `project.json` keys `blur`, `timeline`, `motion`, `captions`, 
 Read `demo.yaml` with `config.py --slug <slug> get formats|targets|captions|motion.level|install` (ratios to render, thresholds, engine choice). Load skill `media-specs` (codecs, measuring commands, default thresholds) and `motion-fx` (render engine, `render.mjs` usage).
 
 ## Tool check
-Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check capture,qa-ocr,remotion`. Engine: Remotion unless `remotion` is in `install.declined` or its check is `blocked` (then the ffmpeg fallback: check `motion-basic` and `blur` instead of `remotion`; see `motion-fx` Render engine). `remotion` `missing` (not installed or out of date after a plugin update) is a missing feature, never a reason to fall back. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
+Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check capture,remotion`. Engine: Remotion unless `remotion` is in `install.declined` or its check is `blocked` (then the ffmpeg fallback: check `motion-basic` and `blur` instead of `remotion`; see `motion-fx` Render engine). `remotion` `missing` (not installed or out of date after a plugin update) is a missing feature, never a reason to fall back. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
 Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
 ## Steps
 0. Before mixing run `scripts/vo.py check media/sNN.vo.wav` on every scene with one `--pause-ms <v>` per value of `#voice.scenes[].pauses_ms` (and confirm `#voice` has `lead_ms`, `trail_ms`, `sentences`, `words_per_s`, `pauses_ms`); a failure is a `vo` result in `#checks` with owner `voice-producer` and you return `blocked`.
@@ -24,7 +24,7 @@ Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --pyth
 3. Measure the output and write all numbers:
    - sync drift per scene <= `targets.max_drift_ms` (default 80)
    - loudness `targets.lufs` (default -14) +/- 1 LUFS, true peak <= `targets.true_peak` (default -1) dBTP
-   - OCR on blur regions: 0 readable text (qa-ocr)
+   - blur coverage: `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> check-blur` (geometric, no OCR; with `#timeline` present it checks only what reaches the final) exits 0; copy its `pass`, `tracks`, `samples`, `gaps`, `invalid`, `weak` into `results.blur` (owner privacy-blurrer; capture-operator when only `invalid` failed)
    - no unintended black frames or freezes
    - captions <= `captions.max_chars` (default 42) chars/line and **every** cue within `targets.caption_offset_ms` (default 200) ms of the measured onset of its first word (method in `media-specs`)
    - total length within 10% of `length_s`
@@ -46,7 +46,7 @@ End your reply with exactly this block (`status` is `blocked` for a failure you 
 ### Handoff · render-engineer
 status: done | needs-input | blocked
 wrote: media/final-*.mp4, media/final.vtt, project.json#checks
-facts: renderer, pass, ratios rendered, max drift, LUFS, OCR hits, failed items with owners
+facts: renderer, pass, ratios rendered, max drift, LUFS, blur gaps, failed items with owners
 next: demo-qa (or key owner when blocked)
 notes: <issues; questions with options + recommended default>
 ```

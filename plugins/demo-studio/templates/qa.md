@@ -9,7 +9,7 @@ Source: `#checks v<N>` pass=<true|false> (rewrite on every QA run, never keep an
 |---|---|---|---|
 | Sync drift | ≤`targets.max_drift_ms`/scene (80) | <value> | <yes/no> |
 | Loudness | `targets.lufs`±1 LUFS (−14), ≤`targets.true_peak` dBTP (−1) | <value> | <yes/no> |
-| Blur coverage (OCR) | 0 readable text | <value> | <yes/no> |
+| Blur coverage (`check-blur`) | 0 gaps / invalid / weak | <value> | <yes/no> |
 | Black / freeze | none unintended | <value> | <yes/no> |
 | Captions | ≤`captions.max_chars`/line (42), ≤`targets.caption_offset_ms` off (200) | <value> | <yes/no> |
 | Total length | `length_s` ±10% | <value> | <yes/no> |

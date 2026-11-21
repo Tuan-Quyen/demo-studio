@@ -69,7 +69,7 @@ targets:
 
 privacy:
   blur: []           # extra things to always blur, e.g. ["customer email", "API token"]. Default: []
-  real_data: false   # true = the app shows real personal data (qa-ocr check is then recommended). Default: false
+  real_data: false   # true = the app shows real personal data (mark every element; demo-qa looks harder for unmarked leaks). Default: false
 
 install:
   approved: []       # toolkit features you approved, e.g. [remotion]. Default: []
