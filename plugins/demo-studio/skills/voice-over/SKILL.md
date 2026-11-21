@@ -1,11 +1,11 @@
 ---
 name: voice-over
-description: Load when choosing a voice engine or voice, setting `voice` in demo.yaml, generating or measuring voice-over, fixing pronunciation (lexicon) or pacing, or when the user records their own voice (voice-producer, demo-director, scriptwriter). Engines, voice choice, lexicon, natural speech rates, `[pause]`, own-voice recording, VO output and sync consequences.
+description: Load when choosing a voice engine or voice, setting `voice` in demo.yaml, generating or measuring voice-over, fixing pronunciation (lexicon) or pacing, or when the user records their own voice (editor, demo-director, scriptwriter). Engines, voice choice, lexicon, natural speech rates, `[pause]`, own-voice recording, VO output and sync consequences.
 ---
 
 # Voice-over
 
-Settings live in `demo.yaml` (`config.py --slug <slug> get voice`): `engine`, `name`, `language`, `rate`, `pitch`, `lexicon`. Never copy values elsewhere. Owner of the audio: voice-producer. Decisions are the user's; the director asks and records them. `setup_tools.py --options voice` shows the engines with status and size.
+Settings live in `demo.yaml` (`config.py --slug <slug> get voice`): `engine`, `name`, `language`, `rate`, `pitch`, `lexicon`. Never copy values elsewhere. Owner of the audio: editor. Decisions are the user's; the director asks and records them. `setup_tools.py --options voice` shows the engines with status and size.
 
 ## 1. Engines
 | Engine | Cost / key | Quality | Vietnamese | Toolkit feature | Settings |
@@ -29,7 +29,7 @@ When `language` ≠ `voice.language` the localizer proposes entries for kept sou
 `voice.lexicon` maps a written term to its spoken spelling. It changes the **TTS input only**: whole word, case-sensitive, longest match first, done by `config.py --slug <slug> apply-lexicon (--text|--file|stdin) [--json]` (returns the text and an `applied` list; never substitute by hand). `narration.md` and captions keep the written text; caption-writer aligns to it.
 - Before TTS scan the narration for terms likely mispronounced in `voice.language`: English words and brands in a non-English narration, acronyms, numbers, money, dates, domains, abbreviations. A term not in the lexicon -> `needs-input` with proposed entries (term -> spelling) and a default; the director asks the user (auto mode may approve) and records them. Never invent spellings silently.
 - Examples (`vi`): `AI` -> `ây ai`, `YouTube` -> `du túp`, `UI` -> `diu ai`, `URL` -> `diu a eo`, `1.250.000 ₫` -> `một triệu hai trăm năm mươi nghìn đồng`, `example.com` -> `example chấm com`. Suggestions only, never auto-applied.
-- Test tricky terms on one scene first. After TTS transcribe the scene (faster-whisper, feature `captions`): this round-trip only catches gross errors, because whisper writes "AI" (or the written form) for any pronunciation of an acronym or loanword. So for each lexicon-candidate term voice-producer also cuts a <= 3 s preview to `media/preview/lex-<term>.wav` and lists it in the handoff; the director asks the user to listen (auto mode: accept and log the term as unverified in STATE.md).
+- Test tricky terms on one scene first. After TTS transcribe the scene (faster-whisper, feature `captions`): this round-trip only catches gross errors, because whisper writes "AI" (or the written form) for any pronunciation of an acronym or loanword. So for each lexicon-candidate term editor also cuts a <= 3 s preview to `media/preview/lex-<term>.wav` and lists it in the handoff; the director asks the user to listen (auto mode: accept and log the term as unverified in STATE.md).
 - Still wrong after the lexicon -> `needs-input` proposing a rephrase to scriptwriter. Never edit `narration.md`.
 
 ## 4. Pacing
@@ -41,7 +41,7 @@ When `language` ≠ `voice.language` the localizer proposes entries for kept sou
 Budget: `demo-storytelling` (rate en 2.5, vi 3.0, else 2.5; calibrate from `#voice` after the first scene). A scene whose **measured** `words_per_s` (words / speech seconds) > 1.3x natural is rushed (e.g. a 19-word comma-less sentence read at 4.7 words/s): `needs-input` to scriptwriter/localizer with the line; cut or split words, never change speed per scene. `voice.rate` is global: change it in steps of +-5% and re-measure. `[pause]` in `narration.md` is a 400 ms gap between sentence clips (`vo.py join`); captions ignore it. The measured VO decides lengths (rules in `demo-storytelling`).
 
 ## 5. Recording your own voice (`engine: recorded`)
-Quiet room, close mic, pop filter, same distance and energy for every take. One 48 kHz WAV per scene at `.demo/<slug>/vo-src/sNN.wav`, about 0.3 s of silence at both ends. voice-producer cleans each file (`ffmpeg -af highpass=f=80,afftdn=nf=-25`), then normalises loudness to the `media-specs` targets, writes `media/sNN.vo.wav` and measures it like TTS. No lexicon (the speaker reads the written text); missing or unusable takes -> `needs-input` listing scene ids.
+Quiet room, close mic, pop filter, same distance and energy for every take. One 48 kHz WAV per scene at `.demo/<slug>/vo-src/sNN.wav`, about 0.3 s of silence at both ends. editor cleans each file (`ffmpeg -af highpass=f=80,afftdn=nf=-25`), then normalises loudness to the `media-specs` targets, writes `media/sNN.vo.wav` and measures it like TTS. No lexicon (the speaker reads the written text); missing or unusable takes -> `needs-input` listing scene ids.
 
 ## 6. Output and measurement
 `media/sNN.vo.wav` in the format of `media-specs`; `project.json#voice` shape in `media-specs` (project.json schemas, incl. `scenes[].lexicon_applied`). Durations come from `ffprobe`, not from the engine. Raw TTS has ~0.85 s tails and ~0.9 s gaps inside one request, so: **one sentence per TTS call**, then `vo.py join <out> <wavs...> --gap-ms 300 --edge-ms 50` (a `[pause]` = gap 400 ms), `vo.py trim <in> <out> --lead-ms 200 --trail-ms 150`, `vo.py check <file> --pause-ms 400` (one per `[pause]`; exit 1 = fail, blocks the handoff). Never hand-roll trimming. Record `lead_ms`, `trail_ms`, `sentences`, `words_per_s` in `#voice`; check clipping (peaks <= -3 dBFS). render-engineer and sound-mixer re-run `vo.py check` before mixing.

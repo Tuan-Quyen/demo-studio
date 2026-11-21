@@ -1,122 +1,28 @@
 ---
 name: media-specs
-description: Load when encoding, mixing, captioning, blurring or verifying a demo render (voice-producer, privacy-blurrer, caption-writer, sound-mixer, render-engineer, demo-qa). Encode specs, loudness, caption rules, file naming, the default render-check thresholds (the user's values live in demo.yaml), the blur strength rule and the pointers to blur.py / checks.py (the measuring code), plus the #events #blur #mix #captions #checks schemas.
+description: Load when writing edit.json, captions or render settings, or judging a final video (editor, demo-qa). Encode, loudness, caption rules, motion basics, file names.
 ---
 
 # Media specs
 
-Tunable values (loudness, true peak, drift, caption width and offset, burn-in, formats, music, duck level) come from the project's `demo.yaml`: read with `python ${CLAUDE_PLUGIN_ROOT}/scripts/config.py --slug <slug> get <path>`. The numbers below are the **defaults** (the same ones the `demo.yaml` template ships); never hard-code them in an agent. Fixed values (codec, resolution, sample rate, tolerance of the length check) stay here.
+Defaults come from `demo.yaml`; the numbers below are the usual values.
 
 ## Encode
-- Record at the largest native size the platform gives; the render scales to the output size (`scale=1920:1080:flags=lanczos`). Web: Playwright `recordVideo` size MUST equal the viewport (a larger size pads, it does not scale), so a web clip is the viewport size (default 1280x720) and render upscales; pick a larger viewport only if the app layout allows. Never claim 1440p for a clip `ffprobe` does not show as 1440p.
-- Outputs: 16:9 1920x1080, 9:16 1080x1920, 1:1 1080x1080. One encode, from raw clips + project.json (blur, motion, captions, mix applied in the same pass).
-- **fps = source fps.** Playwright `recordVideo` is capped at 25 fps, so a web raw is 25 fps and the output is 25 fps; never fake 60 by frame duplication. 60 fps output only when every raw clip is a real 60 fps recording (desktop/mobile recorders); clips with different fps: output at the lowest, resample only down. Record the real value in `#checks.outputs`.
-- H.264 High, yuv420p, AAC 48 kHz 192 kbps, `+faststart`. **CRF governs quality; there is no bitrate target** (low-motion screen content is fine far below 10 Mbps); `-maxrate` is only a safety cap:
-```
-ffmpeg -nostdin -y <inputs/filtergraph> -c:v libx264 -preset slow -crf 18 -maxrate 20M -bufsize 40M -profile:v high -pix_fmt yuv420p -r <source fps> -c:a aac -b:a 192k -ar 48000 -movflags +faststart media/final-16x9.mp4
-```
-- Blur first in the graph (before scale/reframe) so bbox stay in source-frame pixels. The blur filter comes from `blur.py graph` (below), never hand-written. Every ffmpeg call in an agent run gets `-nostdin` (an ffmpeg that reads the terminal hangs a headless run); `run_bounded.py` adds it by itself.
+- Output sizes: 16:9 1920x1080, 9:16 1080x1920, 1:1 1080x1080. fps = source fps (web recordings are 25 fps; never fake higher).
+- H.264 High, yuv420p, AAC 48 kHz 192k, `+faststart`, CRF 18. `render.py` does this in one ffmpeg run per aspect; do not hand-write ffmpeg for the final.
+- Every ffmpeg call you run yourself: `-nostdin` and a timeout.
 
 ## Loudness
-Target **`targets.lufs` integrated (default -14), true peak <= `targets.true_peak` dBTP (default -1)**, accept the target +-1 LUFS. Normalize the mix with two-pass `loudnorm=I=<targets.lufs>:TP=<true_peak - 0.5>:LRA=11` (default `I=-14:TP=-1.5`; the 0.5 dB leaves margin; `-ar 48000` explicitly since loudnorm upsamples). Ducking: `[music][vo]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400`, music `music.duck_db` (default -20) dB under VO when not ducked, fade-in 500 ms / fade-out 1500 ms. VO peaks <= -3 dBFS before mixing.
+Integrated -14 LUFS +-1, true peak <= -1 dBTP (render.py runs 2-pass `loudnorm`). VO peaks <= -3 dBFS before mixing. Music about -20 dB under the voice, fade in 0.5 s, out 1.5 s.
 
 ## Captions
-VTT (`media/final.vtt`) and SRT (`media/final.srt`); per language add `.<lang>` (`final.vi.vtt`). <= **`captions.max_chars` characters per line (default 42), <= 2 lines**, 1-6 s per cue, <= 17 chars/s reading speed (soft). Break at phrases, never mid-word; text = narration text (spelling and punctuation as written). Every cue start within **`targets.caption_offset_ms` (default 200)** of the measured onset of its first word (see the captions check). Cue text aligns to the written narration in `voice.language` (`narration.<voice.language>.md` if it exists, else `narration.md`), never to the spoken (lexicon) spelling. No speaker labels or sound tags unless asked. Burn-in only when `captions.burn_in` is true (default false; read from demo.yaml, not stored in `#captions`). `captions.layout`: `overlay` = text over the picture at the cue `pos`; `band` = picture scaled to fit the width and aligned top, captions in the remaining bottom band (`#blur`/`#motion` coordinates go through the same scale).
+`media/final.vtt` (burn in only if `captions.burn_in`). <= 42 chars per line, <= 2 lines, <= 17 chars/s, 1-6 s per cue, break at phrases. Text = written narration (not the lexicon spelling). Start within 200 ms of the spoken first word.
 
-## File naming
-`<slug>` = lowercase ascii kebab-case. Scenes `sNN` (two digits). In `.demo/<slug>/media/`: `sNN.raw.webm` (non-web platforms may be `.mp4/.mov/.mkv`; `#events.clips` is authoritative), `sNN.vo.wav`, `final-16x9.mp4`, `final-9x16.mp4`, `final-1x1.mp4`, `final.vtt`, `final.srt`, `thumb.png` (1280x720 PNG). Language variant: `final-16x9.<lang>.mp4`. No other intermediate videos are kept.
+## Motion (keep it light)
+- Cuts: trim dead start/end with `in_ms`/`out_ms`; every cut shows something new.
+- Zoom: only on the element being discussed, scale 1.3-1.6, 1-2 s, at most 2 per scene, `center` in output pixels.
+- Title card <= 3 s, end card = the CTA, 3 s. No transitions, no stock effects.
+- `speed` 1.0; up to 1.5 only on waiting time, never on the voice.
 
-## Delivery limits
-Thumbnail `media/thumb.png` 1280x720 PNG (16:9, <= 2 MB). Title <= 100 characters, description <= 5000 characters. First chapter at 00:00.
-
-## Render checks
-Thresholds are the defaults; the project's `demo.yaml` overrides them (key in the threshold column). `#checks.results.*.threshold_*` records the value actually used.
-| id | what | threshold (demo.yaml key, default) | how measured | owner on fail |
-|---|---|---|---|---|
-| vo | each `sNN.vo.wav` clean: lead <= 200, trail <= 150, gaps <= 500 ms except declared pauses; `#voice` fields present | `vo.py check <file> [--pause-ms N...]` exit 0 (run before mixing) | voice-producer |
-| sync | rendered length vs timeline | drift <= `targets.max_drift_ms` (80) | `checks.py`: total duration vs `#timeline` end (per-scene onsets are not measurable from the file alone) | sync-editor |
-| loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP, and within 0.5 LU / 0.5 dB of `#mix.preview` | `checks.py` (ebur128 in the combined pass) | sound-mixer |
-| blur | readable protected text in the output | 0 hits, positive control true, every rendered aspect verified | `blur.py verify --video F --aspect A` per rendered aspect (writes `#checks.blur.<A>`), aggregated by `checks.py`; verdict `pass` only if verified: `inconclusive` (positive control failed) and `incomplete` (no verdict, over budget) are failures | privacy-blurrer (leak, inconclusive), render-engineer (missing) |
-| black | black frames not intended | none (>0.2 s) outside `allow.black` | `checks.py` (blackdetect d=0.2 pix_th=0.10) | capture-operator |
-| freeze | frozen video not intended | none (>=3 s) outside `allow.freeze` | `checks.py` (freezedetect n=-60dB d=3) | capture-operator |
-| captions | chars/line, lines, onset offset | <= `captions.max_chars` (42), <= 2 lines; **for EVERY cue** `|t_start - onset of its first word| <= targets.caption_offset_ms` (200) | `checks.py` lints `final.vtt` (chars/line, lines, cue length, order) and reports phrase-level onset offsets without gating; the word-level rule stays: 10 ms RMS window, onset = first window above -40 dBFS after a silence, merging silences < 150 ms, cues matched to words by order in `narration.md`; one cue over = fail | caption-writer |
-| length | total duration vs `length_s` | +-10% (fixed) | `checks.py` (ffprobe duration) | storyboarder |
-Intentional black (fade through black, title cards) and deliberate holds (screen static while VO explains) are listed in `#checks.allow` (from `#motion.allow` and the storyboard) and are not failures. Black/freeze are measured on the final render and tied to the nearest scene for blame. `allow` spans must be per hold; if they cover > 30% of the duration the check is blind there: `checks.py` puts the covered % in `detail`, and demo-qa samples frames inside allowed spans. Change a project's values in its `demo.yaml`; change the defaults here and in `templates/demo.yaml` together.
-
-## Blur and measuring: one source in code
-Do not write OCR, OpenCV or per-frame ffmpeg code (no `ffmpeg -ss` per sample, no one process per frame or region): per-sample loops are slow and hang headless runs. The scripts do one decode and are bounded (`run_bounded.py`: wall + stall timeout, group kill):
-- `blur.py plan | graph | preview | verify` (privacy-blurrer plans and previews; render-engineer renders with `graph` and runs `verify` for EVERY rendered aspect).
-- `checks.py` (render-engineer): one ffmpeg pass (ebur128 + blackdetect + freezedetect + silencedetect), blur verdict aggregation, loudness, captions lint, length, sync, vo. The only writer of `#checks` besides `blur.py verify`; `project.py set checks` is refused.
-- Measure by hand only to debug: `ffmpeg -nostdin -nostats -i F -vn -af ebur128=peak=true -f null -`.
-
-**Blur strength rule** (applied by `blur.py plan`, never overridden by hand): text height `h` = `#blur` `text_h` or the bbox height. `boxblur`: `lr >= ceil(h/4)`, `lp=1`. `pixelize` (block size): `>= ceil(h/3)`. Anything that must not be recoverable (secrets: keys, tokens, passwords; thin strips <= 8 px) is `opaque` / `drawbox t=fill`. A blur that OCR still reads is a `leak`: raise the strength or cover it, never the other way round. Pixelate is not a fallback for a failed check, only a style `plan` may choose by the rule above.
-Moving regions (scroll): `#blur` `mode:"track"` with `keyframes` held step-wise (never interpolated; a jump larger than `pad` without a split is an error); `graph` turns them into `sendcmd`.
-
-## Voice lexicon
-Pronunciation rules, `apply-lexicon` and starter entries: skill `voice-over`.
-
-## Spaces and time (one rule per key)
-| key | space | time | mapping to the final render |
-|---|---|---|---|
-| `#events` bbox | recorded frame px of the scene clip (`bbox_space`) | marker `t` = ms since `scene_start` | clip time = `t + clips[sid].offset_ms` |
-| `#blur` | `space:"source"`: frame px of the scene clip | `time:"scene"`: ms since `scene_start` | final = `#timeline.scenes[sid].start + (t + offset_ms - in) / speed` |
-| `#motion` | `space:"source"`: frame px of the scene clip | `time:"timeline"`: ms on the final timeline | none needed for time; the render maps coordinates through the same crop/scale/reframe as the clip |
-| `#captions`, `#mix`, `#checks.allow` | n/a | ms on the final timeline | none |
-`offset_ms` = clip time of `scene_start`; `#timeline` `in`/`out`/`start`/`end` are ms (`in`/`out` on the clip, `start`/`end` on the final timeline), `speed` a factor (1.0 = unchanged). Because `#blur` is scene-relative it does not depend on `#timeline` and runs in parallel with sync-editor.
-
-## project.json schemas
-Single source for every shape below; agents reference this section and never restate it. `project.json` itself is `_meta.schema: 2` (`project.py migrate` upgrades schema 1); the `schema` field inside a key is as written per key below.
-
-**#events** (capture-operator; web: written by `capture.py --slug`, else per `platform-automation`): `{schema:1, platform, clips:{sid:{file (relative to the project folder),w,h,fps,scale,offset_ms,duration_ms, masked (bool: capture-time mask verified on every frame; false for clips from before 0.3.0), mask_log, unmaskable:[{surface,selector,reason,t_start,t_end,bbox}] (clip ms / clip px), safe_from_ms (first capture-verified-safe clip time; a #timeline scene `in` must not be earlier: check `safe_start`), mask:{mode,style,frames_unmasked,frames_total,rects_checked,selectors,n_regex}}}, bbox_space:{unit:"px",frame:[w,h],scale,origin:[x,y]}, markers:[{t,scene,type,bbox,label,masked?}], retries}`; `t` is ms since `scene_start`. A clip without `masked:true` keeps every `#blur` region.
-**#voice** (voice-producer): `{engine, voice, language, scenes:[{id, file, duration_s, words, lead_ms, trail_ms, sentences:[{words,start_ms,end_ms}], words_per_s, pauses_ms:[400], lexicon_applied:[{term,spoken}]}]}` (`lead_ms`, `trail_ms`, `sentences` (scene-relative ms), `words_per_s`, `pauses_ms` (declared `[pause]` gaps, `[]` if none) are **mandatory**, measured after `vo.py join` + `trim`; a scene without them fails the `vo` check).
-**#timeline** (sync-editor): `{scenes:[{id, clip, in, out, speed, pad_end, vo:{file, start, end, speech:[onset, offset]}, start, end, drift_ms}], total_s}`; ms as in the table above. `vo.start/end` = the trimmed VO file on the final timeline, `vo.speech` = first and last spoken ms (from `lead_ms`/`trail_ms`); end cards and fades key off `speech[1]`. The sync check compares each rendered scene with `scenes[].start/end`.
-
-**#blur** (privacy-blurrer; written by `blur.py plan`, which also reads the schema 1 shape `t_start/t_end/mode:boxblur|pixelate/strength`):
-```json
-{"schema":2,"space":"source","time":"scene","regions":[{"id":"r1","bbox":[820,300,420,60],"spans":[[4100,9200,"s03"]],"scene":"s03","mode":"static","style":"boxblur","pad":12,"text_h":24,"secret":false,"source":"events:sensitive:customer email","label":"customer email","pattern":null,"keyframes":null}]}
-```
-`mode`: `static|track|cover` (class), `style`: `opaque|boxblur|pixelize` (strength rule above). `bbox` in source px of the clip; `spans` = `[t0,t1]` or `[t0,t1,scene]` ms, scene-relative; a region merged across scenes has `scene:null` and 3-element spans. `track`: `keyframes:[[t,x,y,w,h]]` held step-wise. `source`: `capture-mask|events:sensitive:<label>|manual|legacy|unmaskable` (`legacy` = migrated; `unmaskable` = made by `plan` from `events.clips[sid].unmaskable[]`: opaque, padded, clip ms minus `offset_ms`). Every `sensitive` marker not masked at capture and every unmaskable surface must be covered; `pad` px on all sides. A `capture-mask` region is dropped by `plan` only when every scene it spans has `masked:true`. Optional `transforms:{"<aspect>":{scale,ox,oy,segments?:[{t0,t1,scale,ox,oy}]}}` (source px -> output px; `t0/t1` seconds on the final timeline): written by the render step through `blur.py set-transform`, required by `blur.py verify` for any aspect that is not a uniform centred scale (other ratio, #motion zoom/pan/reframe).
-
-**#checks.blur.<aspect>** (written only by `blur.py verify`): `{verdict,sampled,total,seconds,fullframe,positive_control:{<region>:bool,fullframe:bool},hits,file:{size,mtime_ns,ino,sha256?},video,inputs:{blur,timeline,events versions},incomplete_reason}`. `checks.py` accepts it only when `file` matches the current final video and `inputs` match the current key versions; `positive_control.fullframe` = the full-frame OCR read a rendered known text. `#checks.pass` is true only from a full `checks.py` run.
-
-**#motion** (motion-designer; recipes in `motion-fx`):
-```json
-{"schema":1,"engine":"ffmpeg","level":"basic","space":"source","time":"timeline","allow":{"black":[[0,300]],"freeze":[]},
- "effects":[
-  {"scene":"s02","type":"zoom","t_start":4200,"t_end":5700,"params":{"center":[1240,610],"scale":1.6,"ease_in_ms":500,"ease_out_ms":400,"source_event":"s02@4700"}},
-  {"scene":"s02","type":"cursor_highlight","t_start":4450,"t_end":5100,"params":{"bbox":[1180,580,120,60]}},
-  {"scene":"s02","type":"ripple","t_start":4700,"t_end":5100,"params":{"center":[1240,610]}},
-  {"scene":"s02","type":"callout","t_start":6000,"t_end":8500,"params":{"text":"Pick a template","anchor":[900,300],"arrow_to":[1240,610]}},
-  {"scene":null,"type":"title_card","t_start":0,"t_end":2500,"params":{"title":"Invoice in 60 seconds","subtitle":"","bg":"#0B1020"}},
-  {"scene":"s02","type":"fade","t_start":12000,"t_end":12300,"params":{"mode":"cross"}}]}
-```
-`engine`: `ffmpeg|opencv|remotion|null` is a hint, not a contract (render-engineer records what it actually used in `#checks.outputs.<ratio>.renderer`); `level`: `none|basic|cinematic` (copied from `motion.level`; `none` -> `engine:null`, `effects:[]`). `type` in `zoom, pan, cursor_highlight, ripple, callout, title_card, fade, device_frame, reframe`. `allow` lists intentional black/freeze spans (ms, final timeline) for the checks. Optional `params.aspects` (e.g. `["9x16"]`) limits an effect to some outputs. Every effect derives from an `#events` marker or a storyboard camera note; none over a `#blur` region; effects the level cannot do are not written.
-
-**#mix** (sound-mixer):
-```json
-{"schema":1,"voice":{"gain_db":0},"music":{"file":"assets/music.mp3","license":"...","gain_db":-20,"fade_in_ms":500,"fade_out_ms":1500},"ducking":{"threshold":0.05,"ratio":8,"attack_ms":20,"release_ms":400},"chain":"<complete audio filter_complex incl. make-up gain and limiter>","target":{"lufs":-14,"tp_db":-1.5},"preview":{"lufs":-14.2,"tp_db":-1.8}}
-```
-`music` may be `null` (voice only). `target.lufs` / `tp_db` from `demo.yaml` (`tp_db` = `targets.true_peak` - 0.5); `music.gain_db` from `music.duck_db`. `chain` is the single source of the final audio: render-engineer runs it as-is; `preview` is that chain measured.
-
-**#captions** (caption-writer; `lang`, `max_chars` from `voice.language`, `captions.max_chars`; `pos` = `bottom|top`; burn-in vs sidecar is read by render-engineer from demo.yaml `captions.burn_in`, never mirrored here; times ms on the final timeline):
-```json
-{"schema":1,"lang":"en","max_chars":42,"max_lines":2,"cues":[{"i":1,"scene":"s01","t_start":300,"t_end":2900,"pos":"bottom","lines":["Create an invoice","in three clicks."]}]}
-```
-
-**#checks** (written ONLY by `checks.py` and `blur.py verify` through `project.write_checks`; every result carries its `owner`):
-```json
-{"schema":2,"outputs":{"16x9":{"file":"media/final-16x9.mp4","w":1920,"h":1080,"fps":25,"duration_s":84.2,"renderer":"ffmpeg"}},
- "allow":{"black":[[0,300]],"freeze":[]},
- "blur":{"16x9":{"verdict":"pass","sampled":172,"total":172,"seconds":38.4,"fullframe":{"sampled":42,"stride_s":2},"positive_control":{"r1":true},"hits":[]}},
- "privacy_capture":{"clips":4,"masked":4,"frames_unmasked":0,"rects_checked":812},
- "results":{"sync":{"pass":true,"measured_ms_max":42,"threshold_ms":80,"owner":"sync-editor","detail":""},
-            "vo":{"pass":true,"scenes_checked":4,"failures":[],"owner":"voice-producer","detail":""},
-            "loudness":{"pass":true,"lufs":-14.1,"tp_db":-1.6,"owner":"sound-mixer","detail":""},
-            "blur":{"pass":true,"verdict":"pass","verdicts":{"16x9":"pass"},"hits":0,"owner":"privacy-blurrer","detail":""},
-            "black":{"pass":true,"hits":[],"owner":"capture-operator","detail":""},
-            "freeze":{"pass":true,"hits":[],"owner":"capture-operator","detail":""},
-            "captions":{"pass":true,"max_chars":38,"cues":24,"onset_max_ms":120,"onset_gate":false,"owner":"caption-writer","detail":""},
-            "length":{"pass":true,"target_s":90,"actual_s":84.2,"delta_pct":-6.4,"owner":"storyboarder","detail":""}},
- "pass":true}
-```
-`blur.<aspect>` = raw verdict of `blur.py verify` (`verdict`: `pass|leak|inconclusive|incomplete`; a failed positive control is `inconclusive`, never `pass`); `results.blur` aggregates every rendered aspect (a missing aspect = `incomplete`). `pass` = all results pass, the required results (blur, loudness, black, freeze, length) exist and `privacy_capture.frames_unmasked` is 0. `allow` = `#motion.allow`. A failing result names the owner; the director routes the fix and reruns only dependent keys. Exit codes of both scripts: 0 pass, 2 input, 3 incomplete, 4 tool missing, 10 finding, 11 leak, 70 bug.
+## Files (`.demo/<slug>/media/`)
+`sNN.raw.webm`, `sNN.vo.wav`, `final-16x9.mp4`, `final-9x16.mp4`, `final-1x1.mp4`, `final.vtt`. `<slug>` = lowercase kebab-case, scenes `sNN`.
