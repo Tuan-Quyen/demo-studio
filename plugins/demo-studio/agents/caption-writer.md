@@ -11,7 +11,7 @@ maxTurns: 15
 `narration.<voice.language>.md` (else `narration.md`), `media/sNN.vo.wav`, `edit.json` (scene order, trims, vo_offset_ms), `demo.yaml` (captions). Skill `media-specs` (caption rules).
 
 ## Steps
-1. Scene start on the final timeline = sum of earlier scene lengths `(out_ms - in_ms) / speed`. A cue starts at scene start + `vo_offset_ms` + its spoken offset. Times exclude the title card (render.py adds it).
+1. Scene start on the final timeline = sum of earlier scene lengths `(out_ms - in_ms) / speed`. A cue starts at scene start + `vo_offset_ms` + its spoken offset. Times are on the final timeline EXCLUDING the title card (render.py adds its length).
 2. Spoken offsets: faster-whisper word timestamps if installed (align to the **written** text), else split by character share of the VO duration (`ffprobe`).
 3. Rules: <= 42 chars per line, <= 2 lines, <= 17 chars/s, 1-6 s per cue, break at phrases, text equals the narration (not the lexicon spelling), no private data.
 4. Write `captions.json`: `{"captions":[{"start_ms":300,"end_ms":2900,"text":"..."}]}`.

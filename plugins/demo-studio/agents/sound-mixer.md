@@ -13,7 +13,7 @@ maxTurns: 10
 ## Steps
 1. Run `vo.py check media/sNN.vo.wav` for each scene; a failure is `blocked` for voice-producer, never repair audio yourself.
 2. Music only from a file the user supplied or the project has with a licence that allows it. None or no file: `{"music":null}`. Never download or invent a track.
-3. Gain about -20 dB under the voice (`music.gain_db`); render.py applies ducking and 2-pass loudnorm to -14 LUFS / -1 dBTP.
+3. Gain about -20 dB under the voice (`music.gain_db`); render.py applies ducking and 2-pass loudnorm to `targets.lufs` (default -16 LUFS, true peak -1.5 dBTP).
 4. Write `mix.json`: `{"music":null}` or `{"music":{"file":"assets/bed.mp3","gain_db":-20}}`.
 
 ## Tools / scripts

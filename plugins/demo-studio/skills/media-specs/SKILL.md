@@ -13,7 +13,7 @@ Defaults come from `demo.yaml`; the numbers below are the usual values.
 - Every ffmpeg call you run yourself: `-nostdin` and a timeout.
 
 ## Loudness
-Integrated -14 LUFS +-1, true peak <= -1 dBTP (render.py runs 2-pass `loudnorm`). VO peaks <= -3 dBFS before mixing. Music about -20 dB under the voice, fade in 0.5 s, out 1.5 s.
+Integrated `targets.lufs` (default -16 LUFS, +-1.5), true peak <= -1.5 dBTP (render.py runs 2-pass `loudnorm`). VO peaks <= -3 dBFS before mixing. Music about -20 dB under the voice, fade in 0.5 s, out 1.5 s.
 
 ## Captions
 `media/final.vtt` (burn in only if `captions.burn_in`). <= 42 chars per line, <= 2 lines, <= 17 chars/s, 1-6 s per cue, break at phrases. Text = written narration (not the lexicon spelling). Start within 200 ms of the spoken first word.

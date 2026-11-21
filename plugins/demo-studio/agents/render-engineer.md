@@ -12,7 +12,7 @@ maxTurns: 15
 
 ## Steps
 1. Check the JSON files exist and parse; missing optional ones are fine (render.py merges what exists).
-2. Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --slug <slug> --aspect <16x9,9x16,1x1 from demo.yaml formats>` (one ffmpeg run per aspect, timeout built in).
+2. Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/render.py --slug <slug> --aspect <16x9,9x16,1x1 from demo.yaml formats>` (one ffmpeg run per aspect; 1x1 = centre crop, 9x16 = fit width with bars; `--burn-in` only if captions.burn_in).
 3. Read the JSON result. Exit 2 (bad input): `blocked` naming the file and its owner. Exit 3 (ffmpeg failed/timeout): retry once, then `blocked` with the log tail.
 4. `ffprobe` each `final-*.mp4`: size, fps, duration within `length_s` +-10%, audio present.
 

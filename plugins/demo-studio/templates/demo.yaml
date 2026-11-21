@@ -29,3 +29,7 @@ privacy:
 
 tools:
   ocr: null           # qa-ocr (RapidOCR, recommended) | qa-ocr-tesseract | none (leak check by eye only)
+
+targets:              # optional
+  lufs: -16           # integrated loudness target
+  true_peak: -1.5     # dBTP ceiling
