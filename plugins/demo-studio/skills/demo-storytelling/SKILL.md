@@ -29,7 +29,7 @@ Exactly one, last, specific and doable ("Start a free trial at example.com"). No
 
 ## Scene count rules
 - One idea and one on-screen goal per scene. 8-20 s per scene (hook <= 8 s). A scene with more than ~3 user actions gets split.
-- Scene ids `s01..sNN` are permanent: reuse them in storyboard, narration, scripts, media and project.json. Insert by renumbering only before G2 approval.
+- Scene ids `s01..sNN` are permanent: reuse them in storyboard, narration, scriptsand media. Insert by renumbering only before G2 approval.
 - Every cut changes something the viewer can see (screen, zoom target or state). Never two scenes on the same unchanged screen.
 
 ## Storyboard rules (storyboard.md)
@@ -40,5 +40,5 @@ Per scene: id, goal (one sentence), reading hold in s (after the last action; de
 - Say the outcome of an action, not the click ("Your invoice is on its way"), unless the click is the point. Never read button labels or URLs aloud.
 - Narration leads the action by ~0.3-0.5 s: the line starts, then the pointer moves.
 - One scene = one block of text with its word count and a target duration; no stage directions inside the spoken text. Keep brand names, numbers and acronyms with a pronunciation hint if the TTS may fail.
-- Real private data is never spoken. Use generic words ("a customer"), even if the screen shows a real name (it will be blurred).
+- Real private data is never spoken. Use generic words ("a customer"), even if the screen shows a real name.
 - Total words must pass the budget above; list `facts:` words and estimated duration in the handoff.

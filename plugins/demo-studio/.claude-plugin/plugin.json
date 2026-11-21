@@ -1,11 +1,11 @@
 {
   "name": "demo-studio",
   "displayName": "Demo Studio",
-  "version": "0.3.0",
-  "description": "A team of 18 agents that plans, records, edits and packages narrated, captioned, privacy-safe demo videos for web, desktop and mobile apps.",
+  "version": "0.4.0",
+  "description": "A lean team of 6 agents that plans, records, edits and verifies narrated, captioned, privacy-safe demo videos for web, desktop and mobile apps.",
   "author": {
     "name": "ctuanquyen97"
   },
   "license": "MIT",
-  "keywords": ["demo", "video", "screen-recording", "voiceover", "captions", "playwright", "ffmpeg", "remotion"]
+  "keywords": ["demo", "video", "screen-recording", "voiceover", "captions", "playwright", "ffmpeg"]
 }

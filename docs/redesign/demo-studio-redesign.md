@@ -1,3 +1,5 @@
+> **Superseded by [docs/LEAN.md](../LEAN.md)** (demo-studio 0.4). Kept as research reference only.
+
 # demo-studio v0.3: thiết kế lại và kế hoạch migrate
 
 > Người viết: lead architect, chủ quản plugin `demo-studio`. Tài liệu tổng hợp từ 6 báo cáo chuyên gia độc lập (`capture-redaction`, `media-perf`, `agent-architecture`, `reliability-qa`, `end-user-product`, `contrarian`) và đã qua một vòng red-team (xem Phụ lục A). Mỗi báo cáo có thí nghiệm riêng trong `scratchpad/exp/<id>/`.
