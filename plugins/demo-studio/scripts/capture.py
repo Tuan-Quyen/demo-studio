@@ -59,6 +59,7 @@ EXIT_OK, EXIT_INPUT, EXIT_BUDGET, EXIT_TOOL, EXIT_STEP, EXIT_LEAK, EXIT_BUG = 0,
 
 DEFAULT_PILL = "#9aa3b2"
 STD_MAX = 12.0          # max per-channel std-dev inside a masked rect (VP8 noise tolerated, glyph edges are not)
+MIN_RECT_PX = 5         # rects thinner than this are slivers: no evidence either way (soft)
 PILL_EDGE_FRAC = 0.5    # a non-uniform rect that is at least this much mask colour is a shifted pill edge (soft), not glyph edges (bad)
 COLOR_TOL = 34          # max per-channel |mean - pill| (VP8 chroma shift)
 SENTINEL_DROP = 20.0    # box ring must be this much darker (luma) than the interior
@@ -181,6 +182,8 @@ def check_rect(frame, rect, pill, is_box):
     x, y, rw, rh = rect
     x0, y0, x1, y1 = int(round(x)), int(round(y)), int(round(x + rw)), int(round(y + rh))
     x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w), min(y1, h)
+    if x1 - x0 < MIN_RECT_PX or y1 - y0 < MIN_RECT_PX:
+        return "rect_too_small"   # a sliver (element entering/leaving the viewport edge) carries no evidence and shows no readable glyph
     inset = 2 if (x1 - x0 >= 8 and y1 - y0 >= 8) else 1 if (x1 - x0 >= 4 and y1 - y0 >= 4) else 0
     ix0, iy0, ix1, iy1 = x0 + inset, y0 + inset, x1 - inset, y1 - inset
     if ix1 - ix0 < 1 or iy1 - iy0 < 1:
