@@ -1,0 +1,470 @@
+diff --git a/plugins/demo-studio/scripts/capture.py b/plugins/demo-studio/scripts/capture.py
+index 71b3365..45ef8b7 100644
+--- a/plugins/demo-studio/scripts/capture.py
++++ b/plugins/demo-studio/scripts/capture.py
+@@ -59,6 +59,8 @@ EXIT_OK, EXIT_INPUT, EXIT_BUDGET, EXIT_TOOL, EXIT_STEP, EXIT_LEAK, EXIT_BUG = 0,
+ 
+ DEFAULT_PILL = "#9aa3b2"
+ STD_MAX = 12.0          # max per-channel std-dev inside a masked rect (VP8 noise tolerated, glyph edges are not)
++MIN_RECT_PX = 5         # rects thinner than this are slivers: no evidence either way (soft)
++PILL_EDGE_FRAC = 0.5    # a non-uniform rect that is at least this much mask colour is a shifted pill edge (soft), not glyph edges (bad)
+ COLOR_TOL = 34          # max per-channel |mean - pill| (VP8 chroma shift)
+ SENTINEL_DROP = 20.0    # box ring must be this much darker (luma) than the interior
+ FRAME_TOL_MS = 90.0     # log entry <-> frame match window (~2 frames at 25 fps: measured screencast jitter during fast scroll)
+@@ -180,13 +182,18 @@ def check_rect(frame, rect, pill, is_box):
+     x, y, rw, rh = rect
+     x0, y0, x1, y1 = int(round(x)), int(round(y)), int(round(x + rw)), int(round(y + rh))
+     x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w), min(y1, h)
+-    inset = 2 if (x1 - x0 >= 8 and y1 - y0 >= 8) else 1 if (x1 - x0 >= 4 and y1 - y0 >= 4) else 0
++    if x1 - x0 < MIN_RECT_PX or y1 - y0 < MIN_RECT_PX:
++        return "rect_too_small"   # a sliver (element entering/leaving the viewport edge) carries no evidence and shows no readable glyph
++    inset = 3 if (x1 - x0 >= 14 and y1 - y0 >= 14) else 2 if (x1 - x0 >= 8 and y1 - y0 >= 8) else 1 if (x1 - x0 >= 4 and y1 - y0 >= 4) else 0
+     ix0, iy0, ix1, iy1 = x0 + inset, y0 + inset, x1 - inset, y1 - inset
+     if ix1 - ix0 < 1 or iy1 - iy0 < 1:
+         return "rect_too_small"
+     reg = frame[iy0:iy1, ix0:ix1].reshape(-1, 3).astype(np.float32)
+     mean, std = reg.mean(0), reg.std(0)
+     if float(std.max()) > STD_MAX:
++        near_pill = float((np.abs(reg - np.array(pill, dtype=np.float32)).max(1) <= COLOR_TOL).mean())
++        if near_pill >= PILL_EDGE_FRAC:   # mostly mask colour: a rect shifted by scroll/pts jitter over the pill edge, not glyphs
++            return "interior_pill_edge(pill=%.2f)" % near_pill
+         return "interior_not_uniform(std=%.1f)" % float(std.max())
+     dev = np.abs(mean - np.array(pill, dtype=np.float32))
+     if float(dev.max()) > COLOR_TOL:
+@@ -253,7 +260,7 @@ def entry_verdict(fr, e, pill, res):
+         why = check_rect(fr, r, pill, ri in boxes)
+         if why is None:
+             continue
+-        if why.startswith("interior_not_mask_colour") or why == "rect_too_small":
++        if why.startswith("interior_not_mask_colour") or why.startswith("interior_pill_edge") or why == "rect_too_small":
+             soft = True
+             res["rects_uniform_nopill"] += 1
+             continue
+@@ -306,21 +313,22 @@ def eval_group(fr, cands, te, narrow, pill, res, edges=None):
+     near.sort(key=lambda e: abs(e["t"] - te))                            # nearest first
+     vs = [entry_verdict(fr, e, pill, res) for e in near]
+     inner = [v for e, v in zip(near, vs) if abs(e["t"] - te) <= NEAR_MS] or vs[:1]   # "nearest" = within ~1.5 rAF (video pts are quantised to 40 ms)
+-    if any(v[0] == "strict" for v in inner):
+-        return "strict", None, None
+     bad = next((v for v in inner if v[0] == "bad"), None)
+-    if bad:      # S-19: nothing but a strict NEAREST entry rescues a frame whose nearest entry shows glyph edges
++    if bad:      # S-19: ANY glyph-edge entry within NEAR_MS fails the frame; a strict neighbour rescues only uniform / pill-edge ones
+         return "bad", bad[1], bad[2]
+-    if any(v[0] == "strict" for v in vs):
+-        return "resync", None, None      # the nearest entries are soft/skipped, a neighbour matches strictly: counted
++    if any(v[0] == "strict" for v in inner):
++        return "strict", None, None
+     if all(v[0] == "skipped" for v in vs):
+         return "skipped", None, None
++    at_edge = any(not e["rects"] for e in cands if abs(e["t"] - te) <= narrow) or _boundary(cands, te, narrow) \
++        or bool(edges and any(abs(t - te) <= EDGE_MS for t in edges))
++    if at_edge:      # the element appears/disappears around this frame: uniform pixels, nothing readable (counted as edge_soft)
++        return "empty", "edge_soft", None
++    if any(v[0] == "strict" for v in vs):
++        return "resync", None, None      # the nearest entries are soft/skipped, a neighbour matches strictly: counted
+     for e in sorted(cands, key=lambda e: abs(e["t"] - te)):
+         if e["rects"] and abs(e["t"] - te) > narrow and entry_verdict(fr, e, pill, res)[0] == "strict":
+             return "resync", None, None
+-    if any(not e["rects"] for e in cands if abs(e["t"] - te) <= narrow) or _boundary(cands, te, narrow) \
+-            or (edges and any(abs(t - te) <= EDGE_MS for t in edges)):
+-        return "empty", None, None      # the element appears/disappears around this frame: uniform pixels, nothing readable
+     return "soft", None, None
+ 
+ 
+@@ -371,7 +379,7 @@ def calibrate(video, clip, times, entries, t_flashes, t_page_epoch, scene_start,
+ def _new_res(mask_kind):
+     return {"frames_total": 0, "frames_with_masks": 0, "frames_unmasked": 0, "rect_checks": 0, "oracle_rect_checks": 0,
+             "rects_failed": 0, "frames_resynced": 0, "frames_soft": 0, "rects_uniform_nopill": 0,
+-            "rects_skipped_proven": 0, "frames_unverified": 0, "frames_carried": 0, "strict_frames": 0, "skipped_blur": mask_kind == "blur", "failures": [], "sync": None}
++            "rects_skipped_proven": 0, "frames_unverified": 0, "frames_carried": 0, "strict_frames": 0, "frames_edge_soft": 0, "skipped_blur": mask_kind == "blur", "failures": [], "sync": None}
+ 
+ 
+ def ready_time(groups, ticks):
+@@ -380,6 +388,7 @@ def ready_time(groups, ticks):
+ 
+ 
+ DUP_MAX = 16     # a region whose every pixel is within this of the anchor frame is unchanged (stale screencast frame)
++CARRY_RECTS_MAX = 400   # above this many rects the carry compares the whole frame (fail closed)
+ CARRY_MAX = 6    # consecutive frames that may be carried from one anchor (measured stale-screencast runs: 3-5 frames)
+ 
+ 
+@@ -402,7 +411,7 @@ def _same_region(fr, anchor, rects=None):
+ _is_repeat = _same_region   # kept for older tests
+ 
+ 
+-def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_start=None):
++def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_start=None, offsets=None):
+     """One evaluation of every frame against the log at alignment epoch0. A frame the log cannot match is `carried`
+     only when it is pixel-identical (at the failing rects, +-DUP_MAX) to the last STRICTLY verified frame (the anchor,
+     never to a previous carried frame: no drift), for at most CARRY_MAX consecutive frames; a log-gap failure needs a
+@@ -411,17 +420,18 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
+     sel_t = {k: [e["t"] for e in es] for k, es in by_sel.items()}
+     sel_edges = {k: run_edges(es) for k, es in by_sel.items()}
+     bad_f, soft_f, resync_f, masked_f = set(), set(), set(), set()
+-    n = unverified = carried = strict_frames = 0
++    n = unverified = carried = strict_frames = edge_soft_frames = 0
+     anchor, run_len, seen_strict, leadin_end = None, 0, False, None
+     for i, fr in iter_frames(video, clip["w"], clip["h"], budget_s):
+         n += 1
+         if i >= len(times):
+             raise Fail(EXIT_BUG, "frame count mismatch between the two ffmpeg passes")
+-        te = epoch0 + times[i] * 1000.0
++        te = epoch0 + (offsets[i] if offsets else 0.0) + times[i] * 1000.0
+         if ready_t is None or te < ready_t - FRAME_TOL_MS:
+             unverified += 1     # before the page was fully parsed: not judged, safe_from_ms starts after these
+             continue
+         fbad, fsoft, fres, anym, wide_rects, fstrict, gap = [], False, False, False, [], False, False
++        others, edge_soft = False, False      # a group that is not strict and not simply empty / an edge-exempt soft frame
+         for sel, es in by_sel.items():
+             ts = sel_t[sel]
+             lo, hi = bisect.bisect_left(ts, te - WIDE_TOL_MS), bisect.bisect_right(ts, te + WIDE_TOL_MS)
+@@ -436,6 +446,10 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
+             verdict, why, rect = eval_group(fr, cands, te, FRAME_TOL_MS, pill, res, sel_edges[sel])
+             anym = anym or verdict != "empty"
+             fstrict = fstrict or verdict == "strict"
++            if verdict == "empty" and why == "edge_soft":
++                edge_soft = True
++            elif verdict not in ("strict", "empty"):
++                others = True
+             if verdict in ("soft", "resync", "bad"):    # carry only needs these groups' positions unchanged
+                 wide_rects.extend(r for e in cands if abs(e["t"] - te) <= FRAME_TOL_MS for r in e["rects"])
+             if verdict == "soft":
+@@ -455,15 +469,18 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
+             leadin_end = i
+             continue
+         was_carried = False
+-        if not ok and anchor is not None and run_len < CARRY_MAX and _same_region(fr, anchor, None if gap else wide_rects[:400]):
++        if not ok and anchor is not None and run_len < CARRY_MAX and _same_region(fr, anchor, None if (gap or len(wide_rects) > CARRY_RECTS_MAX) else wide_rects):
+             carried += 1
+             run_len += 1
+             fbad, fsoft, fres, ok, was_carried = [], False, False, True, True
+         if not was_carried:
+             seen_strict = seen_strict or fstrict
++            if edge_soft:
++                edge_soft_frames += 1          # S-27: uniform frames next to an appearing/disappearing element: counted, never an anchor
+             if ok:
+                 run_len = 0
+-                anchor = fr
++                if fstrict and not others and not edge_soft:     # S-26: only a STRICTLY verified frame can anchor a carry
++                    anchor = fr
+         if fstrict and not was_carried:
+             strict_frames += 1
+         if anym:
+@@ -485,11 +502,39 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
+         raise Fail(EXIT_BUG, "decoded %d frames, the probe lists %d" % (n, len(times)))
+     res.update(frames_total=n, frames_with_masks=len(masked_f | bad_f), frames_unmasked=len(bad_f),
+                frames_soft=len(soft_f), frames_resynced=len(resync_f), frames_unverified=unverified, frames_carried=carried,
+-               strict_frames=strict_frames,
++               strict_frames=strict_frames, frames_edge_soft=edge_soft_frames,
+                leadin_end_ms=round(times[leadin_end + 1] * 1000) if leadin_end is not None and leadin_end + 1 < len(times) else None)
+     return res
+ 
+ 
++LOCAL_RANGE_MS, LOCAL_STEP_MS, LOCAL_HALF = 100, 10, 7     # per-segment alignment: +-100 ms, windows of 15 frames
++
++
++def local_offsets(video, clip, times, entries, epoch0, pill, budget_s):
++    """Per-frame alignment offsets (ms). Screencast pts drift against the page clock during a recording (backpressure),
++    so one global offset can leave stretches 40-90 ms off. For every frame score each candidate offset by whether an entry
++    within +-12 ms of the shifted time is STRICT; each frame takes the offset that wins over its +-LOCAL_HALF neighbours
++    (ties -> the smallest shift). A leak frame has no strict entry at any offset, so this cannot hide one."""
++    sel = [e for e in entries if e["rects"] and e.get("state", "masked") == "masked"]
++    ts = [e["t"] for e in sel]
++    cands = list(range(-LOCAL_RANGE_MS, LOCAL_RANGE_MS + 1, LOCAL_STEP_MS))
++    scores = []
++    for i, fr in iter_frames(video, clip["w"], clip["h"], budget_s):
++        row = []
++        for d in cands:
++            te = epoch0 + d + times[i] * 1000.0
++            lo, hi = bisect.bisect_left(ts, te - 12), bisect.bisect_right(ts, te + 12)
++            row.append(1 if any(_entry_ok(fr, e, pill) for e in sel[lo:hi]) else 0)
++        scores.append(row)
++    out = []
++    for i in range(len(scores)):
++        w = scores[max(0, i - LOCAL_HALF):i + LOCAL_HALF + 1]
++        tot = [sum(r[k] for r in w) for k in range(len(cands))]
++        best = max(tot)
++        out.append(0.0 if best == 0 else float(min((d for d, v in zip(cands, tot) if v == best), key=abs)))
++    return out
++
++
+ def cross_check(video, clip, log, t_flashes, t_page_epoch, scene_start, pill, mask_kind, budget_s=120,
+                 max_soft=0, max_resync=0, times=None):
+     """Gate privacy_capture (6.4): pixel check on every logged and oracle rect, per frame. `log` = raw log entries
+@@ -516,6 +561,13 @@ def cross_check(video, clip, log, t_flashes, t_page_epoch, scene_start, pill, ma
+             worse = lambda r: (r["frames_unmasked"], r["frames_soft"] + r["frames_resynced"])  # noqa: E731
+             if worse(res2) < worse(res):
+                 res, epoch0, sync, delta = res2, e2, s2 + "+recal", d2
++    if res["frames_unmasked"] or res["frames_soft"] > max_soft or res["frames_resynced"] > max_resync:
++        offs = local_offsets(video, clip, times, entries, epoch0, pill, budget_s)
++        res3 = _pass(video, clip, times, groups, epoch0, ready_t, pill, budget_s, scene_start, offs)
++        recal = 1
++        worse = lambda r: (r["frames_unmasked"], r["frames_soft"] + r["frames_resynced"])  # noqa: E731
++        if worse(res3) < worse(res):
++            res, sync = res3, sync + "+local"
+     res.update(check_s=round(time.monotonic() - t_start, 2), recalibrated=bool(recal),
+                sync={"method": sync, "epoch0_ms": epoch0, "refine_delta_ms": delta, "tolerance_ms": FRAME_TOL_MS})
+     return res
+@@ -709,7 +761,7 @@ def clip_record(rel_file, g, mask, sync_rel, log_rel, mode):
+             "mask": {"mode": mode, "style": kind, "status": status, "frames_unmasked": g["frames_unmasked"],
+                      "frames_total": g["frames_total"], "frames_with_masks": g["frames_with_masks"],
+                      "rects_checked": g["rect_checks"], "oracle_rects_checked": g["oracle_rect_checks"],
+-                     "frames_soft": g["frames_soft"], "frames_resynced": g["frames_resynced"], "thresholds": g["thresholds"],
++                     "frames_soft": g["frames_soft"], "frames_resynced": g["frames_resynced"], "frames_edge_soft": g.get("frames_edge_soft", 0), "thresholds": g["thresholds"],
+                      "reasons": g["reasons"], "selectors": mask["selectors"], "n_regex": len(mask["regexes"])}}
+ 
+ 
+@@ -910,7 +962,7 @@ def _result(a, g, rec, sync, attempts, t0, status, video):
+            "safe_from_ms": g["safe_from_ms"], "gate_fail": g["gate_fail"], "unmaskable": g["unmaskable"],
+            "cross_check": {k: g.get(k) for k in ("frames_total", "frames_with_masks", "frames_unmasked", "rect_checks",
+                                                  "oracle_rect_checks", "rects_failed", "frames_soft", "frames_resynced",
+-                                                 "rects_skipped_proven", "frames_unverified", "frames_carried", "strict_frames", "leadin_end_ms", "soft_detail", "rects_uniform_nopill", "failures", "sync", "check_s",
++                                                 "rects_skipped_proven", "frames_unverified", "frames_carried", "strict_frames", "frames_edge_soft", "leadin_end_ms", "soft_detail", "rects_uniform_nopill", "failures", "sync", "check_s",
+                                                  "recalibrated")},
+            "assertion": {k: _brief(sync.get(k)) for k in ("preflight", "inline", "final")},
+            "overhead": sync.get("perf"), "probe_log": rec.get("probe_log"), "retries": attempts - 1,
+diff --git a/plugins/demo-studio/scripts/privacy_mask.js b/plugins/demo-studio/scripts/privacy_mask.js
+index 6265a4b..f560906 100644
+--- a/plugins/demo-studio/scripts/privacy_mask.js
++++ b/plugins/demo-studio/scripts/privacy_mask.js
+@@ -186,6 +186,14 @@
+   // so it can join the top layer, and is re-shown (moved on top) whenever the set of top-layer elements changes.
+   let topSig = '';
+   const HAS_POPOVER = typeof HTMLElement !== 'undefined' && typeof HTMLElement.prototype.showPopover === 'function';
++  const topIds = new WeakMap(); let topSeq = 0;
++  // identities, not a count: swapping one dialog for another keeps the count but must put the host back on top (S-29)
++  function topLayerSig() {
++    try {
++      return Array.from(document.querySelectorAll(':modal, :popover-open')).filter((e) => e !== host)
++        .map((e) => { let i = topIds.get(e); if (!i) { i = ++topSeq; topIds.set(e, i); } return i; }).join(',');
++    } catch (e) { return ''; }
++  }
+   function topLayerCount() { try { return document.querySelectorAll(':modal, :popover-open').length; } catch (e) { return 0; } }
+   function topShow() {
+     if (!HAS_POPOVER || !host) return;
+@@ -193,12 +201,12 @@
+       if (!host.hasAttribute('popover')) host.setAttribute('popover', 'manual');
+       if (host.matches(':popover-open')) host.hidePopover();
+       host.showPopover();
+-      topSig = String(topLayerCount());
++      topSig = topLayerSig();
+     } catch (e) { /* not connected yet: retried next frame */ }
+   }
+   function topCheck() {
+     if (!host || !HAS_POPOVER) return;
+-    const sig = String(topLayerCount());
++    const sig = topLayerSig();
+     if (sig !== topSig || !host.matches(':popover-open')) topShow();
+   }
+   function drawOverlay(rects) { // rects: [{x,y,w,h,box}] viewport px
+diff --git a/plugins/demo-studio/scripts/tests/fixtures/dialog2.html b/plugins/demo-studio/scripts/tests/fixtures/dialog2.html
+new file mode 100644
+index 0000000..6b1c30a
+--- /dev/null
++++ b/plugins/demo-studio/scripts/tests/fixtures/dialog2.html
+@@ -0,0 +1,5 @@
++<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font:22px Arial;padding:30px;background:#fff}
++dialog{border:0;background:#fff;padding:20px} input{font-size:22px;padding:6px;width:420px;border:1px solid #000;background:#fff}</style></head>
++<body><p>page</p>
++<dialog id="a"><input id="fa" value="first.person@example.com"></dialog>
++<dialog id="b"><input id="fb" value="second.person@example.com"></dialog></body></html>
+diff --git a/plugins/demo-studio/scripts/tests/fixtures/react-list/scenes.web.py b/plugins/demo-studio/scripts/tests/fixtures/react-list/scenes.web.py
+index ed402b7..13fadc5 100644
+--- a/plugins/demo-studio/scripts/tests/fixtures/react-list/scenes.web.py
++++ b/plugins/demo-studio/scripts/tests/fixtures/react-list/scenes.web.py
+@@ -18,7 +18,7 @@ def s01(ctx):
+     b = page.locator("#hdr-email").bounding_box()
+     ctx.sensitive([b["x"], b["y"], b["width"], b["height"]], "header email")
+     page.wait_for_timeout(500)
+-    page.evaluate(SMOOTH, {"to": 500, "ms": 1600})
++    page.evaluate(SMOOTH, {"to": 300, "ms": 6000})
+     page.evaluate(SMOOTH_EL, {"selector": "#inner", "to": 300, "ms": 800})
+     page.wait_for_timeout(1500)
+     page.evaluate(SET_NOTE)
+@@ -26,4 +26,4 @@ def s01(ctx):
+ 
+ 
+ SCENES = {"s01": s01}
+-SCENES["s02"] = lambda ctx: (ctx.target.evaluate(SMOOTH, {"to": 300, "ms": 500}), ctx.target.wait_for_timeout(500))
++SCENES["s02"] = lambda ctx: (ctx.target.wait_for_timeout(400), ctx.target.evaluate(SET_NOTE), ctx.target.wait_for_timeout(700))   # static: no motion for the gate to mis-time
+diff --git a/plugins/demo-studio/scripts/tests/fixtures/scenes_extra.py b/plugins/demo-studio/scripts/tests/fixtures/scenes_extra.py
+index ad1859d..bb65b23 100644
+--- a/plugins/demo-studio/scripts/tests/fixtures/scenes_extra.py
++++ b/plugins/demo-studio/scripts/tests/fixtures/scenes_extra.py
+@@ -87,5 +87,14 @@ def canvases(ctx):                              # S-23: unmaskable surfaces inse
+     p.wait_for_timeout(600)
+ 
+ 
++def dialog_swap(ctx):                           # S-29: one modal replaced by another in the same tick (count unchanged)
++    p = ctx.target
++    p.wait_for_timeout(400)
++    p.evaluate("document.getElementById('a').showModal()")
++    p.wait_for_timeout(700)
++    p.evaluate("document.getElementById('a').close(); document.getElementById('b').showModal()")
++    p.wait_for_timeout(1200)
++
++
+ SCENES = {"s01": short, "s02": typed, "s03": typed_unfocused, "s04": boom, "s05": hang, "s06": setval, "s07": dialog,
+-          "s08": split, "s09": lpress, "s10": handle, "s11": setclear, "s12": kdown, "s13": canvases}
++          "s08": split, "s09": lpress, "s10": handle, "s11": setclear, "s12": kdown, "s13": canvases, "s14": dialog_swap}
+diff --git a/plugins/demo-studio/scripts/tests/test_capture.py b/plugins/demo-studio/scripts/tests/test_capture.py
+index 222b3f6..f600908 100644
+--- a/plugins/demo-studio/scripts/tests/test_capture.py
++++ b/plugins/demo-studio/scripts/tests/test_capture.py
+@@ -104,15 +104,19 @@ class EvalRules(unittest.TestCase):
+     def test_s02_bad_decides_even_with_soft_in_narrow(self):
+         self.assertEqual(self.ev([self.entry(0, self.A), self.entry(40, self.PLAIN)]), "bad")
+ 
+-    def test_s19_bad_nearest_entry_decides_even_with_a_strict_neighbour(self):
+-        self.assertEqual(self.ev([self.entry(0, self.A), self.entry(40, self.B)]), "bad")
++    def test_s19_bad_entry_inside_near_window_fails_even_beside_a_strict_one(self):
++        self.assertEqual(self.ev([self.entry(0, self.A), self.entry(30, self.B)]), "bad")
++        self.assertEqual(self.ev([self.entry(0, self.B), self.entry(30, self.A)]), "bad")
+ 
+-    def test_s19_strict_nearest_wins_and_strict_neighbour_of_soft_nearest_is_resync(self):
+-        self.assertEqual(self.ev([self.entry(0, self.B), self.entry(40, self.A)]), "strict")
+-        self.assertEqual(self.ev([self.entry(0, self.PLAIN), self.entry(40, self.B)]), "resync")
++    def test_s19_strict_rescues_uniform_neighbours_and_outer_bad_only_resyncs(self):
++        self.assertEqual(self.ev([self.entry(0, self.B), self.entry(30, self.PLAIN)]), "strict")
++        self.assertEqual(self.ev([self.entry(0, self.B), self.entry(60, self.A)]), "strict")
++        dense = [self.entry(d, self.PLAIN) for d in range(-80, 81, 20)] + [self.entry(60, self.B)]
++        self.assertEqual(self.ev(dense), "resync")
+ 
+     def test_s02_wide_strict_only_is_resync_not_ok(self):
+-        self.assertEqual(self.ev([self.entry(0, self.PLAIN), self.entry(200, self.B)]), "resync")
++        dense = [self.entry(d, self.PLAIN) for d in range(-80, 81, 20)] + [self.entry(200, self.B)]
++        self.assertEqual(self.ev(dense), "resync")
+ 
+     def test_s02_soft_is_counted(self):
+         self.assertEqual(self.ev([self.entry(d, self.PLAIN) for d in (-80, -40, 0, 40, 80)]), "soft")
+@@ -189,16 +193,16 @@ class PassProbes(unittest.TestCase):
+         self.assertEqual(r["frames_unmasked"], extra - 6)
+ 
+     def test_near_ms_is_the_nearest_window(self):
+-        fr = self.text_frame(0)
++        """S-19: ANY bad entry within NEAR_MS fails the frame; one just outside it only matters for resync."""
+         res = capture._new_res("solid")
++        fr = self.text_frame(0).copy()
++        fr[70:90, 40:160:4] = 0                    # glyph-like content at the "bad" rect
+         bad_rect = [40, 70, 120, 20]
+-        fr = fr.copy()
+-        fr[70:90, 40:160:4] = 0
+-        near = [{"t": 0.0, "kind": "masked", "selector": "s", "rects": [bad_rect], "state": "masked"},
+-                {"t": capture.NEAR_MS - 2, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"}]
+-        far = [near[0], dict(near[1], t=capture.NEAR_MS + 2)]
+-        self.assertEqual(capture.eval_group(fr, near, 0.0, 90, PILL, res)[0], "strict")
+-        self.assertEqual(capture.eval_group(fr, far, 0.0, 90, PILL, res)[0], "bad")
++        strict = {"t": 0.0, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"}
++        bad_in = {"t": capture.NEAR_MS - 2, "kind": "masked", "selector": "s", "rects": [bad_rect], "state": "masked"}
++        bad_out = dict(bad_in, t=capture.NEAR_MS + 2)
++        self.assertEqual(capture.eval_group(fr, [strict, bad_in], 0.0, 90, PILL, res)[0], "bad")
++        self.assertEqual(capture.eval_group(fr, [strict, bad_out], 0.0, 90, PILL, res)[0], "strict")
+ 
+     def ent(self, t):
+         return {"t": t, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"}
+@@ -236,6 +240,90 @@ class PassProbes(unittest.TestCase):
+         self.assertGreaterEqual(r["frames_unmasked"], 1)
+ 
+ 
++class PassProbes3(unittest.TestCase):
++    """Round 3 synthetic probes (S-19, S-26, S-27): leaks must fail."""
++    W, H = 200, 120
++    R, R2 = [40, 30, 120, 30], [40, 70, 120, 30]
++
++    def setUp(self):
++        if np is None:
++            self.skipTest("numpy missing")
++
++    def fr(self, pill_at=(), text_at=(), grey_at=()):
++        f = np.full((self.H, self.W, 3), 255, np.uint8)
++        for x, y, w, h in text_at:
++            f[y:y + h, x:x + w:4] = 0
++        for x, y, w, h in grey_at:
++            f[y:y + h, x:x + w] = (200, 200, 200)
++        for x, y, w, h in pill_at:
++            f[y:y + h, x:x + w] = PILL
++        return f
++
++    def go(self, frames, log, dt=0.04):
++        old = capture.iter_frames
++        capture.iter_frames = lambda v, w, h, b: iter(enumerate(frames))
++        try:
++            return capture._pass("x", {"w": self.W, "h": self.H}, [i * dt for i in range(len(frames))], {"s": log}, 0.0, 0, PILL, 10)
++        finally:
++            capture.iter_frames = old
++
++    def jump_log(self):
++        dt = 1000 / 60
++        return [{"t": k * dt, "kind": "masked", "selector": "s", "rects": [self.R if k * dt < 200 else self.R2], "state": "masked"}
++                for k in range(int(800 / dt))], dt
++
++    def lag_frames(self, rafs, shift=0.0, n=20):
++        log, dt = self.jump_log()
++        out = []
++        for i in range(n):
++            t = i * 40 + shift
++            el = self.R if t < 200 else self.R2
++            ov = self.R if t - rafs * dt < 200 else self.R2
++            out.append(self.fr(pill_at=[ov], text_at=[el] if el != ov else []))
++        return out, log
++
++    def test_s19_probe_e_overlay_two_rafs_late_is_a_leak(self):
++        fr, log = self.lag_frames(2)
++        self.assertGreater(self.go(fr, log)["frames_unmasked"], 0)
++
++    def test_s19_probe_e3_overlay_three_rafs_late_is_a_leak(self):
++        fr, log = self.lag_frames(3, shift=5)
++        self.assertGreater(self.go(fr, log)["frames_unmasked"], 0)
++
++    def test_s19_shifted_pill_edge_is_not_a_leak(self):
++        """scroll/pts jitter: a neighbour entry whose rect is 10 px off overlaps the pill: soft, not glyph edges."""
++        f = self.fr(pill_at=[self.R])
++        log = [{"t": i * 40.0, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"} for i in range(10)]
++        for i in (3, 4):
++            log.append({"t": i * 40.0 + 20, "kind": "masked", "selector": "s", "rects": [[40, 40, 120, 30]], "state": "masked"})
++        r = self.go([f] * 10, sorted(log, key=lambda e: e["t"]))
++        self.assertEqual(r["frames_unmasked"], 0)
++
++    def test_s26_probe_d2_empty_verdict_never_anchors_a_carry(self):
++        log = [{"t": i * 40.0, "kind": "masked", "selector": "s", "rects": [], "state": "masked"} for i in range(9)]
++        log += [{"t": i * 40.0, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"} for i in range(9, 20)]
++        fr = [self.fr()] * 5 + [self.fr(text_at=[self.R])] * 8 + [self.fr(pill_at=[self.R])] * 7
++        r = self.go(fr, log)
++        self.assertGreater(r["frames_unmasked"], 0)
++        self.assertEqual(r["frames_carried"], 0)
++
++    def test_s27_edge_soft_frames_are_counted_and_never_anchor(self):
++        log = [{"t": i * 50.0, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"} for i in range(20)]
++        fr = [self.fr(pill_at=[self.R])] * 3 + [self.fr(grey_at=[self.R])] * 17
++        r = self.go(fr, log)
++        self.assertEqual(r["frames_carried"], 0)
++        self.assertGreater(r["frames_soft"] + r["frames_edge_soft"], 10)       # nothing is silently under-reported
++
++    def test_s29_carry_beyond_the_rect_cap_compares_the_whole_frame(self):
++        f = self.fr(pill_at=[self.R])
++        g = f.copy()
++        g[100:110, 0:20] = 0                                    # a change far from every logged rect
++        many = [[0, 0, 4, 4]] * (capture.CARRY_RECTS_MAX + 1)
++        self.assertTrue(capture._same_region(g, f, [self.R]))
++        self.assertFalse(capture._same_region(g, f, None))      # what the carry passes when there are too many rects
++        self.assertGreater(len(many), capture.CARRY_RECTS_MAX)
++
++
+ class Unmaskable(unittest.TestCase):
+     def test_contract_fields_in_clip_ms_and_px(self):
+         ent = [{"t": E0 + 100 + 17 * i, "kind": "unmaskable", "surface": "iframe", "selector": "iframe",
+diff --git a/plugins/demo-studio/scripts/tests/test_privacy_mask.py b/plugins/demo-studio/scripts/tests/test_privacy_mask.py
+index 7ed3045..3ee5699 100644
+--- a/plugins/demo-studio/scripts/tests/test_privacy_mask.py
++++ b/plugins/demo-studio/scripts/tests/test_privacy_mask.py
+@@ -427,6 +427,10 @@ class Round2(unittest.TestCase):
+             lags.append(first - t_ins)
+         self.assertLess(max(lags), 120, lags)
+ 
++    def test_s29_swapped_modal_keeps_the_overlay_on_top(self):
++        code, res = self.rec("s14", "dialog2.html")
++        self.assert_masked(code, res)
++
+     def test_s25_events_write_failure_rolls_back(self):
+         import project
+         sdir = os.path.join(self.tmp, ".demo", "demo")

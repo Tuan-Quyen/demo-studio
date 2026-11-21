@@ -18,7 +18,7 @@ def s01(ctx):
     b = page.locator("#hdr-email").bounding_box()
     ctx.sensitive([b["x"], b["y"], b["width"], b["height"]], "header email")
     page.wait_for_timeout(500)
-    page.evaluate(SMOOTH, {"to": 300, "ms": 6000})
+    page.evaluate(SMOOTH, {"to": 500, "ms": 1600})
     page.evaluate(SMOOTH_EL, {"selector": "#inner", "to": 300, "ms": 800})
     page.wait_for_timeout(1500)
     page.evaluate(SET_NOTE)
@@ -26,4 +26,4 @@ def s01(ctx):
 
 
 SCENES = {"s01": s01}
-SCENES["s02"] = lambda ctx: (ctx.target.wait_for_timeout(400), ctx.target.evaluate(SET_NOTE), ctx.target.wait_for_timeout(700))   # static: no motion for the gate to mis-time
+SCENES["s02"] = lambda ctx: (ctx.target.evaluate(SMOOTH, {"to": 300, "ms": 500}), ctx.target.wait_for_timeout(500))

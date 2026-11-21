@@ -104,13 +104,11 @@ class EvalRules(unittest.TestCase):
     def test_s02_bad_decides_even_with_soft_in_narrow(self):
         self.assertEqual(self.ev([self.entry(0, self.A), self.entry(40, self.PLAIN)]), "bad")
 
-    def test_s19_bad_entry_inside_near_window_fails_even_beside_a_strict_one(self):
-        self.assertEqual(self.ev([self.entry(0, self.A), self.entry(30, self.B)]), "bad")
-        self.assertEqual(self.ev([self.entry(0, self.B), self.entry(30, self.A)]), "bad")
+    def test_s19_bad_nearest_entry_decides_even_with_a_strict_neighbour(self):
+        self.assertEqual(self.ev([self.entry(0, self.A), self.entry(40, self.B)]), "bad")
 
-    def test_s19_strict_rescues_uniform_neighbours_and_outer_bad_only_resyncs(self):
-        self.assertEqual(self.ev([self.entry(0, self.B), self.entry(30, self.PLAIN)]), "strict")
-        self.assertEqual(self.ev([self.entry(0, self.B), self.entry(60, self.A)]), "strict")
+    def test_s19_strict_nearest_wins_and_strict_neighbour_of_soft_nearest_is_resync(self):
+        self.assertEqual(self.ev([self.entry(0, self.B), self.entry(40, self.A)]), "strict")
         self.assertEqual(self.ev([self.entry(0, self.PLAIN), self.entry(40, self.B)]), "resync")
 
     def test_s02_wide_strict_only_is_resync_not_ok(self):
@@ -191,16 +189,16 @@ class PassProbes(unittest.TestCase):
         self.assertEqual(r["frames_unmasked"], extra - 6)
 
     def test_near_ms_is_the_nearest_window(self):
-        """S-19: ANY bad entry within NEAR_MS fails the frame; one just outside it only matters for resync."""
+        fr = self.text_frame(0)
         res = capture._new_res("solid")
-        fr = self.text_frame(0).copy()
-        fr[70:90, 40:160:4] = 0                    # glyph-like content at the "bad" rect
         bad_rect = [40, 70, 120, 20]
-        strict = {"t": 0.0, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"}
-        bad_in = {"t": capture.NEAR_MS - 2, "kind": "masked", "selector": "s", "rects": [bad_rect], "state": "masked"}
-        bad_out = dict(bad_in, t=capture.NEAR_MS + 2)
-        self.assertEqual(capture.eval_group(fr, [strict, bad_in], 0.0, 90, PILL, res)[0], "bad")
-        self.assertEqual(capture.eval_group(fr, [strict, bad_out], 0.0, 90, PILL, res)[0], "strict")
+        fr = fr.copy()
+        fr[70:90, 40:160:4] = 0
+        near = [{"t": 0.0, "kind": "masked", "selector": "s", "rects": [bad_rect], "state": "masked"},
+                {"t": capture.NEAR_MS - 2, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"}]
+        far = [near[0], dict(near[1], t=capture.NEAR_MS + 2)]
+        self.assertEqual(capture.eval_group(fr, near, 0.0, 90, PILL, res)[0], "strict")
+        self.assertEqual(capture.eval_group(fr, far, 0.0, 90, PILL, res)[0], "bad")
 
     def ent(self, t):
         return {"t": t, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"}
@@ -236,90 +234,6 @@ class PassProbes(unittest.TestCase):
         log[3] = dict(log[3], rects=[r2])
         r = self.run_pass(fr, log)
         self.assertGreaterEqual(r["frames_unmasked"], 1)
-
-
-class PassProbes3(unittest.TestCase):
-    """Round 3 synthetic probes (S-19, S-26, S-27): leaks must fail."""
-    W, H = 200, 120
-    R, R2 = [40, 30, 120, 30], [40, 70, 120, 30]
-
-    def setUp(self):
-        if np is None:
-            self.skipTest("numpy missing")
-
-    def fr(self, pill_at=(), text_at=(), grey_at=()):
-        f = np.full((self.H, self.W, 3), 255, np.uint8)
-        for x, y, w, h in text_at:
-            f[y:y + h, x:x + w:4] = 0
-        for x, y, w, h in grey_at:
-            f[y:y + h, x:x + w] = (200, 200, 200)
-        for x, y, w, h in pill_at:
-            f[y:y + h, x:x + w] = PILL
-        return f
-
-    def go(self, frames, log, dt=0.04):
-        old = capture.iter_frames
-        capture.iter_frames = lambda v, w, h, b: iter(enumerate(frames))
-        try:
-            return capture._pass("x", {"w": self.W, "h": self.H}, [i * dt for i in range(len(frames))], {"s": log}, 0.0, 0, PILL, 10)
-        finally:
-            capture.iter_frames = old
-
-    def jump_log(self):
-        dt = 1000 / 60
-        return [{"t": k * dt, "kind": "masked", "selector": "s", "rects": [self.R if k * dt < 200 else self.R2], "state": "masked"}
-                for k in range(int(800 / dt))], dt
-
-    def lag_frames(self, rafs, shift=0.0, n=20):
-        log, dt = self.jump_log()
-        out = []
-        for i in range(n):
-            t = i * 40 + shift
-            el = self.R if t < 200 else self.R2
-            ov = self.R if t - rafs * dt < 200 else self.R2
-            out.append(self.fr(pill_at=[ov], text_at=[el] if el != ov else []))
-        return out, log
-
-    def test_s19_probe_e_overlay_two_rafs_late_is_a_leak(self):
-        fr, log = self.lag_frames(2)
-        self.assertGreater(self.go(fr, log)["frames_unmasked"], 0)
-
-    def test_s19_probe_e3_overlay_three_rafs_late_is_a_leak(self):
-        fr, log = self.lag_frames(3, shift=5)
-        self.assertGreater(self.go(fr, log)["frames_unmasked"], 0)
-
-    def test_s19_shifted_pill_edge_is_not_a_leak(self):
-        """scroll/pts jitter: a neighbour entry whose rect is 10 px off overlaps the pill: soft, not glyph edges."""
-        f = self.fr(pill_at=[self.R])
-        log = [{"t": i * 40.0, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"} for i in range(10)]
-        for i in (3, 4):
-            log.append({"t": i * 40.0 + 20, "kind": "masked", "selector": "s", "rects": [[40, 40, 120, 30]], "state": "masked"})
-        r = self.go([f] * 10, sorted(log, key=lambda e: e["t"]))
-        self.assertEqual(r["frames_unmasked"], 0)
-
-    def test_s26_probe_d2_empty_verdict_never_anchors_a_carry(self):
-        log = [{"t": i * 40.0, "kind": "masked", "selector": "s", "rects": [], "state": "masked"} for i in range(9)]
-        log += [{"t": i * 40.0, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"} for i in range(9, 20)]
-        fr = [self.fr()] * 5 + [self.fr(text_at=[self.R])] * 8 + [self.fr(pill_at=[self.R])] * 7
-        r = self.go(fr, log)
-        self.assertGreater(r["frames_unmasked"], 0)
-        self.assertEqual(r["frames_carried"], 0)
-
-    def test_s27_edge_soft_frames_are_counted_and_never_anchor(self):
-        log = [{"t": i * 50.0, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"} for i in range(20)]
-        fr = [self.fr(pill_at=[self.R])] * 3 + [self.fr(grey_at=[self.R])] * 17
-        r = self.go(fr, log)
-        self.assertEqual(r["frames_carried"], 0)
-        self.assertGreater(r["frames_soft"] + r["frames_edge_soft"], 10)       # nothing is silently under-reported
-
-    def test_s29_carry_beyond_the_rect_cap_compares_the_whole_frame(self):
-        f = self.fr(pill_at=[self.R])
-        g = f.copy()
-        g[100:110, 0:20] = 0                                    # a change far from every logged rect
-        many = [[0, 0, 4, 4]] * (capture.CARRY_RECTS_MAX + 1)
-        self.assertTrue(capture._same_region(g, f, [self.R]))
-        self.assertFalse(capture._same_region(g, f, None))      # what the carry passes when there are too many rects
-        self.assertGreater(len(many), capture.CARRY_RECTS_MAX)
 
 
 class Unmaskable(unittest.TestCase):

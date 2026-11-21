@@ -833,6 +833,19 @@ Mọi lựa chọn được ghi vào `demo.yaml` `privacy.platform.*`. Không au
 
 ## 8. Kế hoạch migrate theo phase
 
+### 8.0 Quy tắc vận hành và phạm vi (rev 3, 2026-11-21, chủ repo chốt) — ưu tiên hơn mọi chỗ khác trong §8
+
+Lý do: P0-web tốn 3 vòng review riêng (code + security), mỗi vòng mở thêm vòng sửa; lợi ích giảm dần, token tăng.
+
+1. **Review:** mỗi vòng chỉ **một lượt review gộp** (code + security cùng một agent/báo cáo). **Tối đa 2 vòng mỗi phase.** Chỉ blocker được sửa trong phase; mức "nên sửa"/minor/suggestion vào `.team/backlog/BACKLOG.md`, không mở thêm vòng.
+2. **Phạm vi theo thứ tự ưu tiên R29:**
+   - P0-native: **chỉ Electron** (mask kit + probe fuse). Phần timebase/lint/T4 dời sang khi có nhu cầu.
+   - P1: **chỉ Android hybrid/WebView** (CDP → `privacy_mask.js`). Mọi nền tảng khác chỉ dùng T3/T4 (`blur.py` hậu kỳ + cover đục).
+3. **P3 hoãn** cho tới khi có thiết bị thật. Trong container chỉ làm mô phỏng, và ghi nhãn rõ.
+4. **Điểm dừng mặc định: sau P1.** Mục tiêu chính (blur hết treo, hết chậm) đạt ở P0–P1. P2 (thu gọn roster, giảm token mỗi lần chạy) chỉ làm khi chủ repo yêu cầu lại.
+
+**Trạng thái P0-web:** xong. Code review vòng 3 có 1 blocker (R-18), đã sửa. Security vòng 3: PASS. S-19, S-26, S-27 và S-29 chuyển vào backlog theo quy tắc 1; bản sửa dở được lưu ở `.team/backlog/s19-s26-partial.patch`.
+
 ### P0 (P0-web): chữa nỗi đau chính (blur chậm/treo) mà không đổi roster
 
 Phạm vi P0-web giữ nguyên như rev 1. Việc non-web tách sang P0-native để không làm chậm bản sửa cho web [RTn-17].

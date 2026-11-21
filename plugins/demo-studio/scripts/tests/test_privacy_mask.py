@@ -427,10 +427,6 @@ class Round2(unittest.TestCase):
             lags.append(first - t_ins)
         self.assertLess(max(lags), 120, lags)
 
-    def test_s29_swapped_modal_keeps_the_overlay_on_top(self):
-        code, res = self.rec("s14", "dialog2.html")
-        self.assert_masked(code, res)
-
     def test_s25_events_write_failure_rolls_back(self):
         import project
         sdir = os.path.join(self.tmp, ".demo", "demo")

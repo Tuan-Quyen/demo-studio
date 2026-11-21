@@ -87,14 +87,5 @@ def canvases(ctx):                              # S-23: unmaskable surfaces inse
     p.wait_for_timeout(600)
 
 
-def dialog_swap(ctx):                           # S-29: one modal replaced by another in the same tick (count unchanged)
-    p = ctx.target
-    p.wait_for_timeout(400)
-    p.evaluate("document.getElementById('a').showModal()")
-    p.wait_for_timeout(700)
-    p.evaluate("document.getElementById('a').close(); document.getElementById('b').showModal()")
-    p.wait_for_timeout(1200)
-
-
 SCENES = {"s01": short, "s02": typed, "s03": typed_unfocused, "s04": boom, "s05": hang, "s06": setval, "s07": dialog,
-          "s08": split, "s09": lpress, "s10": handle, "s11": setclear, "s12": kdown, "s13": canvases, "s14": dialog_swap}
+          "s08": split, "s09": lpress, "s10": handle, "s11": setclear, "s12": kdown, "s13": canvases}
