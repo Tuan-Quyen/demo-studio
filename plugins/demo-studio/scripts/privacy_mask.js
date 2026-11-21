@@ -2,7 +2,7 @@
  * privacy_mask.js - capture-time masking for web recordings (demo-studio, redesign 6.2).
  *
  * Inject with context.addInitScript BEFORE any page load. Config is read from
- * window.__DS_MASK_CONFIG (capture.py / the recorder prepend `window.__DS_MASK_CONFIG = {...};`):
+ * window.__DS_MASK_CONFIG (web_adapter.py prepends `window.__DS_MASK_CONFIG = {...};`):
  *   { selectors: [css...],            // SENSITIVE selectors (default always includes [data-sensitive])
  *     regexes:   [source | {source, flags}],  // matched against text nodes, input values, placeholders
  *     mask_style: "solid" | "blur" | {kind, color, sentinel, blur_px},
@@ -23,16 +23,37 @@
  * Output (window.__dsMask):
  *   ready (bool, mirrored in window.__dsMaskReady), mode, log[], drain(), flush(), stats(),
  *   assertMasked() -> {ok, ready, mode, failures[], checked[]}   (fail-closed API)
- * Log entry per requestAnimationFrame and selector group (epoch ms, viewport-clipped CSS px):
+ * Log entry per animation frame and selector group (epoch ms, viewport-clipped CSS px):
  *   {t, kind:"masked", selector, count, rects:[[x,y,w,h]], state:"masked"|"unmasked",
- *    boxes:[idx of rects drawn as box overlay with sentinel border], partial:[idx], hidden:n}
- * If window.__dsMaskSink exists (context.exposeFunction), batches are pushed to it every 200 ms.
+ *    boxes:[idx of rects drawn as box overlay with sentinel border],
+ *    occluded:[idx hit-test says something else is on top], skip:[idx proven opaque-occluded], hidden:n (clipped away)}
+ *   {t, kind:"tick", items, frames, loading}              (every ~250 ms: proof that the mask loop ran)
+ *   entries logged while document.readyState === 'loading' carry loading:true (half-parsed layout: the gate does not
+ *   judge frames from them; safe_from_ms starts after the first entry without it)
+ *   {t, kind:"unmaskable", surface, selector, reason, rect:[x,y,w,h]}   (surface CSS cannot mask, see detectUnmaskable)
+ * Occlusion is NEVER used to drop a rect or skip an overlay (fail closed): the gate decides from pixels; only a
+ * DOM-proven opaque occluder (opacity 1 chain, opaque background) lets a rect be skipped (`skip`).
+ * The frame loop re-arms itself AFTER the rendering step (MessageChannel), so its callback runs after the
+ * app's own animation callbacks of the next frame (overlays do not lag app/scroll updates by one frame).
+ * If window.__dsMaskSink exists (context.expose_function), batches are pushed to it every 200 ms.
  */
 (() => {
   'use strict';
   if (window.__dsMask) return;
 
   const RAW = window.__DS_MASK_CONFIG || {};
+
+  // every shadow root (open or closed) created after this point, so its content can be inspected (S-07)
+  const shadowRefs = [];
+  let selfShadow = false;
+  try {
+    const orig = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function (init) {
+      const root = orig.call(this, init);
+      if (!selfShadow) shadowRefs.push({ host: new WeakRef(this), root: new WeakRef(root) });
+      return root;
+    };
+  } catch (e) { /* no WeakRef: shadow content cannot be inspected; reported by detectUnmaskable */ }
   const SEL_STYLE = {
     solid: { kind: 'solid', color: '#9aa3b2', sentinel: '#0b1f4d', blur_px: 10 },
   };
@@ -134,7 +155,9 @@
     if (!host) {
       host = document.createElement('div');
       host.style.cssText = 'all:initial;position:absolute;left:0;top:0;width:0;height:0;overflow:visible;pointer-events:none;z-index:2147483647;contain:none';
+      selfShadow = true;
       const sr = host.attachShadow({ mode: 'closed' });
+      selfShadow = false;
       wrap = document.createElement('div');
       wrap.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;pointer-events:none';
       sr.appendChild(wrap);
@@ -216,6 +239,8 @@
     const inputLike = el.matches(INPUT_SEL);
     // input / textarea: value and placeholder
     if (inputLike) {
+      const forcedPrev = items.get(el);
+      if (forcedPrev && forcedPrev.forced) return;
       let label = self || matchSel(el);
       let valueHit = false;
       if (!label && regexes.length) {
@@ -312,7 +337,24 @@
   const vw = () => document.documentElement.clientWidth || window.innerWidth;
   const vh = () => document.documentElement.clientHeight || window.innerHeight;
 
-  // returns {rect:[x,y,w,h]|null, partial:bool}
+  // A DOM proof that `e` paints an opaque surface: no opacity/filter anywhere up the chain and an opaque
+  // background on some ancestor-or-self. Anything else (fading backdrop, translucent modal, filter) is NOT proof.
+  function opaqueProof(e) {
+    let bgOk = false;
+    for (let n = e; n && n.nodeType === 1; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (parseFloat(cs.opacity) < 1 || (cs.filter && cs.filter !== 'none') || (cs.backdropFilter && cs.backdropFilter !== 'none') ||
+          (cs.mixBlendMode && cs.mixBlendMode !== 'normal') || (cs.maskImage && cs.maskImage !== 'none') || (cs.clipPath && cs.clipPath !== 'none')) return false;
+      if (!bgOk) {
+        const m = /^rgba?\(([^)]*)\)$/.exec(cs.backgroundColor || '');
+        if (m) { const p = m[1].split(',').map((x) => parseFloat(x)); if (p.length === 3 || p[3] === 1) bgOk = true; }
+      }
+    }
+    return bgOk;
+  }
+
+  // returns {rect:[x,y,w,h], occluded, partial, opaque, fixed} or null when the rect is clipped away entirely
+  // (outside the viewport / its scroll containers). Occlusion by another element is reported, never used to drop the rect.
   function visibleRect(r, owner, frameCache) {
     let x0 = Math.max(r.left, 0), y0 = Math.max(r.top, 0), x1 = Math.min(r.right, vw()), y1 = Math.min(r.bottom, vh());
     for (const a of clipChain(owner)) {
@@ -322,21 +364,112 @@
     }
     if (x1 - x0 < 0.5 || y1 - y0 < 0.5) return null;
     const w = x1 - x0, h = y1 - y0;
-    let hit = 0;
+    let hit = 0, proven = true;
     for (const f of [0.25, 0.5, 0.75]) {
       const e = document.elementFromPoint(x0 + w * f, y0 + h / 2);
-      if (e && (owner.contains(e) || e === owner)) hit++;
+      if (e && (owner.contains(e) || e === owner || (host && e === host))) hit++;
+      else if (!e || !opaqueProof(e)) proven = false;
     }
-    if (hit === 0) return null; // occluded (e.g. under a sticky header): nothing painted there
     const q = (v) => Math.round(v * 10) / 10;
-    return { rect: [q(x0), q(y0), q(w), q(h)], partial: hit < 3, fixed: !!fixedCache.get(owner) };
+    return { rect: [q(x0), q(y0), q(w), q(h)], occluded: hit === 0, partial: hit > 0 && hit < 3, opaque: hit < 3 && proven, fixed: !!fixedCache.get(owner) };
+  }
+
+  // ------------------------------------------------------------ unmaskable surfaces (S-07)
+  // Surfaces CSS/Highlight cannot mask. Detected, logged per frame with their rect, never silently dropped.
+  const strHit = (v) => { if (!v) return false; for (const rg of regexes) { rg.re.lastIndex = 0; if (rg.re.test(v)) return true; } return false; };
+  const describe = (el) => { try { return el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.classList && el.classList.length ? '.' + Array.from(el.classList).slice(0, 2).join('.') : ''); } catch (e) { return '*'; } };
+  const unm = new Map();     // key -> {surface, selector, reason, el}
+  const ids = new WeakMap(); let idSeq = 0;
+  const idOf = (el) => { let i = ids.get(el); if (!i) { i = ++idSeq; ids.set(el, i); } return i; };
+  let lastDetect = -1e9;
+  function visibleBox(el) {
+    if (!el || !el.isConnected) return null;
+    const b = el.getBoundingClientRect();
+    if (b.width < 2 || b.height < 2) return null;
+    const x0 = Math.max(b.left, 0), y0 = Math.max(b.top, 0), x1 = Math.min(b.right, vw()), y1 = Math.min(b.bottom, vh());
+    if (x1 - x0 < 1 || y1 - y0 < 1) return null;
+    return [Math.round(x0 * 10) / 10, Math.round(y0 * 10) / 10, Math.round((x1 - x0) * 10) / 10, Math.round((y1 - y0) * 10) / 10];
+  }
+  function sensitiveEl(el) { return !!matchSel(el); }
+  function shadowSensitive(root, depth) {
+    if (depth > 6) return true;                               // too deep to prove clean: fail closed
+    try {
+      for (const s of selectors) { if (root.querySelector(s)) return true; }
+      const w = document.createTreeWalker(root, 4);
+      let n;
+      while ((n = w.nextNode())) { if (n.data && strHit(n.data)) return true; }
+    } catch (e) { return true; }
+    return false;
+  }
+  function detectUnmaskable(now) {
+    lastDetect = now;
+    unm.clear();
+    const add = (key, el, surface, reason) => { key = surface + '|' + (key && key.nodeType ? idOf(key) : (typeof key === 'string' ? key : '')); if (!unm.has(key)) unm.set(key, { surface, selector: describe(el), reason, el }); };
+    const covered = (el) => { const it = items.get(el); return !!(it && it.kind === 'box'); };
+    for (const el of document.querySelectorAll('iframe,frame,canvas,video,object,embed')) {
+      if (covered(el) || el === host || !visibleBox(el)) continue;
+      const tag = el.tagName.toLowerCase();
+      add(el, el, tag === 'iframe' || tag === 'frame' ? 'iframe' : tag === 'canvas' ? 'canvas' : 'embedded-media',
+        tag === 'iframe' || tag === 'frame' ? 'frame content is not scanned (cross-origin frames cannot be)' : 'pixel content is not inspectable');
+    }
+    // shadow DOM: any root whose content holds a selector match or a regex hit (closed roots too, via the attachShadow hook)
+    for (let i = shadowRefs.length - 1; i >= 0; i--) {
+      const h = shadowRefs[i].host.deref(), r = shadowRefs[i].root.deref();
+      if (!h || !r) { shadowRefs.splice(i, 1); continue; }
+      if (!h.isConnected || !visibleBox(h)) continue;
+      if (shadowSensitive(r, 0)) add(h, h, 'shadow-dom', 'sensitive text or selector inside a shadow root (not scanned)');
+    }
+    // pseudo-element content, broken-image alt text, hovered title tooltips
+    const all = document.querySelectorAll('*');
+    if (all.length > 30000) {
+      unm.set('budget', { surface: 'scan-budget', selector: 'document', reason: 'DOM too large to prove pseudo-element content clean', el: document.documentElement });
+    } else {
+      for (const el of all) {
+        if (el === host || SKIP_TAGS.has(el.tagName)) continue;
+        for (const ps of ['::before', '::after']) {
+          const c = getComputedStyle(el, ps).content;
+          if (!c || c === 'none' || c === 'normal' || c === '""' || c === "''") continue;
+          const text = c.replace(/^["']|["']$/g, '');
+          if (text && (strHit(text) || sensitiveEl(el)) && visibleBox(el)) add(idOf(el) + ps, el, 'pseudo-element', 'generated content (' + ps + ') is not part of the DOM text');
+        }
+        if (el.tagName === 'IMG' && el.complete && el.naturalWidth === 0 && el.alt && !covered(el) && (strHit(el.alt) || sensitiveEl(el)) && visibleBox(el)) {
+          add(idOf(el) + 'alt', el, 'img-alt', 'alt text of a broken image is painted');
+        }
+        const ti = el.getAttribute && el.getAttribute('title');
+        if (ti && (strHit(ti) || sensitiveEl(el)) && el.matches(':hover') && visibleBox(el)) add(idOf(el) + 'title', el, 'title-tooltip', 'native tooltip is drawn by the browser');
+      }
+    }
+    return Array.from(unm.values());
+  }
+  function unmaskableSnapshot() {
+    const out = [];
+    for (const u of detectUnmaskable(performance.now())) { const r = u.surface === 'scan-budget' ? [0, 0, vw(), vh()] : visibleBox(u.el); out.push({ surface: u.surface, selector: u.selector, reason: u.reason, rect: r }); }
+    return out.slice(0, 50);
   }
 
   // ------------------------------------------------------------ frame loop
-  let lastFlush = 0;
+  let lastFlush = 0, lastTick = 0;
+  // Late phase (S-09): once the overlay host exists, the measurement runs in a ResizeObserver callback of a 1 px probe
+  // inside it. RO notifications are delivered after the app's animation callbacks and after layout, but before paint,
+  // so overlays do not trail app/scroll rAF updates by one frame. A 8 ms timer covers a notification that never comes.
+  let roProbe = null, roPending = null, roToggle = 0;
+  function ensureRo() {
+    if (roProbe || !host || !wrap || typeof ResizeObserver !== 'function') return;
+    roProbe = document.createElement('div');
+    roProbe.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;visibility:hidden;pointer-events:none';
+    wrap.appendChild(roProbe);
+    new ResizeObserver(() => { if (roPending !== null) { const ts = roPending; roPending = null; run(ts); } }).observe(roProbe);
+  }
+  function run(ts) { const f0 = performance.now(); frameBody(ts, f0); ensureRo(); }
   function frame(ts) {
-    const f0 = performance.now();
-    requestAnimationFrame(frame);
+    requestAnimationFrame(frame);          // armed first: one callback per frame, whatever happens below
+    if (roProbe && host && host.isConnected) {
+      roPending = ts;
+      roProbe.style.width = (++roToggle % 2 ? 2 : 1) + 'px';
+      setTimeout(() => { if (roPending === ts) { roPending = null; run(ts); } }, 8);
+    } else run(ts);
+  }
+  function frameBody(ts, f0) {
     if (!document.documentElement) return;
     if (!state.sheetOk || (HAS_ADOPT && sheet && !document.adoptedStyleSheets.includes(sheet)) || (styleEl && !styleEl.isConnected)) installSheet();
     if (hl && CSS.highlights.get('ds-mask') !== hl) CSS.highlights.set('ds-mask', hl);
@@ -347,12 +480,12 @@
     for (const [key, it] of items) {
       if (!(it.kind === 'text' ? it.node.isConnected : it.el.isConnected)) { dropItem(key); continue; }
       let g = groups.get(it.selector);
-      if (!g) { g = { rects: [], boxes: [], partial: [], count: 0, hidden: 0, ok: true }; groups.set(it.selector, g); }
+      if (!g) { g = { rects: [], boxes: [], occluded: [], skip: [], count: 0, hidden: 0, ok: true }; groups.set(it.selector, g); }
       g.count++;
       let raw = [];
       // drawn as cover overlay? (box overlays carry the sentinel border)
-      const drawn = it.kind === 'box' || (it.kind === 'input' && it.valueHit) || (it.kind === 'text' && it.overlay);
-      const isBox = it.kind === 'box' || (it.kind === 'input' && it.valueHit);
+      const drawn = it.kind === 'box' || (it.kind === 'input' && it.valueHit) || (it.kind === 'text' && it.overlay) || it.forced;
+      const isBox = it.kind === 'box' || (it.kind === 'input' && it.valueHit) || !!it.forced;
       if (it.kind === 'text') { for (const r of it.ranges) raw.push(...r.getClientRects()); }
       else { const b = it.el.getBoundingClientRect(); if (b.width > 0 && b.height > 0) raw.push(b); }
       const owner = it.el;
@@ -365,33 +498,44 @@
         if (g.rects.length < MAX_RECTS) {
           const i = g.rects.length;
           g.rects.push(v.rect);
-          if (v.partial) g.partial.push(i);
+          if (v.occluded || v.partial) g.occluded.push(i);
+          if (v.opaque) g.skip.push(i);
           if (isBox) g.boxes.push(i);
         }
+        // S-01: overlays are ALWAYS drawn, whatever the hit-test says (a fading modal backdrop is hit-testable yet translucent)
         if (drawn) overlayRects.push({ x: v.rect[0], y: v.rect[1], w: v.rect[2], h: v.rect[3], box: isBox, fixed: v.fixed });
       }
       // state: the mask surface must really be active for this item
       if (any) {
         if (it.kind === 'text' && !it.overlay && !(hl && state.sheetOk && it.ranges.every((r) => hl.has(r)))) g.ok = false;
         if (it.kind === 'text' && it.overlay && !state.hostOk) g.ok = false;
-        if (it.kind === 'input' && !it.valueHit && !state.sheetOk) g.ok = false;
+        if (it.kind === 'input' && !it.valueHit && !it.forced && !state.sheetOk) g.ok = false;
       }
     }
     drawOverlay(overlayRects);
     for (const [selector, g] of groups) {
       if (!g.rects.length && !g.hidden) continue;
       const entry = { t, kind: 'masked', selector, count: g.count, rects: g.rects, state: g.ok ? 'masked' : 'unmasked' };
+      if (document.readyState === 'loading') entry.loading = true;   // half-parsed page: describes no frame the viewer sees
       if (g.boxes.length) entry.boxes = g.boxes;
-      if (g.partial.length) entry.partial = g.partial;
+      if (g.occluded.length) entry.occluded = g.occluded;
+      if (g.skip.length) entry.skip = g.skip;
       if (g.hidden) entry.hidden = g.hidden;
       log.push(entry);
     }
+    if (ts - lastDetect > 250) detectUnmaskable(ts);
+    for (const u of unm.values()) {
+      const r = u.surface === 'scan-budget' ? [0, 0, vw(), vh()] : visibleBox(u.el);
+      if (r) log.push({ t, kind: 'unmaskable', surface: u.surface, selector: u.selector, reason: u.reason, rect: r });
+    }
+    stats.frames++;
+    if (ts - lastTick > 250) { lastTick = ts; log.push({ t, kind: 'tick', items: items.size, frames: stats.frames, loading: document.readyState === 'loading' }); }
     if (log.length > MAX_BUFFER) { stats.dropped_log += log.length - MAX_BUFFER; log.splice(0, log.length - MAX_BUFFER); }
     if (!state.ready && state.sheetOk && (document.readyState !== 'loading' || state.sheetOk)) {
       state.ready = true; window.__dsMaskReady = true; api.ready = true;
     }
     const dt = performance.now() - f0;
-    stats.frames++; stats.frame_ms += dt; if (dt > stats.max_frame_ms) stats.max_frame_ms = dt;
+    stats.frame_ms += dt; if (dt > stats.max_frame_ms) stats.max_frame_ms = dt;
     if (ts - lastFlush > 200) { lastFlush = ts; flush(); }
   }
 
@@ -451,17 +595,7 @@
     // regex hits must be registered too (rescanAll just did it; verify the registry is live)
     let regexHits = 0;
     for (const it of items.values()) if (/^regex#/.test(it.selector || '')) regexHits++;
-    // surfaces CSS cannot mask (native tooltips, a11y labels): report for the post-hoc tier
-    const unmaskable = [];
-    for (const el of document.querySelectorAll('[title],[aria-label],[alt]')) {
-      for (const attr of ['title', 'aria-label', 'alt']) {
-        const v = el.getAttribute(attr);
-        if (!v) continue;
-        const sel = selfMatchSel(el);
-        const hit = sel || regexes.some((rg) => { rg.re.lastIndex = 0; return rg.re.test(v); });
-        if (hit && unmaskable.length < 50) unmaskable.push({ surface: 'attribute', attr, tag: el.tagName.toLowerCase(), selector: sel || 'regex' });
-      }
-    }
+    const unmaskable = unmaskableSnapshot();
     return { ok: failures.length === 0, unmaskable, ready: state.ready, mode: HAS_HL ? 'highlight' : 'overlay', style_sheet: HAS_ADOPT ? 'adopted' : 'element', regex_hits: regexHits, checked, failures };
   }
 
@@ -471,6 +605,15 @@
     log, drain, flush, assertMasked,
     stats: () => Object.assign({}, stats, { items: items.size, avg_frame_ms: stats.frames ? stats.frame_ms / stats.frames : 0 }),
     rescan: rescanAll,
+    // R-08/S-08: JS-semantics regex test of a string (typed text is checked BEFORE the first keystroke)
+    testText: (v) => strHit(String(v == null ? '' : v)),
+    // S-08: pre-mask the element a regex-matching text is about to be typed into (overlay box from the next frame on)
+    forceMask: (el) => {
+      if (!el || el.nodeType !== 1 || !el.matches || !el.matches(INPUT_SEL)) return false;
+      items.set(el, { kind: 'input', el, selector: 'regex#typed', ranges: [], valueHit: true, forced: true });
+      return true;
+    },
+    activeElement: () => document.activeElement,
   };
   Object.defineProperty(window, '__dsMask', { value: api, configurable: false, enumerable: false });
   window.__dsMaskReady = false;
