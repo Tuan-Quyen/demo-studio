@@ -158,7 +158,7 @@ class Stages(unittest.TestCase):
         return code, (json.loads(out) if out else None), err
 
     def test_map_is_consistent(self):
-        order = ["scout", "voice", "scenes", "capture", "blur", "sync", "motion", "captions", "mix", "render", "qa", "package"]
+        order = ["scout", "voice", "scenes", "capture", "sync", "motion", "captions", "mix", "render", "qa", "package"]
         self.assertEqual(list(setup_tools.STAGES), order)
         for n, st in setup_tools.STAGES.items():
             feats = list(st.get("needs", [])) + [o[0] for o in st.get("optional", [])]

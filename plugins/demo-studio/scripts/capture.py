@@ -11,6 +11,9 @@ Two commands:
       Only a clip that passes the gate is renamed to <out>/<scene>.raw.webm (+ <scene>.mask.jsonl, <scene>.sync.json)
       and written to #events; on any failure the temp dir is deleted and a previous #events entry of the scene
       is set to masked:false (never a stale masked:true).
+      `--adapter electron --app-path MAIN.js [--electron-path EXE] [--electron-mode auto|hook|init]` records an Electron app
+      instead (electron_adapter.js: Node + Playwright `_electron`, scene script `.js`, same sidecars, same gate; fuses
+      locked -> exit 4). Default `--adapter web`.
   capture.py gate --clip F --mask-log F --sync F [--scene s03] [--slug S] [--config ...] [--selector ...] [--regex ...]
       Pure verification, trusts nothing from the adapter: recomputes `masked` / `frames_unmasked` from the video
       pixels, the mask log (+ the independent DOM oracle entries in it) and the sync file. Also re-verifies an
@@ -54,6 +57,7 @@ import run_bounded as rbm  # noqa: E402
 import project  # noqa: E402
 
 ADAPTER = os.path.join(HERE, "web_adapter.py")
+ELECTRON_ADAPTER = os.path.join(HERE, "electron_adapter.js")     # `run --adapter electron` (Node + Playwright _electron)
 
 EXIT_OK, EXIT_INPUT, EXIT_BUDGET, EXIT_TOOL, EXIT_STEP, EXIT_LEAK, EXIT_BUG = 0, 2, 3, 4, 10, 11, 70
 
@@ -98,7 +102,10 @@ def ffmpeg_exe():
 
 def need_tools(adapter=True):
     missing = []
-    if adapter:
+    if adapter == "electron":
+        if not shutil.which("node"):
+            missing.append("node")      # the electron adapter reports a missing playwright/electron itself (exit 4)
+    elif adapter:
         try:
             import playwright  # noqa: F401
         except ImportError:
@@ -620,7 +627,8 @@ def public_spec(spec):
     """Spec for dry-run output: regex literals and the URL query are never printed."""
     s = json.loads(json.dumps(spec))
     s["mask"]["regexes"] = ["<regex:%d chars>" % len(r if isinstance(r, str) else r.get("source", "")) for r in spec["mask"]["regexes"]]
-    s["url"] = redact_url(s["url"])
+    if s.get("url"):
+        s["url"] = redact_url(s["url"])
     return s
 
 
@@ -764,7 +772,7 @@ def _rm(path):
 
 
 def spawn_adapter(spec, tmp_dir, label, wall, retries=2):
-    """Run web_adapter.py bounded; the spec (regexes, typed-text safe) is a 0600 file in a private temp dir."""
+    """Run the adapter (web_adapter.py, or electron_adapter.js with spec["adapter"] == "electron") bounded; the spec (regexes, typed-text safe) is a 0600 file in a private temp dir."""
     sdir = tempfile.mkdtemp(prefix="dscap-")
     try:
         sp = os.path.join(sdir, "spec.json")
@@ -775,7 +783,8 @@ def spawn_adapter(spec, tmp_dir, label, wall, retries=2):
         while True:
             attempt += 1
             _rm(tmp_dir)
-            r = rbm.run_bounded([sys.executable, ADAPTER, sp], wall=wall, stall=30, label="capture:" + label,
+            cmd = ["node", ELECTRON_ADAPTER, sp] if spec.get("adapter") == "electron" else [sys.executable, ADAPTER, sp]
+            r = rbm.run_bounded(cmd, wall=wall, stall=30, label="capture:" + label,
                                 heartbeat="jsonl", tail_bytes=4000000)
             lines = [x for x in r["stdout_tail"].splitlines() if x.strip().startswith("{")]
             try:
@@ -793,21 +802,28 @@ def spawn_adapter(spec, tmp_dir, label, wall, retries=2):
 
 
 def _slim(rec):
-    return {k: rec.get(k) for k in ("status", "reason", "error", "error_class", "at", "preflight", "inline") if k in rec}
+    return {k: rec.get(k) for k in ("status", "reason", "error", "error_class", "at", "preflight", "inline", "mode", "fuses", "missing") if k in rec}
 
 
 def build_spec(a):
     mask = build_mask(a)
     out_dir = a.out_dir or (os.path.join(slug_dir(a.slug), "media") if a.slug else None)
-    if not a.url or not out_dir:
-        raise Fail(EXIT_INPUT, "--url and --out-dir (or --slug) are required")
+    electron = a.adapter == "electron"
+    if not out_dir or not (a.url or (electron and a.app_path)):
+        raise Fail(EXIT_INPUT, "--app-path (electron) or --url (web), and --out-dir (or --slug), are required")
     if a.scene_script and not os.path.isfile(a.scene_script):
         raise Fail(EXIT_INPUT, "scene script not found: %s" % a.scene_script)
-    return {"url": a.url, "viewport": parse_viewport(a.viewport), "out_dir": os.path.abspath(out_dir), "scene": a.scene,
+    extra = {}
+    if electron:
+        if not a.app_path or not os.path.exists(a.app_path):
+            raise Fail(EXIT_INPUT, "--app-path not found: %s" % a.app_path)
+        extra = {"adapter": "electron", "ffmpeg": ffmpeg_exe(),
+                 "electron": {"app_path": os.path.abspath(a.app_path), "executable_path": a.electron_path, "mode": a.electron_mode}}
+    return dict(extra, **{"url": a.url, "viewport": parse_viewport(a.viewport), "out_dir": os.path.abspath(out_dir), "scene": a.scene,
             "scene_script": os.path.abspath(a.scene_script) if a.scene_script else None, "vo_ms": a.vo_ms,
             "mask": mask, "probes": a.probe or [], "preflight": True,
             "timeouts": {"load_ms": int(a.load_s * 1000), "assert_ms": int(a.assert_s * 1000),
-                         "step_ms": int(a.step_s * 1000), "total_ms": int(a.total_s * 1000)}}
+                         "step_ms": int(a.step_s * 1000), "total_ms": int(a.total_s * 1000)}})
 
 
 def cmd_run(a):
@@ -815,7 +831,7 @@ def cmd_run(a):
     spec = build_spec(a)
     if a.dry_run:
         return EXIT_OK, {"status": "ok", "dry_run": True, "spec": public_spec(spec)}
-    need_tools()
+    need_tools(a.adapter)
     out_dir, sid, mask = spec["out_dir"], spec["scene"], spec["mask"]
     os.makedirs(out_dir, exist_ok=True)
     for d in os.listdir(out_dir):               # leftovers of a killed earlier run of this scene
@@ -835,8 +851,8 @@ def cmd_run(a):
         if rc != 0:
             if a.slug:
                 invalidate_events(a.slug, sid, "adapter_exit_%d" % rc)
-            status = {EXIT_LEAK: "leak", EXIT_BUDGET: "incomplete", EXIT_INPUT: "input", EXIT_STEP: "step"}.get(rc, "bug")
-            raise Fail(rc if rc in (EXIT_LEAK, EXIT_BUDGET, EXIT_INPUT, EXIT_STEP) else EXIT_BUG,
+            status = {EXIT_LEAK: "leak", EXIT_BUDGET: "incomplete", EXIT_INPUT: "input", EXIT_STEP: "step", EXIT_TOOL: "missing-tool"}.get(rc, "bug")
+            raise Fail(rc if rc in (EXIT_LEAK, EXIT_BUDGET, EXIT_INPUT, EXIT_STEP, EXIT_TOOL) else EXIT_BUG,
                        rec.get("reason") or rec.get("error", "adapter failed rc=%s" % rc), adapter=_slim(rec), attempts=attempts,
                        adapter_status=status)
         res = finish_run(a, spec, rec, tmp, t0, attempts)
@@ -880,7 +896,7 @@ def finish_run(a, spec, rec, tmp, t0, attempts):
         if a.slug:
             res["project_events_version"] = write_events(a.slug, crec, sid, sync.get("markers") or [])
         else:
-            ev = {"schema": 1, "platform": "web", "clips": {sid: crec},
+            ev = {"schema": 1, "platform": spec.get("adapter", "web"), "clips": {sid: crec},
                   "bbox_space": {"unit": "px", "frame": [g["clip"]["w"], g["clip"]["h"]], "scale": 1.0, "origin": [0, 0]},
                   "markers": [dict(m, scene=sid, **({"masked": g["masked"]} if m.get("type") == "sensitive" else {})) for m in sync.get("markers") or []],
                   "retries": attempts - 1}
@@ -967,6 +983,11 @@ def main(argv=None):
     common(r)
     r.set_defaults(scene="s01")
     r.add_argument("--url")
+    r.add_argument("--adapter", choices=("web", "electron"), default="web", help="recorder adapter (default web); electron needs --app-path")
+    r.add_argument("--app-path", dest="app_path", help="electron: main.js or app directory")
+    r.add_argument("--electron-path", dest="electron_path", help="electron: the electron executable (default: resolved from node_modules)")
+    r.add_argument("--electron-mode", dest="electron_mode", choices=("auto", "hook", "init"), default="auto",
+                   help="electron mask injection: -r hook (T1), init script + reload (T1'), or auto (T1 then T1')")
     r.add_argument("--out-dir")
     r.add_argument("--scene-script")
     r.add_argument("--vo-ms", type=int, default=0)

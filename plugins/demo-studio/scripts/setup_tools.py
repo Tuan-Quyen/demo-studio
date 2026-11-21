@@ -8,9 +8,9 @@ then runs ``--install``.
 
     setup_tools.py --list
     setup_tools.py --options [ocr|voice|motion] [--json]
-    setup_tools.py --plan capture,blur [--json]
-    setup_tools.py --install capture,blur [--dry-run] [--json] [--venv PATH]
-    setup_tools.py --check [capture,blur] [--json]
+    setup_tools.py --plan capture,qa-ocr [--json]
+    setup_tools.py --install capture,qa-ocr [--dry-run] [--json] [--venv PATH]
+    setup_tools.py --check [capture,qa-ocr] [--json]
     setup_tools.py --python [--json] [--venv PATH]
     setup_tools.py --stage <name> [--platform web|desktop|android|ios] [--choose cap=value,...] [--with f,...] [--json]
     setup_tools.py --stages [--json]
@@ -84,7 +84,7 @@ APPIUM_DRIVER_PKGS = {  # driver id -> npm package (node_modules detection)
 # ---------------------------------------------------------------------------
 CATALOG: dict[str, dict] = {
     "capture": {
-        "effect": "Record the app in a real browser (python Playwright Chromium via web_adapter.py, no Node) with capture-time masking (capture.py needs numpy) + bundled ffmpeg (imageio-ffmpeg: used when ffmpeg is not on PATH) for video/audio processing and checks.py",
+        "effect": "Record the app in a real browser (python Playwright Chromium via capture.py, no Node) with CSS capture-time masking + bundled ffmpeg (imageio-ffmpeg: used when ffmpeg is not on PATH) for video/audio processing and render/verify",
         "reqs": "capture.txt",
         "modules": ["playwright", "imageio_ffmpeg", "numpy"],
         "post": ["playwright-chromium"],
@@ -211,18 +211,6 @@ CATALOG: dict[str, dict] = {
         "size_note": "ducking/loudnorm run through ffmpeg from capture",
         "agents": ["sound-mixer"],
     },
-    "blur": {
-        "effect": "Blur/redact sensitive regions (emails, tokens, faces) in recorded frames",
-        "reqs": "blur.txt",
-        "modules": ["cv2", "numpy"],
-        "post": [],
-        "requires": ["capture"],
-        "env": None,
-        "node": False,
-        "size_mb": 60,
-        "size_note": "",
-        "agents": ["privacy-blurrer"],
-    },
     "motion-basic": {
         "capability": "motion",
         "tool": "ffmpeg filters",
@@ -263,7 +251,7 @@ CATALOG: dict[str, dict] = {
         "node": False,
         "size_mb": 120,
         "size_note": "models ship inside the wheel; Python 3.10-3.13",
-        "agents": ["demo-qa", "render-engineer", "privacy-blurrer"],
+        "agents": ["demo-qa", "render-engineer"],
     },
     "qa-ocr-tesseract": {
         "capability": "ocr",
@@ -278,7 +266,7 @@ CATALOG: dict[str, dict] = {
         "bins": {"tesseract": "tesseract program not found on PATH (apt install tesseract-ocr | brew install tesseract | winget install UB-Mannheim.TesseractOCR)"},
         "size_mb": 60,
         "size_note": "+ the tesseract program, installed separately",
-        "agents": ["demo-qa", "render-engineer", "privacy-blurrer"],
+        "agents": ["demo-qa", "render-engineer"],
     },
     "package": {
         "effect": "Thumbnails, posters and cover images for delivery",
@@ -300,15 +288,14 @@ CATALOG: dict[str, dict] = {
 #   default  recommended feature (listed first)
 #   values   feature -> value written to `setting` (ocr: the feature key itself)
 #   none     value meaning "no tool", with what that costs
-# config.py keeps the enum of `tools.ocr` in step (a test compares both).
 # ---------------------------------------------------------------------------
 CAPABILITIES: dict[str, dict] = {
     "ocr": {
-        "title": "Text recognition (OCR) for blur and QA checks",
+        "title": "Text recognition (OCR) for verify.py",
         "setting": "tools.ocr",
         "default": "qa-ocr",
         "values": {"qa-ocr": "qa-ocr", "qa-ocr-tesseract": "qa-ocr-tesseract"},
-        "none": {"value": "none", "effect": "no OCR: blur and text checked by eye on sampled frames only, a warning is logged"},
+        "none": {"value": "none", "effect": "no OCR: verify.py exits 3 (cannot check for leaks)"},
     },
     "voice": {
         "title": "Narration voice",
@@ -350,7 +337,6 @@ STAGES: dict[str, dict] = {
                            ("capture", "voice.engine is recorded (ffmpeg only)")]},
     "scenes": {"step": "Scenes", "agents": ["scene-automator"], "needs_by_platform": PLATFORM_FEATURES},
     "capture": {"step": "Capture", "agents": ["capture-operator"], "needs_by_platform": PLATFORM_FEATURES},
-    "blur": {"step": "Post", "agents": ["privacy-blurrer"], "needs": ["blur"], "choices": ["ocr"]},
     "sync": {"step": "Post", "agents": ["sync-editor"], "needs": ["capture"], "note": "ffmpeg comes with capture"},
     "motion": {"step": "Post", "agents": ["motion-designer"], "choices": ["motion"]},
     "captions": {"step": "Post", "agents": ["caption-writer"], "needs": ["captions"]},
