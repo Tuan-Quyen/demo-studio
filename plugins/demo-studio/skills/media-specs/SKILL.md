@@ -13,7 +13,7 @@ Tunable values (loudness, true peak, drift, caption width and offset, burn-in, f
 - **fps = source fps.** Playwright `recordVideo` is capped at 25 fps, so a web raw is 25 fps and the output is 25 fps; never fake 60 by frame duplication. 60 fps output only when every raw clip is a real 60 fps recording (desktop/mobile recorders); clips with different fps: output at the lowest, resample only down. Record the real value in `#checks.outputs`.
 - H.264 High, yuv420p, AAC 48 kHz 192 kbps, `+faststart`. **CRF governs quality; there is no bitrate target** (low-motion screen content is fine far below 10 Mbps); `-maxrate` is only a safety cap:
 ```
-ffmpeg -y <inputs/filtergraph> -c:v libx264 -preset slow -crf 18 -maxrate 20M -bufsize 40M -profile:v high -pix_fmt yuv420p -r <source fps> -c:a aac -b:a 192k -ar 48000 -movflags +faststart media/final-16x9.mp4
+ffmpeg -nostdin -y <inputs/filtergraph> -c:v libx264 -preset slow -crf 18 -maxrate 20M -bufsize 40M -profile:v high -pix_fmt yuv420p -r <source fps> -c:a aac -b:a 192k -ar 48000 -movflags +faststart media/final-16x9.mp4
 ```
 - Blur first in the graph (before scale/reframe) so bbox stay in source-frame pixels.
 
@@ -35,8 +35,8 @@ Thresholds are the defaults; the project's `demo.yaml` overrides them (key in th
 |---|---|---|---|---|
 | vo | each `sNN.vo.wav` clean: lead <= 200, trail <= 150, gaps <= 500 ms except declared pauses; `#voice` fields present | `vo.py check <file> [--pause-ms N...]` exit 0 (run before mixing) | voice-producer |
 | sync | rendered scene length vs timeline | drift <= `targets.max_drift_ms` (80) per scene | render-engineer knows each scene's cut points; `ffprobe` the final and compare scene durations/VO onsets with `#timeline` | sync-editor |
-| loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP | `ffmpeg -nostats -i F -af ebur128=peak=true -f null -` (read summary `I:` and `True peak`) | sound-mixer |
-| blur | readable text in blur regions | 0 | for each `#blur` region OCR ROI crops (not full frames) every 0.5 s plus first/last and every frame in a tracked transit, mapped to output coordinates and final time per Spaces and time (OCR tool from `tools.ocr`); match the sensitive value's pattern, not a bare `@`; positive control on an unblurred crop | privacy-blurrer |
+| loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP | `ffmpeg -nostdin -nostats -i F -af ebur128=peak=true -f null -` (read summary `I:` and `True peak`) | sound-mixer |
+| blur | readable text in blur regions | 0 | `blur_check.py` once per scene or region set (see Measuring snippets): bounded ROI-crop OCR, never full frames, never a hand-written loop; exit 0 pass, 1 text found, 2 budget hit (partial coverage, report it, no retry), 3 tool/input error; OCR tool from `tools.ocr`; pattern of the sensitive value, not a bare `@`; positive control on an unblurred crop | privacy-blurrer |
 | black | black frames not intended | none (>0.2 s) outside `allow.black` | `-vf blackdetect=d=0.2:pix_th=0.10 -an -f null -` | capture-operator |
 | freeze | frozen video not intended | none (>=3 s) outside `allow.freeze` | `-vf freezedetect=n=-60dB:d=3 -an -f null -` | capture-operator |
 | captions | chars/line, lines, onset offset | <= `captions.max_chars` (42), <= 2 lines; **for EVERY cue** `|t_start - onset of its first word| <= targets.caption_offset_ms` (200) | parse `final.vtt`; measure each word onset in the final audio: 10 ms RMS window, onset = first window above -40 dBFS after a silence, merging silences < 150 ms; match cues to words by order in `narration.md`. Report the max over all cues and the count over the limit; one cue over = fail | caption-writer |
@@ -46,13 +46,15 @@ Intentional black (fade through black, title cards) and deliberate holds (screen
 Measuring snippets:
 ```
 # loudness
-ffmpeg -nostats -i media/final-16x9.mp4 -vn -af ebur128=peak=true -f null - 2>&1 | tail -n 14
+ffmpeg -nostdin -nostats -i media/final-16x9.mp4 -vn -af ebur128=peak=true -f null - 2>&1 | tail -n 14
 # black + freeze in one pass
-ffmpeg -i media/final-16x9.mp4 -vf "blackdetect=d=0.2:pix_th=0.10,freezedetect=n=-60dB:d=3" -an -f null - 2>&1 | grep -E "black_start|freeze_start"
-# blur-region frame for OCR (mapped output px; repeat per sample time T)
-ffmpeg -y -ss T -i media/final-16x9.mp4 -frames:v 1 -vf crop=W:H:X:Y blur_check.png
+ffmpeg -nostdin -i media/final-16x9.mp4 -vf "blackdetect=d=0.2:pix_th=0.10,freezedetect=n=-60dB:d=3" -an -f null - 2>&1 | grep -E "black_start|freeze_start"
+# blur regions: ONE bounded call (toolkit interpreter from `setup_tools.py --python`); never a per-frame loop
+python scripts/blur_check.py media/s03.raw.mp4 --regions blur.json --scene s03 --ocr <tools.ocr> --pattern email --apply-blur --budget-s 300
 ```
-OCR call (run with the toolkit interpreter, `python -I`; build the engine once, not per frame). `tools.ocr: qa-ocr` (RapidOCR 3.x, `from rapidocr import RapidOCR`; the old `rapidocr_onnxruntime` package is gone):
+`blur_check.py` does per region ONE `ffmpeg -nostdin -y ... -vf select,crop -fps_mode vfr %04d.png` (every 3rd frame, all frames when `keyframes` is set) into `media/preview/blur_check/<id>/` (old crops cleared first), builds the OCR engine once, runs the positive control on an unblurred crop, then OCRs the crops; `--apply-blur` blurs the crops in-process per region `mode`/`strength` (input = unblurred raw), for a finished render pass the render as CLIP with `--control-clip <raw>`. Flags: `--pattern email|key|<regex>` (default: any word), `--ocr qa-ocr|qa-ocr-tesseract|none`, `--budget-s` (hard deadline, default 300), `--step N`, `--out-dir` (under `media/preview/`). Stdout JSON: per region `frames_sampled`/`frames_total`, `matches`, `control_ok`, `seconds`. Exit 0 pass, 1 text found, 2 budget exceeded (partial), 3 tool/input error (a failed control is 3: no evidence).
+Every ffmpeg call in a script or snippet carries `-nostdin` (with stdin open ffmpeg waits on an overwrite prompt; inside `while read` it eats the loop's input) and `-y` when it writes a file (without it a rerun silently keeps the stale file).
+OCR call (what `blur_check.py` does internally; use it for blur checks and only hand-write OCR for one-off frames; run with the toolkit interpreter, `python -I`; build the engine once, not per frame). `tools.ocr: qa-ocr` (RapidOCR 3.x, `from rapidocr import RapidOCR`; the old `rapidocr_onnxruntime` package is gone):
 ```
 import cv2
 from rapidocr import RapidOCR

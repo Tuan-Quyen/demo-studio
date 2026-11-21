@@ -51,7 +51,7 @@ Recorder adapter:
 ```
 ffmpeg -y -f gdigrab -framerate 60 -offset_x <left> -offset_y <top> -video_size 1280x720 -i desktop -c:v libx264 -preset ultrafast -crf 16 -pix_fmt yuv420p media/s02.raw.mp4
 ```
-Start the process (`subprocess.Popen`), wait until the output file grows, `ctx.start()`; to stop send `q` on stdin (do not kill: the mp4 needs its moov atom) then `ffprobe`. `gdigrab -i title=<window>` captures one window regardless of position; use region capture when overlays/menus must be included. For a 1440p master use a 2560x1440 display or capture the window at native DPI scale and set `scale` accordingly. Note: raw output here is `sNN.raw.mp4`, not webm (tell the director; `#events.clips[*].file` is authoritative).
+No `-nostdin` on live recorders: stopped with `q` on stdin. Start the process (`subprocess.Popen`), wait until the output file grows, `ctx.start()`; to stop send `q` on stdin (do not kill: the mp4 needs its moov atom) then `ffprobe`. `gdigrab -i title=<window>` captures one window regardless of position; use region capture when overlays/menus must be included. For a 1440p master use a 2560x1440 display or capture the window at native DPI scale and set `scale` accordingly. Note: raw output here is `sNN.raw.mp4`, not webm (tell the director; `#events.clips[*].file` is authoritative).
 DND: Focus Assist/Do Not Disturb has no stable CLI; ask the user to enable it (or verify via screenshot) before recording.
 
 ## macOS (Appium Mac2 + ffmpeg avfoundation)
@@ -65,7 +65,7 @@ btn = driver.find_element("accessibility id", "export")
 r = btn.rect                                                    # x,y,width,height in screen points
 ctx.mark("click", [r["x"], r["y"], r["width"], r["height"]], "Export button"); btn.click()
 ```
-Recorder adapter: `ffmpeg -f avfoundation -capture_cursor 1 -capture_mouse_clicks 1 -framerate 60 -i "<screen idx>:none" -vf crop=<w>:<h>:<x>:<y> ...` (list devices: `ffmpeg -f avfoundation -list_devices true -i ""`; crop to the window region; on Retina the capture is in pixels = points x 2, so `scale` = 2). Alternative: Mac2 `macos: startRecordingScreen` (`deviceId`, `fps` default 15, `captureCursor`, `captureClicks`); it deletes the raw file on stop, so fetch the result from the stop call. Prefer ffmpeg for 60 fps.
+Recorder adapter (no `-nostdin`: stopped with `q` on stdin): `ffmpeg -y -f avfoundation -capture_cursor 1 -capture_mouse_clicks 1 -framerate 60 -i "<screen idx>:none" -vf crop=<w>:<h>:<x>:<y> ...` (list devices: `ffmpeg -nostdin -f avfoundation -list_devices true -i ""`; crop to the window region; on Retina the capture is in pixels = points x 2, so `scale` = 2). Alternative: Mac2 `macos: startRecordingScreen` (`deviceId`, `fps` default 15, `captureCursor`, `captureClicks`); it deletes the raw file on stop, so fetch the result from the stop call. Prefer ffmpeg for 60 fps.
 DND: turn on a Focus mode manually (no reliable CLI); ask the user.
 
 ## Pitfalls
