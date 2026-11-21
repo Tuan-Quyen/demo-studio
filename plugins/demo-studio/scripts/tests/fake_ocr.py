@@ -44,3 +44,7 @@ def hang(lang):
 
 def broken(lang):
     raise RuntimeError("engine cannot start")
+
+
+def hang_now(rgb, w, h):
+    raise RuntimeError("engine crashed mid-run")

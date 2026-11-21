@@ -36,6 +36,7 @@ UNTESTED: this repo is developed and tested on Linux only).
 import argparse
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -91,14 +92,62 @@ class Heartbeat:
         return False
 
 
-def redact_argv(argv, secrets):
-    """Replace every literal secret (privacy.regexes / seed_values) found in argv by <redacted:N>."""
-    secrets = [s for s in secrets if s]
-    out = []
+# flags whose value is sensitive by nature (regex literals, seed data, URLs with tokens)
+SENSITIVE_FLAGS = ("--pattern", "--regex", "--regexes", "--seed", "--seed-value", "--seed-values",
+                   "--selector", "--selectors", "--token", "--secret", "--password", "--key",
+                   "--cookie", "--header", "--text", "--value")
+_URL_RX = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://)([^/?#\s]*@)?([^?#\s]*)(\?[^#\s]*)?(#\S*)?")
+
+
+def redact_url(s):
+    """Hide credentials and the query string / fragment of every URL in `s`
+    (`https://u:p@h/p?token=x#f` -> `https://h/p?<redacted>`). Shared with capture.py."""
+    def sub(m):
+        out = m.group(1) + m.group(3)
+        if m.group(4):
+            out += "?<redacted>"
+        if m.group(5):
+            out += "#<redacted>"
+        return out
+    return _URL_RX.sub(sub, s)
+
+
+def _is_sensitive_flag(name):
+    """`--pattern`, and also any abbreviation of it (`--pat`, `--rege`): argparse accepted those
+    before allow_abbrev=False, and a log line must not leak through them either."""
+    if not name.startswith("--") or len(name) < 4:
+        return False
+    return any(f == name or f.startswith(name) for f in SENSITIVE_FLAGS)
+
+
+def redact_argv(argv, secrets=(), flags=True):
+    """Redact an argv before it is logged: every literal secret (privacy.regexes / seed_values /
+    --pattern values) -> <redacted:N>; the value of a sensitive flag (also abbreviated or `--flag=v`)
+    -> <redacted>; URL query strings, fragments and credentials hidden."""
+    uniq = list(dict.fromkeys(s for s in secrets if s))   # stable numbering: order of first appearance
+    secrets = sorted(enumerate(uniq), key=lambda ns: len(ns[1]), reverse=True)  # longest literal first
+    out, hide_next = [], False
     for a in argv:
-        for n, s in enumerate(secrets):
+        a = str(a)
+        if hide_next:
+            hide_next = False
+            lit = a
+            for n, s in secrets:
+                lit = lit.replace(s, "<redacted:%d>" % n)
+            out.append(lit if lit != a else "<redacted>")
+            continue
+        if flags and a.startswith("--"):
+            name, eq, _ = a.partition("=")
+            if _is_sensitive_flag(name):
+                if eq:
+                    out.append(name + "=<redacted>")
+                else:
+                    out.append(a)
+                    hide_next = True
+                continue
+        for n, s in secrets:
             a = a.replace(s, "<redacted:%d>" % n)
-        out.append(a)
+        out.append(redact_url(a))
     return out
 
 
@@ -349,7 +398,7 @@ def run_bounded(cmd, wall, stall=None, label="", heartbeat="none", cwd=None, env
 
 # --------------------------------------------------------------------------- CLI
 def build_parser():
-    p = argparse.ArgumentParser(description="Run a command with wall and stall timeouts.",
+    p = argparse.ArgumentParser(description="Run a command with wall and stall timeouts.", allow_abbrev=False,
                                 usage="run_bounded.py --wall S [--stall S] [--label L] "
                                       "[--heartbeat ffmpeg|jsonl|none] -- cmd [args...]")
     p.add_argument("--wall", type=float, required=True, help="hard wall-clock limit, seconds")

@@ -13,13 +13,26 @@ Usage:
     preview  [--dry-run]      positive control per region on an unblurred crop + masked contact sheet
     verify   --video F --aspect A [--budget-s N] [--fullframe-stride-s S] [--ocr rapidocr|python:M:F]
              [--pattern RE ...] [--lang L] [--hmac] [--dry-run]
+             --ocr default: demo.yaml tools.ocr (qa-ocr -> rapidocr, qa-ocr-tesseract -> tesseract,
+             none -> verdict inconclusive, exit 10, no OCR run). Resets #checks.pass to false and drops
+             this aspect's old verdict (and results.blur) BEFORE it starts; its verdict binds the exact
+             verified file (size, mtime_ns, ino[, sha256]) and the #blur/#timeline/#events versions;
+             it never sets pass true (only checks.py does).
              One sequential decode of the output (a single ffmpeg process piping frames), OCR engine
              built once (worker subprocess), ROI crops stacked in a montage + sparse full-frame regex
              pass, mandatory positive control, hard budget enforced in code.
+    set-transform --aspect A (--scale S --ox X --oy Y | --identity) [--segment T0 T1 SCALE OX OY ...]
+             The render step records how it mapped source px to output px of aspect A into
+             #blur.transforms.A (source px * scale + offset; --segment = a time window in s on the final
+             timeline with its own mapping, for zoom/pan). verify REFUSES (exit 2) an aspect that
+             needs a non-identity mapping (other aspect ratio, or #motion zoom/pan/reframe for it)
+             when #blur.transforms.A is missing.
     ocr-worker --engine E [--lang L]        (internal: the OCR subprocess verify talks to)
 
 Result: one JSON line on stdout {"status","elapsed_s",...,"failures":[{"id","owner","class"}]}.
-Exit codes: 0 ok/pass | 2 input or schema wrong (e.g. keyframes jump without a split, needs-input)
+Exit codes: 0 ok/pass | 2 input or schema wrong (e.g. keyframes jump without a split, needs-input,
+              a clip with unmaskable[] no region covers, a timeline scene before safe_from_ms, a
+              missing #blur.transforms.<aspect>)
             3 budget exceeded, verdict incomplete | 4 tool missing (ffmpeg / OCR)
             10 finding (verdict inconclusive: positive control failed) | 11 leak (OCR read protected text)
             70 unexpected exception or environment error | 124/125 only run_bounded.
@@ -28,6 +41,9 @@ Every external process runs through run_bounded (hard wall, stall timeout, group
 #blur schema 2 region: {"id","bbox":[x,y,w,h] (source px),"spans":[[t0,t1] | [t0,t1,scene]] (ms, scene
 relative), "scene", "mode": static|track|cover, "style": opaque|boxblur|pixelize, "pad", "text_h",
 "secret", "source", "label", "pattern", "keyframes": [[t,x,y,w,h]] (track only, held step-wise)}.
+Capture contract: events.clips[sid].unmaskable[] = {surface, selector, reason, t_start, t_end, bbox:[x,y,w,h]}
+with t_* in CLIP ms (scene-relative = t - offset_ms) and bbox in clip px; plan turns each into an opaque,
+padded region (source "unmaskable") and exits 2 for an entry it cannot (no bbox / no time span).
 A region merged across scenes has "scene": null and 3-element spans.
 """
 import argparse
@@ -130,6 +146,72 @@ def norm_region(r):
             "pattern": r.get("pattern"), "mode_in": mode}
 
 
+def _span_scene(reg, s):
+    return s[2] if len(s) == 3 else reg.get("scene")
+
+
+def _union_bbox(reg):
+    kfs = reg.get("kfs") or reg.get("keyframes")
+    if kfs:
+        xs0 = min(k[1] for k in kfs)
+        ys0 = min(k[2] for k in kfs)
+        xs1 = max(k[1] + k[3] for k in kfs)
+        ys1 = max(k[2] + k[4] for k in kfs)
+        return [xs0, ys0, xs1 - xs0, ys1 - ys0]
+    return reg["bbox"]
+
+
+def unmaskable_region(sid, clip, i, u):
+    """One events.clips[sid].unmaskable[] entry -> a norm_region-ready dict, or ValueError."""
+    if not isinstance(u, dict):
+        raise ValueError("unmaskable entry is not an object")
+    bb, ts, te = u.get("bbox"), u.get("t_start"), u.get("t_end")
+    if not (isinstance(bb, list) and len(bb) == 4 and all(_num(v) for v in bb) and bb[2] > 0 and bb[3] > 0):
+        raise ValueError("unmaskable entry %d of %s has no usable bbox (capture must emit "
+                         "bbox [x,y,w,h] in clip px)" % (i, sid))
+    if not (_num(ts) and _num(te) and te > ts):
+        raise ValueError("unmaskable entry %d of %s has no time span t_start/t_end" % (i, sid))
+    off = float((clip or {}).get("offset_ms", 0) or 0)
+    a, b = max(0.0, ts - off), te - off
+    if b <= 0:
+        return None  # entirely before the scene starts: not in any render
+    return {"id": "um-%s-%d" % (sid, i), "scene": sid, "bbox": list(bb), "spans": [[a, b, sid]],
+            "style": "opaque", "secret": True, "pad": DEFAULT_PAD, "source": "unmaskable",
+            "label": "unmaskable:%s" % (u.get("reason") or u.get("surface") or "surface")}
+
+
+def uncovered_unmaskable(regions, clips, slop_ms=MERGE_GAP_MS):
+    """Entries of events.clips[*].unmaskable[] that no region covers (bbox inside the padded region
+    bbox, whole time span inside the region's spans of that scene). Regions: plan output or the
+    normalised form. Returns [{"scene","index","reason"}]; an entry plan cannot use is uncovered."""
+    out = []
+    for sid, clip in sorted((clips or {}).items()):
+        for i, u in enumerate((clip.get("unmaskable") if isinstance(clip, dict) else None) or []):
+            try:
+                need = unmaskable_region(sid, clip, i, u)
+            except ValueError as e:
+                out.append({"scene": sid, "index": i, "reason": str(e)})
+                continue
+            if need is None:
+                continue
+            nb, (na, nz, _) = need["bbox"], need["spans"][0]
+            ok = False
+            for r in regions:
+                pad = int(r.get("pad", DEFAULT_PAD))
+                rb = _union_bbox(r)
+                if not (rb[0] - pad <= nb[0] and rb[1] - pad <= nb[1]
+                        and rb[0] + rb[2] + pad >= nb[0] + nb[2] and rb[1] + rb[3] + pad >= nb[1] + nb[3]):
+                    continue
+                mine = merge_spans([[s[0], s[1], sid] for s in r["spans"] if _span_scene(r, s) == sid],
+                                   slop_ms)
+                if any(m[0] <= na + 1e-6 and m[1] >= nz - 1e-6 for m in mine):
+                    ok = True
+                    break
+            if not ok:
+                out.append({"scene": sid, "index": i, "reason": "no region covers it"})
+    return out
+
+
 def clip_frame_ms(clips, scene):
     try:
         fps = float(clips[scene]["fps"])
@@ -181,10 +263,13 @@ def strength(style, text_h):
     return math.ceil(text_h / 4.0) if style == "boxblur" else math.ceil(text_h / 3.0)
 
 
-def plan_regions(regions, clips=None, merge_gap_ms=MERGE_GAP_MS, cover_max=COVER_MAX_PX):
-    """Return (new_regions, report). Raises BlurError(2) on a jump without a split / needs-input."""
+def plan_regions(regions, clips=None, merge_gap_ms=MERGE_GAP_MS, cover_max=COVER_MAX_PX, unmaskable=True):
+    """Return (new_regions, report). Raises BlurError(2) on a jump without a split / needs-input.
+    `unmaskable` (default, `plan`) turns clips' unmaskable[] into regions; graph / verify / checks pass
+    False: they only READ the stored plan, and an uncovered surface there is exit 2 / incomplete."""
     clips = clips or {}
-    report = {"regions_in": len(regions), "dropped": [], "needs_input": [], "merged": 0}
+    report = {"regions_in": len(regions), "dropped": [], "needs_input": [], "merged": 0,
+              "unmaskable_regions": 0}
     items, bad = [], []
     for i, raw in enumerate(regions):
         rid = str(raw.get("id", "r%d" % (i + 1))) if isinstance(raw, dict) else "r%d" % (i + 1)
@@ -195,16 +280,32 @@ def plan_regions(regions, clips=None, merge_gap_ms=MERGE_GAP_MS, cover_max=COVER
         except ValueError as e:
             bad.append({"id": rid, "owner": "capture-operator", "class": "needs-input",
                         "detail": str(e)})
+    for sid, clip in sorted(clips.items() if unmaskable else ()):  # capture could not mask these: blur them
+        for i, u in enumerate((clip.get("unmaskable") if isinstance(clip, dict) else None) or []):
+            try:
+                raw = unmaskable_region(sid, clip, i, u)
+                if raw is None:
+                    continue
+                reg = norm_region(raw)
+            except ValueError as e:
+                bad.append({"id": "um-%s-%d" % (sid, i), "owner": "capture-operator",
+                            "class": "needs-input", "detail": str(e)})
+                continue
+            if not uncovered_unmaskable(items, {sid: dict(clip, unmaskable=[u])}):
+                continue  # a region already covers it (idempotent plan)
+            items.append(reg)
+            report["unmaskable_regions"] += 1
     if bad:
         report["needs_input"] = bad
         raise BlurError(2, "needs-input: %d region(s) unusable: %s"
                         % (len(bad), "; ".join("%s (%s)" % (b["id"], b["detail"]) for b in bad)), bad)
     statics, tracks = [], []
     for reg in items:
-        scene = reg["spans"][0][2]
-        # a region the capture-time mask already covers is redundant, but only for a clip that
-        # really was masked; every other region is kept (RT-10)
-        if reg["source"] == "capture-mask" and (clips.get(scene) or {}).get("masked") is True:
+        # a region the capture-time mask already covers is redundant, but only when EVERY scene it
+        # spans was really masked (masked is true only after the capture gate passed); every other
+        # region is kept (RT-10, R-12)
+        if reg["source"] == "capture-mask" and all(
+                (clips.get(sp[2]) or {}).get("masked") is True for sp in reg["spans"]):
             report["dropped"].append(reg["id"])
             continue
         style = reg["style"]
@@ -215,7 +316,8 @@ def plan_regions(regions, clips=None, merge_gap_ms=MERGE_GAP_MS, cover_max=COVER
         src = str(reg["source"] or "manual")
         src = "events" if src.startswith("events") else src
         base = {"pad": reg["pad"], "style": style, "text_h": th, "secret": reg["secret"],
-                "source": src if src in ("capture-mask", "events", "manual", "legacy") else "manual",
+                "source": src if src in ("capture-mask", "events", "manual", "legacy", "unmaskable")
+                else "manual",
                 "label": reg["label"], "pattern": reg["pattern"]}
         if reg["kfs"]:
             frame_ms = clip_frame_ms(clips, reg["spans"][0][2])
@@ -492,9 +594,10 @@ def cmd_plan(args):
 def cmd_graph(args):
     path, data = load_ctx(args)
     blur = data.get("blur") or {}
-    regions = (blur.get("regions") if isinstance(blur, dict) else None) or []
     clips = (data.get("events") or {}).get("clips") or {}
-    norm = _as_v2(regions, clips)
+    if args.space == "final":
+        require_safe_timeline(data, clips)
+    norm = load_regions(blur, clips)
     tmap = TimeMap(args.space, clips, data.get("timeline"), args.scene)
     scenes = {s[2] if len(s) == 3 else r.get("scene") for r in norm for s in r["spans"]}
     scenes = [s for s in scenes if tmap.usable(s)] or list(clips)[:1]
@@ -506,13 +609,14 @@ def cmd_graph(args):
     return res, 0
 
 
-def _as_v2(regions, clips):
+def _as_v2(regions, clips, unmaskable=False):
     """Graph/verify accept #blur as plan wrote it; a schema 1 blur is planned in memory first
-    (nothing is written, nothing dropped)."""
+    (nothing is written, nothing dropped). Unmaskable surfaces are NOT added here: they must already
+    be in the stored plan (load_regions refuses otherwise)."""
     if regions and all(isinstance(r, dict) and r.get("mode") in ("static", "track", "cover")
                        and "spans" in r for r in regions):
         return regions
-    return plan_regions(regions, clips)[0]
+    return plan_regions(regions, clips, unmaskable=unmaskable)[0]
 
 
 # =========================================================================== frame decoding
@@ -739,11 +843,30 @@ def load_engine(spec, lang):
             for t, bx in zip(txts, boxes):
                 box = None
                 if bx is not None:
-                    xs, ys = [p[0] for p in bx], [p[1] for p in bx]
+                    xs, ys = [float(p[0]) for p in bx], [float(p[1]) for p in bx]  # numpy floats are not JSON
                     box = [min(xs), min(ys), max(xs), max(ys)]
-                out.append({"text": t, "box": box})
+                out.append({"text": str(t), "box": box})
             return out
         return run
+    if spec == "tesseract":
+        import numpy as np
+        import pytesseract
+        tl = {"en": "eng"}.get(lang or "en", lang or "eng")
+
+        def run_t(rgb, w, h):
+            arr = np.frombuffer(rgb, dtype=np.uint8).reshape(h, w, 3)
+            d = pytesseract.image_to_data(arr, lang=tl, output_type=pytesseract.Output.DICT)
+            lines = {}
+            for i, t in enumerate(d["text"]):
+                if not str(t).strip() or float(d["conf"][i]) < 0:
+                    continue
+                k = (d["block_num"][i], d["par_num"][i], d["line_num"][i])
+                x0, y0, x1, y1 = d["left"][i], d["top"][i], d["left"][i] + d["width"][i], d["top"][i] + d["height"][i]
+                e = lines.setdefault(k, {"words": [], "box": [x0, y0, x1, y1]})
+                e["words"].append(t)
+                e["box"] = [min(e["box"][0], x0), min(e["box"][1], y0), max(e["box"][2], x1), max(e["box"][3], y1)]
+            return [{"text": " ".join(e["words"]), "box": e["box"]} for e in lines.values()]
+        return run_t
     if spec.startswith("python:"):
         import importlib
         _, mod, fn = spec.split(":", 2)
@@ -799,6 +922,76 @@ def default_transform(aspect, src, out):
     return {"scale": s, "ox": (ow - sw * s) / 2.0, "oy": (oh - sh * s) / 2.0}
 
 
+MOTION_REMAP = ("zoom", "pan", "reframe")
+CONTROL_TEXT = "Invoice 48213 Acme Corp"
+
+
+def _valid_tr(t):
+    return isinstance(t, dict) and all(_num(t.get(k)) for k in ("scale", "ox", "oy")) and t["scale"] > 0
+
+
+def motion_remaps(motion, aspect):
+    """#motion effects (zoom / pan / reframe) that move source pixels in `aspect`'s output."""
+    out = []
+    for e in (motion or {}).get("effects") or []:
+        if not isinstance(e, dict) or e.get("type") not in MOTION_REMAP:
+            continue
+        asp = (e.get("params") or {}).get("aspects")
+        if not asp or aspect in asp:
+            out.append(e)
+    return out
+
+
+def resolve_transform(blur, motion, aspect, src, out):
+    """Mapping source px -> output px for `aspect` (R-05). The default (uniform scale, centred) is only
+    right for the same aspect ratio and no motion remap; otherwise #blur.transforms.<aspect> written by
+    the render step (blur.py set-transform) is required, else exit 2. A zoom/pan needs a `segments`
+    key (may be empty) proving the render step accounted for it."""
+    tr = (blur.get("transforms") or {}).get(aspect) if isinstance(blur, dict) else None
+    if tr is not None and not _valid_tr(tr):
+        raise BlurError(2, "#blur.transforms.%s is not {scale>0, ox, oy[, segments]}" % aspect,
+                        [{"id": "transforms.%s" % aspect, "owner": "render-engineer", "class": "needs-input"}])
+    differs = abs(out[0] / float(out[1]) - src[0] / float(src[1])) > 0.01
+    moves = motion_remaps(motion, aspect)
+    if (differs or moves) and tr is None:
+        why = "aspect %s needs a reframe" % aspect if differs else "#motion has %d zoom/pan/reframe effect(s)" % len(moves)
+        raise BlurError(2, "verify cannot map the blur regions to %s: %s and #blur.transforms.%s is missing; "
+                           "the render step must record its mapping with `blur.py set-transform --aspect %s ...`"
+                        % (aspect, why, aspect, aspect),
+                        [{"id": "transforms.%s" % aspect, "owner": "render-engineer", "class": "needs-input"}])
+    if moves and not isinstance(tr.get("segments"), list):
+        raise BlurError(2, "#blur.transforms.%s has no `segments` list although #motion zooms/pans this "
+                           "aspect: record every zoom window (set-transform --segment) or an empty list"
+                        % aspect, [{"id": "transforms.%s" % aspect, "owner": "render-engineer",
+                                    "class": "needs-input"}])
+    return tr or default_transform(aspect, src, out)
+
+
+def tr_pieces(tr, spans):
+    """Split final-timeline `spans` [(a,b)] (s) by the transform's `segments` [{t0,t1,scale,ox,oy}]:
+    [(transform, spans)] (segment mappings first, the base mapping for the rest)."""
+    segs = sorted((float(g["t0"]), float(g["t1"]), g) for g in (tr.get("segments") or [])
+                  if isinstance(g, dict) and _num(g.get("t0")) and _num(g.get("t1")) and _valid_tr(g)
+                  and g["t1"] > g["t0"])
+    rest, pieces = list(spans), []
+    for a, b, g in segs:
+        inside, nxt = [], []
+        for x, y in rest:
+            lo, hi = max(x, a), min(y, b)
+            if hi > lo:
+                inside.append((lo, hi))
+            if x < min(y, a):
+                nxt.append((x, min(y, a)))
+            if y > max(x, b):
+                nxt.append((max(x, b), y))
+        rest = nxt
+        if inside:
+            pieces.append((g, inside))
+    if rest:
+        pieces.append((tr, rest))
+    return pieces
+
+
 def map_bbox(b, tr, out_w, out_h):
     x0, y0 = b[0] * tr["scale"] + tr["ox"], b[1] * tr["scale"] + tr["oy"]
     x1, y1 = x0 + b[2] * tr["scale"], y0 + b[3] * tr["scale"]
@@ -808,7 +1001,8 @@ def map_bbox(b, tr, out_w, out_h):
 
 
 def build_rois(regions, tmap, clips, tr, out_wh, fps, patterns_cfg):
-    """Output-space ROIs: [{"id","spans":[(a,b)],"boxes":[(t_s, bbox)] | bbox, "matcher"}]."""
+    """Output-space ROIs: [{"id","spans":[(a,b)],"boxes":[(t_s, bbox)] | bbox, "matcher"}]. A transform
+    with `segments` splits a region into one ROI per mapping window (same id)."""
     ow, oh = out_wh
     rois = []
     sw, sh = frame_size(clips, {s[2] if len(s) == 3 else r.get("scene") for r in regions
@@ -823,23 +1017,24 @@ def build_rois(regions, tmap, clips, tr, out_wh, fps, patterns_cfg):
         if not spans:
             continue
         pats = [reg["pattern"]] if reg.get("pattern") else list(patterns_cfg)
-        roi = {"id": reg["id"], "spans": merge_pairs(spans), "pad": reg["pad"],
-               "matcher": make_matcher(pats), "has_pattern": bool(pats),
-               "src_bbox": reg["bbox"], "scene": reg.get("scene"),
-               "ctrl": ctrl_point(reg, clips)}
-        if reg.get("mode") == "track":
-            sc0 = (reg["spans"][0][2] if len(reg["spans"][0]) == 3 else reg.get("scene"))
-            roi["boxes"] = [(tmap.t(sc0, k[0]), map_bbox(pad_box(k[1:], reg["pad"], sw, sh), tr, ow, oh))
-                            for k in reg["keyframes"]]
-            roi["boxes"] = [(t, b) for t, b in roi["boxes"] if b]
-            if not roi["boxes"]:
-                continue
-        else:
-            b = map_bbox(pad_box(reg["bbox"], reg["pad"], sw, sh), tr, ow, oh)
-            if not b:
-                continue
-            roi["bbox"] = b
-        rois.append(roi)
+        ctrl = ctrl_point(reg, clips)
+        for trp, pspans in tr_pieces(tr, merge_pairs(spans)):
+            roi = {"id": reg["id"], "spans": merge_pairs(pspans), "pad": reg["pad"],
+                   "matcher": make_matcher(pats), "has_pattern": bool(pats),
+                   "src_bbox": reg["bbox"], "scene": reg.get("scene"), "ctrl": ctrl}
+            if reg.get("mode") == "track":
+                sc0 = (reg["spans"][0][2] if len(reg["spans"][0]) == 3 else reg.get("scene"))
+                roi["boxes"] = [(tmap.t(sc0, k[0]), map_bbox(pad_box(k[1:], reg["pad"], sw, sh), trp, ow, oh))
+                                for k in reg["keyframes"]]
+                roi["boxes"] = [(t, bb) for t, bb in roi["boxes"] if bb]
+                if not roi["boxes"]:
+                    continue
+            else:
+                bb = map_bbox(pad_box(reg["bbox"], reg["pad"], sw, sh), trp, ow, oh)
+                if not bb:
+                    continue
+                roi["bbox"] = bb
+            rois.append(roi)
     return rois
 
 
@@ -899,9 +1094,12 @@ def hit_hash(key, text):
 
 
 def run_verify(video, rois, ocr, dur, fps, wh, *, budget_s, stride_s, fullframe, full_matcher,
-               controls=None, hmac_key=None, ffmpeg="ffmpeg", clock=time.monotonic, tmpdir=None):
+               controls=None, hmac_key=None, ffmpeg="ffmpeg", clock=time.monotonic, tmpdir=None,
+               full_control=None):
     """Core of `blur.py verify` (pure of project access, so tests can drive it). `controls` is
-    {roi id: bool} from the positive-control phase (None = not required)."""
+    {roi id: bool} from the positive-control phase (None = not required); `full_control` is the
+    full-frame OCR positive control (rendered known text read back; None = not required). A run that
+    OCR-sampled nothing is `incomplete`, never `pass`."""
     t0 = clock()
     ow, oh = wh
     sched = sample_schedule(rois, dur, fps, stride_s, fullframe)
@@ -966,6 +1164,10 @@ def run_verify(video, rois, ocr, dur, fps, wh, *, budget_s, stride_s, fullframe,
         incomplete = "frames"  # the decode ended before delivering every requested sample
     ctrl = controls if controls is not None else {}
     failed_ctrl = [r["id"] for r in rois if controls is not None and not ctrl.get(r["id"])]
+    if fullframe and full_control is False:
+        failed_ctrl.append("fullframe")
+    if not hits and not incomplete and (total == 0 or sampled == 0):
+        incomplete = "no-samples"  # nothing was OCR'd: that is no evidence (S-05)
     if hits:
         verdict = "leak"
     elif incomplete:
@@ -977,7 +1179,9 @@ def run_verify(video, rois, ocr, dur, fps, wh, *, budget_s, stride_s, fullframe,
     return {"verdict": verdict, "sampled": sampled, "total": total,
             "seconds": round(clock() - t0, 2),
             "fullframe": {"sampled": full_done, "stride_s": stride_s if fullframe else None},
-            "positive_control": {r["id"]: bool(ctrl.get(r["id"])) for r in rois} if controls is not None else {},
+            "positive_control": dict(
+                ({r["id"]: bool(ctrl.get(r["id"])) for r in rois} if controls is not None else {}),
+                **({"fullframe": bool(full_control)} if full_control is not None else {})),
             "hits": hits, "incomplete_reason": incomplete,
             "not_machine_readable": verdict == "pass"}
 
@@ -988,8 +1192,11 @@ def positive_controls(rois, clips, slug_dir, ocr, budget_s, ffmpeg="ffmpeg", tmp
     matcher accepts, else the OCR/pattern is no evidence. Each roi carries "ctrl": (scene, clip time
     s, source bbox). Crops live only in memory / tmpdir."""
     t0 = clock()
-    res, by_clip = {}, {}
+    res, by_clip, seen = {}, {}, set()
     for roi in rois:
+        if roi["id"] in seen:  # a region split by transform segments has one control
+            continue
+        seen.add(roi["id"])
         sc, t_s, _ = roi["ctrl"]
         info = clips.get(sc) or {}
         f = os.path.join(slug_dir, info["file"]) if info.get("file") else None
@@ -1015,6 +1222,9 @@ def positive_controls(rois, clips, slug_dir, ocr, budget_s, ffmpeg="ffmpeg", tmp
             _, buf = min(frames, key=lambda fr: abs(fr[0] - t_s))
             x, y, bw, bh = pad_box(bb, roi["pad"], w, h)
             mw, mh, mbuf, _ = montage([(bw, bh, crop_rgb(buf, w, x, y, bw, bh))])
+            if clock() - t0 >= budget_s:  # every OCR call is budget-checked (R-14)
+                raise BlurError(3, "budget of %.0f s exceeded during the positive controls: verdict "
+                                   "incomplete" % budget_s)
             res[roi["id"]] = any(roi["matcher"](i["text"]) for i in ocr(mbuf, mw, mh))
     return res
 
@@ -1026,25 +1236,149 @@ def hmac_key_for(slug_dir, create=False):
             return f.read()
     if not create:
         return None
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    key = secrets_mod.token_bytes(32)
-    with open(p, "wb") as f:
-        f.write(key)
+    d = os.path.dirname(p)
+    os.makedirs(d, mode=0o700, exist_ok=True)
     try:
-        os.chmod(p, 0o600)
+        os.chmod(d, 0o700)
     except OSError:
         pass
+    key = secrets_mod.token_bytes(32)
+    try:  # created 0600 atomically: there is no window with a wider mode
+        fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:  # a concurrent run won the race: use its key
+        with open(p, "rb") as f:
+            return f.read()
+    with os.fdopen(fd, "wb") as f:
+        f.write(key)
     return key
+
+
+def fullframe_control(ocr, wh, ffmpeg, tmpdir):
+    """Positive control of the full-frame OCR tier: render a frame of the OUTPUT size with a known text
+    and require the OCR to read readable text off it. Failure = the full-frame pass is blind."""
+    ow, oh = wh
+    dst = os.path.join(tmpdir, "fullframe-control.rgb")
+    vf = ("drawtext=text='%s':fontsize=%d:fontcolor=black:x=(w-text_w)/2:y=(h-text_h)/2"
+          % (CONTROL_TEXT, max(oh // 10, 24)))
+    r = rbm.run_bounded([ffmpeg, "-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i",
+                         "color=c=white:s=%dx%d:r=1:d=1" % (ow, oh), "-vf", vf, "-frames:v", "1",
+                         "-f", "rawvideo", "-pix_fmt", "rgb24", dst], wall=30, stall=20,
+                        heartbeat="ffmpeg")
+    try:
+        with open(dst, "rb") as f:
+            rgb = f.read()
+    except OSError:
+        return False
+    if r["status"] != "ok" or r["tool_rc"] != 0 or len(rgb) != ow * oh * 3:
+        return False
+    readable = make_matcher([], True)
+    return any(readable(i.get("text", "")) for i in ocr(rgb, ow, oh))
+
+
+def resolve_ocr(args, sdir):
+    """--ocr, else demo.yaml tools.ocr (qa-ocr -> rapidocr, qa-ocr-tesseract -> tesseract,
+    none -> none, null -> rapidocr)."""
+    if getattr(args, "ocr", None):
+        return args.ocr
+    try:
+        import config
+        p = os.path.join(sdir, "demo.yaml")
+        cfg = config.load_config(p) if os.path.exists(p) else config.defaults()
+        return {"qa-ocr": "rapidocr", "qa-ocr-tesseract": "tesseract", "none": "none"}.get(
+            (cfg.get("tools") or {}).get("ocr"), "rapidocr")
+    except Exception:  # noqa: BLE001 - config problems are config.py validate's business
+        return "rapidocr"
+
+
+def reset_checks(path, aspect):
+    """Verify starts: nothing may stay `pass` while the new verdict is unknown (R-01). pass -> false,
+    this aspect's old verdict and results.blur are dropped."""
+    def tf(data):
+        ck = dict(data["checks"]) if isinstance(data.get("checks"), dict) else {}
+        ck["schema"] = 2
+        ck["pass"] = False
+        res = dict(ck["results"]) if isinstance(ck.get("results"), dict) else {}
+        res.pop("blur", None)
+        ck["results"] = res
+        bl = dict(ck["blur"]) if isinstance(ck.get("blur"), dict) else {}
+        bl.pop(aspect, None)
+        ck["blur"] = bl
+        return ck
+    project.write_checks(path, None, writer="blur.py", transform=tf)
+
+
+def store_verdict(path, aspect, entry):
+    """Write one aspect's verdict. `pass` stays false: only checks.py may set it true."""
+    def tf(data):
+        ck = dict(data["checks"]) if isinstance(data.get("checks"), dict) else {}
+        ck["schema"] = 2
+        ck["pass"] = False
+        res = dict(ck["results"]) if isinstance(ck.get("results"), dict) else {}
+        res.pop("blur", None)
+        ck["results"] = res
+        bl = dict(ck["blur"]) if isinstance(ck.get("blur"), dict) else {}
+        bl[aspect] = entry
+        ck["blur"] = bl
+        return ck
+    return project.write_checks(path, None, writer="blur.py", transform=tf)
+
+
+def video_fingerprint(video, sdir):
+    """{size, mtime_ns, ino[, sha256]} of the verified file + its path relative to the slug folder.
+    sha256 goes through project.py's cache (computed only when the triple changed), skipped > 512 MB."""
+    fp = project.stat_fingerprint(video)
+    if fp is None:
+        return None, None
+    rel = os.path.relpath(os.path.realpath(video), os.path.realpath(sdir))
+    inside = not rel.startswith("..") and not os.path.isabs(rel)
+    if inside and fp["size"] <= (512 << 20):
+        try:
+            fp = project.file_fingerprint(sdir, rel, with_sha=True)
+        except (project.CliError, OSError):
+            pass
+    return fp, (rel.replace(os.sep, "/") if inside else os.path.abspath(video))
+
+
+def verdict_inputs(data):
+    """Upstream versions a verdict is built on: stale as soon as any of them changes."""
+    return project.current_inputs(data, ("blur", "timeline", "events"))
+
+
+def load_regions(blur, clips):
+    """Planned regions; a clip with unmaskable[] no region covers is exit 2 (fail closed, R-04)."""
+    regions = _as_v2((blur.get("regions") if isinstance(blur, dict) else None) or [], clips)
+    unc = uncovered_unmaskable(regions, clips)
+    if unc:
+        raise BlurError(2, "needs-input: %d unmaskable surface(s) have no blur region (%s): run "
+                           "`blur.py plan` (capture-operator must emit bbox + t_start/t_end)"
+                        % (len(unc), "; ".join("%s#%d %s" % (u["scene"], u["index"], u["reason"])
+                                               for u in unc[:4])),
+                        [{"id": "unmaskable:%s#%d" % (u["scene"], u["index"]), "owner": "privacy-blurrer",
+                          "class": "needs-input"} for u in unc])
+    return regions
+
+
+def require_safe_timeline(data, clips):
+    bad = project.unsafe_scenes(data.get("timeline"), clips)
+    if bad:
+        raise BlurError(2, "timeline scene(s) start before the clip's verified-safe time: %s "
+                           "(sync-editor: `in` >= events.clips[sid].safe_from_ms)"
+                        % ", ".join("%s in=%s < safe_from_ms=%s" % (b["scene"], b["in"], b["safe_from_ms"])
+                                    for b in bad),
+                        [{"id": b["scene"], "owner": "sync-editor", "class": "needs-input"} for b in bad])
 
 
 def cmd_verify(args, ocr=None):
     path, data = load_ctx(args)
     sdir = slug_dir_of(path)
+    if os.path.exists(path) and not args.dry_run:
+        reset_checks(path, args.aspect)  # pass false + old verdict gone before anything can fail (R-01)
     if shutil.which(args.ffmpeg) is None:
         raise BlurError(4, "ffmpeg not found (setup_tools.py --plan capture)")
     clips = (data.get("events") or {}).get("clips") or {}
+    require_safe_timeline(data, clips)
     blur = data.get("blur") or {}
-    regions = _as_v2((blur.get("regions") if isinstance(blur, dict) else None) or [], clips)
+    regions = load_regions(blur, clips)
     priv = load_privacy(sdir)
     real = priv.get("data_mode", "real-redacted") != "seeded"
     cfg_patterns = list(priv.get("regexes", [])) + [re.escape(v) for v in priv.get("seed_values", [])]
@@ -1054,51 +1388,98 @@ def cmd_verify(args, ocr=None):
     tmap = TimeMap("final", clips, data.get("timeline")) if regions else None
     sw, sh = frame_size(clips, {s[2] if len(s) == 3 else r.get("scene") for r in regions
                                 for s in r["spans"]}) if regions else (info["w"], info["h"])
-    tr = ((blur.get("transforms") or {}).get(args.aspect) if isinstance(blur, dict) else None) \
-        or default_transform(args.aspect, (sw, sh), (info["w"], info["h"]))
+    tr = resolve_transform(blur, data.get("motion"), args.aspect, (sw, sh), (info["w"], info["h"])) \
+        if regions else default_transform(args.aspect, (sw, sh), (info["w"], info["h"]))
     rois = build_rois(regions, tmap, clips, tr, (info["w"], info["h"]), info["fps"], cfg_patterns) \
         if regions else []
     stride = args.fullframe_stride_s
-    fullframe = real
+    fullframe = True  # seeded too: seed_values are searched full-frame (S-05)
     if args.dry_run:
         sched = sample_schedule(rois, info["duration"], info["fps"], stride, fullframe)
         return {"status": "ok", "dry_run": True, "rois": len(rois), "frames": len(sched),
                 "ocr_calls": sum(len(e["rois"]) > 0 for e in sched.values()) +
                 sum(e["full"] for e in sched.values()), "budget_s": budget}, 0
-    tmp = tempfile.mkdtemp(prefix="blur-verify-")
-    own = None
+    fp0, vrel = video_fingerprint(args.video, sdir)
+    engine = resolve_ocr(args, sdir) if ocr is None else "injected"
     t0 = time.monotonic()
-    try:
-        if ocr is None:
-            own = OcrWorker(args.ocr, args.lang, budget + 10, tmp)
-            ocr = own
-        controls = positive_controls(rois, clips, sdir, ocr, budget, args.ffmpeg, tmp) if rois else None
-        key = hmac_key_for(sdir, create=args.hmac) if (args.hmac or os.path.exists(
-            os.path.join(sdir, ".secret", "key"))) else None
-        remaining = max(budget - (time.monotonic() - t0), 1.0)
-        res = run_verify(args.video, rois, ocr, info["duration"], info["fps"],
-                         (info["w"], info["h"]), budget_s=remaining, stride_s=stride,
-                         fullframe=fullframe, full_matcher=make_matcher(cfg_patterns, generic_ok=False)
-                         if cfg_patterns else make_matcher(BUILTIN_PATTERNS),
-                         controls=controls, hmac_key=key, ffmpeg=args.ffmpeg, tmpdir=tmp)
-        res["seconds"] = round(time.monotonic() - t0, 2)
-        res["budget_s"] = budget
-    finally:
-        if own:
-            own.close()
-        shutil.rmtree(tmp, ignore_errors=True)  # raw crops / frames never outlive the run
+    if engine == "none":  # no OCR tool: the aspect cannot be verified, that is not exit 4 (R-10)
+        res = {"verdict": "inconclusive", "sampled": 0, "total": 0, "seconds": 0.0,
+               "fullframe": {"sampled": 0, "stride_s": None}, "positive_control": {"ocr": False},
+               "hits": [], "incomplete_reason": None, "not_machine_readable": False,
+               "budget_s": budget, "note": "tools.ocr is none: no OCR, the verdict is inconclusive"}
+    else:
+        tmp = tempfile.mkdtemp(prefix="blur-verify-")
+        own = None
+        try:
+            if ocr is None:
+                own = OcrWorker(engine, args.lang, budget + 10, tmp)
+                ocr = own
+            controls = positive_controls(rois, clips, sdir, ocr, budget, args.ffmpeg, tmp) if rois else {}
+            full_ctrl = fullframe_control(ocr, (info["w"], info["h"]), args.ffmpeg, tmp)
+            key = hmac_key_for(sdir, create=args.hmac) if (args.hmac or os.path.exists(
+                os.path.join(sdir, ".secret", "key"))) else None
+            remaining = max(budget - (time.monotonic() - t0), 1.0)
+            res = run_verify(args.video, rois, ocr, info["duration"], info["fps"],
+                             (info["w"], info["h"]), budget_s=remaining, stride_s=stride,
+                             fullframe=fullframe, full_matcher=make_matcher(cfg_patterns, generic_ok=False)
+                             if cfg_patterns else make_matcher(BUILTIN_PATTERNS),
+                             controls=controls, hmac_key=key, ffmpeg=args.ffmpeg, tmpdir=tmp,
+                             full_control=full_ctrl)
+            res["seconds"] = round(time.monotonic() - t0, 2)
+            res["budget_s"] = budget
+        finally:
+            if own:
+                own.close()
+            shutil.rmtree(tmp, ignore_errors=True)  # raw crops / frames never outlive the run
+    fp1 = project.stat_fingerprint(args.video)
+    if fp0 is None or not project.same_fingerprint(fp0, fp1):
+        if res["verdict"] != "leak":  # a leak stays a leak; anything else on a moving file is no evidence
+            res["verdict"] = "incomplete"
+            res["incomplete_reason"] = "video-changed"
     code = {"pass": 0, "leak": EXIT["leak"], "inconclusive": EXIT["finding"],
             "incomplete": EXIT["incomplete"]}[res["verdict"]]
     failures = []
     if res["verdict"] in ("leak", "inconclusive"):
         failures = [{"id": h["region"], "owner": OWNER, "class": res["verdict"]} for h in res["hits"]] \
-            or [{"id": "positive_control", "owner": OWNER, "class": "inconclusive"}]
+            or [{"id": "ocr" if engine == "none" else "positive_control", "owner": OWNER,
+                 "class": "inconclusive"}]
     out = {"status": res["verdict"], "aspect": args.aspect, "failures": failures, **res}
     if os.path.exists(path):
-        entry = {"blur": {args.aspect: {k: res[k] for k in (
-            "verdict", "sampled", "total", "seconds", "fullframe", "positive_control", "hits")}}}
-        project.write_checks(path, entry, writer="blur.py", merge=True)
+        entry = {k: res[k] for k in ("verdict", "sampled", "total", "seconds", "fullframe",
+                                     "positive_control", "hits")}
+        entry.update({"file": fp0, "video": vrel, "inputs": verdict_inputs(data),
+                      "incomplete_reason": res.get("incomplete_reason")})
+        out["checks_version"] = store_verdict(path, args.aspect, entry)
     return out, code
+
+
+def cmd_set_transform(args):
+    """The render step records its source->output mapping for one aspect (R-05)."""
+    path, data = load_ctx(args)
+    if args.identity:
+        tr = {"scale": 1.0, "ox": 0.0, "oy": 0.0}
+    else:
+        if args.scale is None or args.ox is None or args.oy is None:
+            raise BlurError(2, "set-transform needs --scale --ox --oy (or --identity)")
+        tr = {"scale": args.scale, "ox": args.ox, "oy": args.oy}
+    if not _valid_tr(tr):
+        raise BlurError(2, "--scale must be > 0")
+    segs = []
+    for t0, t1, sc, ox, oy in args.segment or []:
+        g = {"t0": t0, "t1": t1, "scale": sc, "ox": ox, "oy": oy}
+        if t1 <= t0 or not _valid_tr(g):
+            raise BlurError(2, "bad --segment %s" % [t0, t1, sc, ox, oy])
+        segs.append(g)
+    if args.segment is not None or args.zoom_free:
+        tr["segments"] = segs
+    blur = dict(data.get("blur") or {})
+    tfs = dict(blur.get("transforms") or {})
+    tfs[args.aspect] = tr
+    blur["transforms"] = tfs
+    blur.setdefault("schema", 2)
+    blur.setdefault("regions", [])
+    ver = project.store_key(path, "blur", project.OWNERS["blur"], blur, args.timeout)
+    return {"status": "ok", "aspect": args.aspect, "transform": tr, "version": ver}, 0
 
 
 # =========================================================================== preview
@@ -1107,16 +1488,21 @@ def cmd_preview(args, ocr=None):
     sdir = slug_dir_of(path)
     clips = (data.get("events") or {}).get("clips") or {}
     blur = data.get("blur") or {}
-    regions = _as_v2((blur.get("regions") if isinstance(blur, dict) else None) or [], clips)
+    regions = load_regions(blur, clips)
     priv = load_privacy(sdir)
     pats = list(priv.get("regexes", [])) + [re.escape(v) for v in priv.get("seed_values", [])]
     if args.dry_run:
         return {"status": "ok", "dry_run": True, "regions": len(regions)}, 0
+    engine = resolve_ocr(args, sdir) if ocr is None else "injected"
+    if engine == "none":
+        return {"status": "inconclusive", "positive_control": {"ocr": False}, "contact_sheets": {},
+                "failures": [{"id": "ocr", "owner": OWNER, "class": "inconclusive"}],
+                "note": "tools.ocr is none: the positive control cannot run"}, EXIT["finding"]
     tmp = tempfile.mkdtemp(prefix="blur-preview-")
     own = None
     try:
         if ocr is None:
-            own = OcrWorker(args.ocr, args.lang, 120, tmp)
+            own = OcrWorker(engine, args.lang, 120, tmp)
             ocr = own
         rois = []
         for reg in regions:
@@ -1164,6 +1550,10 @@ def contact_sheets(regions, clips, sdir, ffmpeg):
 
 # =========================================================================== CLI
 class Parser(argparse.ArgumentParser):
+    def __init__(self, *a, **k):
+        k.setdefault("allow_abbrev", False)  # `--rege=` must not dodge argv redaction (S-12)
+        super().__init__(*a, **k)
+
     def error(self, message):
         self.print_usage(sys.stderr)
         sys.stderr.write("error: %s\n" % message)
@@ -1195,7 +1585,9 @@ def build_parser():
     for name in ("preview", "verify"):
         v = sub.add_parser(name, parents=[c])
         v.add_argument("--dry-run", action="store_true", dest="dry_run")
-        v.add_argument("--ocr", default="rapidocr", help="rapidocr | python:<module>:<factory>")
+        v.add_argument("--ocr", default=None,
+                       help="rapidocr | tesseract | none | python:<module>:<factory> "
+                            "(default: demo.yaml tools.ocr, else rapidocr)")
         v.add_argument("--lang", default="en")
         v.add_argument("--ffmpeg", default="ffmpeg")
         v.add_argument("--ffprobe", default="ffprobe")
@@ -1207,6 +1599,17 @@ def build_parser():
             v.add_argument("--pattern", action="append", help="extra sensitive regex (repeatable)")
             v.add_argument("--hmac", action="store_true",
                            help="store an HMAC of each hit (key in .demo/<slug>/.secret/key)")
+    t = sub.add_parser("set-transform", parents=[c])
+    t.add_argument("--aspect", required=True)
+    t.add_argument("--scale", type=float)
+    t.add_argument("--ox", type=float)
+    t.add_argument("--oy", type=float)
+    t.add_argument("--identity", action="store_true")
+    t.add_argument("--segment", nargs=5, type=float, action="append",
+                   metavar=("T0", "T1", "SCALE", "OX", "OY"),
+                   help="final-timeline window (s) with its own mapping (zoom/pan); repeatable")
+    t.add_argument("--zoom-free", action="store_true", dest="zoom_free",
+                   help="declare that no zoom/pan window applies (empty segments list)")
     w = sub.add_parser("ocr-worker")
     w.add_argument("--engine", required=True)
     w.add_argument("--lang", default="en")
@@ -1224,7 +1627,8 @@ def main(argv=None, ocr=None):
     if args.cmd == "ocr-worker":
         return cmd_ocr_worker(args)
     t0 = time.monotonic()
-    handlers = {"plan": cmd_plan, "graph": cmd_graph, "preview": cmd_preview, "verify": cmd_verify}
+    handlers = {"plan": cmd_plan, "graph": cmd_graph, "preview": cmd_preview, "verify": cmd_verify,
+                "set-transform": cmd_set_transform}
     try:
         if args.cmd in ("preview", "verify"):
             res, code = handlers[args.cmd](args, ocr)
@@ -1241,7 +1645,8 @@ def main(argv=None, ocr=None):
         path = project.project_path(type("A", (), {"project": getattr(args, "project", None),
                                                     "slug": getattr(args, "slug", None)})())
         priv = load_privacy(os.path.dirname(path))
-        secrets = list(priv.get("regexes", [])) + list(priv.get("seed_values", []))
+        secrets = list(priv.get("regexes", [])) + list(priv.get("seed_values", [])) \
+            + list(getattr(args, "pattern", None) or [])
         if os.path.isdir(os.path.dirname(path)):
             rbm.append_run(os.path.dirname(path), "blur.py", argv if argv is not None else sys.argv[1:],
                            res, secrets)

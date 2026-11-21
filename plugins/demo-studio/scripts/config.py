@@ -280,7 +280,44 @@ def cross_check(cfg):
             re.compile(rx)
         except re.error as e:
             errs.append("privacy.regexes[%d]: not a valid regular expression (%s)" % (i, e))
+            continue
+        why = regex_dialect_problem(rx)
+        if why:
+            errs.append("privacy.regexes[%d]: %s" % (i, why))
     return errs
+
+
+# The same regex is applied by Python (blur.py verify) and by JavaScript (the capture-time mask), so it
+# must mean the same in both [R-08]: a Python-only construct is refused, then node (when installed)
+# compiles it as a JS RegExp.
+_PY_ONLY = [
+    (re.compile(r"\(\?P[<=>]"), "Python named group (?P...): use (?<name>...) or no name"),
+    (re.compile(r"\(\?[aiLmsux]+(?:-[imsx]+)?\)"), "inline flags like (?i): not portable, write the pattern case-explicit"),
+    (re.compile(r"\(\?#"), "comment group (?#...) is Python only"),
+    (re.compile(r"\(\?>"), "atomic group (?>...) is not in JavaScript"),
+    (re.compile(r"(?<!\\)(?:[*+?]|\})\+"), "possessive quantifier is not in JavaScript"),
+    (re.compile(r"\\[AZ]"), "\\A / \\Z anchors are Python only: use ^ / $"),
+    (re.compile(r"\(\?\("), "conditional group is Python only"),
+]
+_NODE_OK = {}
+
+
+def regex_dialect_problem(rx):
+    for pat, why in _PY_ONLY:
+        if pat.search(rx):
+            return "not portable between Python and JavaScript: " + why
+    node = shutil.which("node")
+    if not node:
+        return None
+    if rx not in _NODE_OK:
+        import subprocess
+        try:
+            r = subprocess.run([node, "-e", "new RegExp(process.argv[1], 'g')", rx], capture_output=True,
+                               timeout=10)
+            _NODE_OK[rx] = None if r.returncode == 0 else "not a valid JavaScript RegExp (the capture-time mask would fail)"
+        except (OSError, subprocess.SubprocessError):
+            _NODE_OK[rx] = None
+    return _NODE_OK[rx]
 
 
 def merge(base, over):

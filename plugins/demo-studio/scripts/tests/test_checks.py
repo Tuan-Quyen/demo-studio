@@ -47,11 +47,16 @@ class Env:
     def put(self, key, value):
         project.store_key(self.pj, key, project.OWNERS[key], value, 5)
 
-    def blur(self, aspect, verdict="pass", ctrl=None, hits=()):
-        project.write_checks(self.pj, {"blur": {aspect: {
-            "verdict": verdict, "sampled": 3, "total": 3, "seconds": 1.0, "fullframe": {},
-            "positive_control": ctrl if ctrl is not None else {"r1": True}, "hits": list(hits)}}},
-            writer="blur.py", merge=True)
+    def blur(self, aspect, verdict="pass", ctrl=None, hits=(), bind=True):
+        """A verdict as blur.py verify stores it: bound to the current final file and input versions."""
+        entry = {"verdict": verdict, "sampled": 3, "total": 3, "seconds": 1.0,
+                 "fullframe": {"sampled": 1}, "positive_control": ctrl if ctrl is not None else {"r1": True},
+                 "hits": list(hits)}
+        if bind:
+            f = os.path.join(self.sdir, "media", "final-%s.mp4" % aspect)
+            entry.update(file=project.stat_fingerprint(f), video="media/final-%s.mp4" % aspect,
+                         inputs=project.current_inputs(self.stored(), ("blur", "timeline", "events")))
+        project.write_checks(self.pj, {"blur": {aspect: entry}}, writer="blur.py", merge=True)
 
     def run(self, *extra):
         out = io.StringIO()
@@ -149,7 +154,9 @@ class ChecksTests(unittest.TestCase):
         self.assertAlmostEqual(h["t_start"], 2.0, delta=0.2)
         e.put("motion", {"allow": {"black": [[1900, 3100]], "freeze": []}})
         code, res = e.run("--only", "black")
-        self.assertEqual(code, 0, res)
+        self.assertTrue(res["results"]["black"]["pass"])
+        self.assertEqual(code, 3, res)  # a subset can never be a pass (R-03)
+        self.assertFalse(res["pass"])
 
     def test_freeze_found(self):
         e = self.good(freeze=True)
@@ -203,6 +210,119 @@ class ChecksTests(unittest.TestCase):
         code, res = e.run("--dry-run")
         self.assertEqual((code, res["ffmpeg_passes"]), (0, 1))
         self.assertNotIn("checks", e.stored())
+
+
+@need_ffmpeg
+class StalenessTests(unittest.TestCase):
+    """R-01/R-02/R-03/R-13/S-04/S-06/S-15: `pass` is recomputed from live evidence, never inherited."""
+
+    def good(self):
+        e = Env(self)
+        synth(os.path.join(e.sdir, "media", "final-16x9.mp4"))
+        with open(os.path.join(e.sdir, "media", "final.vtt"), "w") as f:
+            f.write("WEBVTT\n\n00:00:00.300 --> 00:00:02.900\nCreate an invoice\n")
+        e.blur("16x9")
+        return e
+
+    def test_only_subset_never_carries_an_old_pass(self):
+        e = self.good()
+        code, res = e.run()
+        self.assertEqual(code, 0, res)
+        self.assertTrue(e.stored()["checks"]["pass"])
+        code, res = e.run("--only", "black")      # subset: exit 3, not pass, old results dropped
+        self.assertEqual(code, 3, res)
+        ck = e.stored()["checks"]
+        self.assertFalse(ck["pass"])
+        self.assertEqual(sorted(ck["results"]), ["black"])
+        self.assertIn("blur", res["missing_checks"])
+        self.assertEqual(ck["blur"]["16x9"]["verdict"], "pass")  # blur.py's verdict is kept
+
+    def test_only_blur_is_exit_3_not_0(self):
+        e = self.good()
+        code, res = e.run("--only", "blur")
+        self.assertEqual((code, res["status"], res["pass"]), (3, "incomplete", False))
+
+    def test_leak_verdict_written_after_a_pass_makes_the_next_run_fail(self):
+        e = self.good()
+        self.assertEqual(e.run()[0], 0)
+        e.blur("16x9", verdict="leak", hits=[{"region": "r1", "t_ms": 1, "match_len": 5}])
+        code, res = e.run("--only", "black")
+        self.assertFalse(e.stored()["checks"]["pass"])
+        code, res = e.run()
+        self.assertEqual(code, 11)
+        self.assertFalse(e.stored()["checks"]["pass"])
+
+    def test_rerender_after_verify_is_incomplete(self):
+        e = self.good()
+        self.assertEqual(e.run()[0], 0)
+        synth(os.path.join(e.sdir, "media", "final-16x9.mp4"), dur=6)   # new file, same name
+        code, res = e.run()
+        self.assertEqual(code, 3, res)
+        self.assertEqual(res["results"]["blur"]["verdict"], "incomplete")
+        self.assertIn("not bound", res["results"]["blur"]["detail"])
+        self.assertFalse(e.stored()["checks"]["pass"])
+
+    def test_verdict_without_fingerprint_is_incomplete(self):
+        e = Env(self)
+        synth(os.path.join(e.sdir, "media", "final-16x9.mp4"))
+        e.blur("16x9", bind=False)
+        code, res = e.run("--only", "blur")
+        self.assertEqual(res["results"]["blur"]["verdict"], "incomplete")
+
+    def test_stale_upstream_key_makes_the_verdict_incomplete(self):
+        e = self.good()
+        self.assertEqual(e.run()[0], 0)
+        e.put("blur", {"regions": []})          # #blur changed after verify
+        code, res = e.run()
+        self.assertEqual(code, 3, res)
+        self.assertIn("#blur changed", res["results"]["blur"]["detail"])
+
+    def test_timeline_scene_before_safe_from_ms_is_rejected(self):
+        e = self.good()
+        e.put("events", {"clips": {"s01": {"masked": True, "safe_from_ms": 900,
+                                           "mask": {"rects_checked": 3, "frames_unmasked": 0}}}})
+        e.blur("16x9")
+        e.put("timeline", {"scenes": [{"id": "s01", "in": 400, "out": 6000, "speed": 1.0,
+                                       "start": 0, "end": 6000}]})
+        e.blur("16x9")
+        code, res = e.run()
+        self.assertEqual(code, 10, res)
+        self.assertEqual(res["results"]["safe_start"]["owner"], "sync-editor")
+        self.assertFalse(res["results"]["safe_start"]["pass"])
+
+    def test_clip_not_captured_needs_blur_coverage(self):
+        e = self.good()
+        e.put("events", {"clips": {"s01": {"masked": False, "mask": {"rects_checked": 0}}}})
+        e.blur("16x9")
+        code, res = e.run()
+        self.assertEqual(code, 3, res)
+        self.assertEqual(res["privacy_capture"]["uncaptured"], ["s01"])
+        self.assertEqual(res["failures"][-1]["owner"], "privacy-blurrer")
+        # blur style and rect_checks==0 count as not captured even when masked is true
+        e.put("events", {"clips": {"s01": {"masked": True, "mask": {"rects_checked": 0}}}})
+        e.blur("16x9")
+        self.assertEqual(e.run()[1]["privacy_capture"]["uncaptured"], ["s01"])
+        e.put("events", {"clips": {"s01": {"masked": True, "mask": {"rects_checked": 4, "style": "blur"}}}})
+        e.blur("16x9")
+        self.assertEqual(e.run()[1]["privacy_capture"]["uncaptured"], ["s01"])
+        # a blur region for the scene is the coverage
+        e.put("blur", {"regions": [{"id": "b1", "scene": "s01", "bbox": [1, 1, 50, 20],
+                                    "spans": [[0, 1000]], "mode": "static", "style": "opaque", "pad": 4}]})
+        e.blur("16x9")
+        code, res = e.run()
+        self.assertEqual(code, 0, res)
+
+    def test_unmaskable_without_region_is_incomplete(self):
+        e = self.good()
+        e.put("events", {"clips": {"s01": {"masked": True, "offset_ms": 0, "mask": {"rects_checked": 3},
+                                           "unmaskable": [{"surface": "canvas", "reason": "canvas",
+                                                           "bbox": [10, 10, 80, 30], "t_start": 0,
+                                                           "t_end": 2000}]}}})
+        e.blur("16x9")
+        code, res = e.run()
+        self.assertEqual(code, 3, res)
+        self.assertIn("unmaskable", res["results"]["blur"]["detail"])
+        self.assertEqual(res["results"]["blur"]["owner"], "privacy-blurrer")
 
 
 class PureTests(unittest.TestCase):

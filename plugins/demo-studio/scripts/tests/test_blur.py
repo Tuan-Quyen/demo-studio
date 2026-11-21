@@ -33,6 +33,21 @@ def legacy(i, scene, bbox=(100, 90, 300, 50), t=(0, 3000), **kw):
     return r
 
 
+band_ocr_ref = fake_ocr.band_ocr
+
+
+def no_fullframe_text(rgb, w, h):
+    """An OCR blind on full frames (640x360) that still reads ROI crops."""
+    return [] if (w, h) == (640, 360) else band_ocr_ref(rgb, w, h)
+
+
+def um(**kw):
+    u = {"surface": "canvas", "selector": "canvas#c", "reason": "canvas", "t_start": 500,
+         "t_end": 2500, "bbox": [200, 120, 120, 60]}
+    u.update(kw)
+    return u
+
+
 class PlanTests(unittest.TestCase):
     def test_duplicate_static_regions_merge_into_one_with_many_spans(self):
         regs = [legacy(i, "s%02d" % i) for i in range(1, 11)]
@@ -111,6 +126,44 @@ class PlanTests(unittest.TestCase):
             out, rep = blur.plan_regions(regs, clips)
             self.assertEqual(len(out), 2)
             self.assertEqual(rep["dropped"], [])
+
+    def test_capture_mask_drop_needs_every_spanned_scene_masked(self):  # R-12
+        r = legacy(1, "s01", source="capture-mask")
+        r2 = dict(legacy(2, "s02", source="capture-mask"))
+        merged = dict(r, spans=[[0, 3000, "s01"], [0, 3000, "s02"]], scene=None)
+        out, rep = blur.plan_regions([merged], {"s01": {"masked": True}, "s02": {"masked": False}})
+        self.assertEqual((len(out), rep["dropped"]), (1, []))
+        out, rep = blur.plan_regions([merged], {"s01": {"masked": True}, "s02": {"masked": True}})
+        self.assertEqual((len(out), rep["dropped"]), (0, ["b1"]))
+
+    def test_unmaskable_becomes_opaque_padded_region_in_scene_time(self):  # R-04
+        clips = {"s01": {"masked": True, "offset_ms": 300, "w": 640, "h": 360, "unmaskable": [um()]}}
+        out, rep = blur.plan_regions([], clips)
+        self.assertEqual(rep["unmaskable_regions"], 1)
+        r = out[0]
+        self.assertEqual((r["style"], r["source"], r["scene"], r["bbox"]), ("opaque", "unmaskable", "s01",
+                                                                         [200, 120, 120, 60]))
+        self.assertEqual(r["spans"], [[200, 2200]])           # clip ms minus offset_ms
+        self.assertGreater(r["pad"], 0)
+        self.assertEqual(blur.uncovered_unmaskable(out, clips), [])
+        out2, rep2 = blur.plan_regions(out, clips)            # idempotent: already covered
+        self.assertEqual((len(out2), rep2["unmaskable_regions"]), (1, 0))
+
+    def test_unmaskable_without_bbox_or_time_is_exit_2(self):
+        for bad in (um(bbox=None), um(t_start=None), {"surface": "iframe", "attr": "src", "tag": "iframe",
+                                                       "selector": "iframe"}):
+            with self.assertRaises(blur.BlurError) as cm:
+                blur.plan_regions([], {"s01": {"unmaskable": [bad]}})
+            self.assertEqual(cm.exception.code, 2)
+            self.assertEqual(cm.exception.failures[0]["owner"], "capture-operator")
+
+    def test_uncovered_unmaskable_detects_missing_and_too_small_regions(self):
+        clips = {"s01": {"offset_ms": 0, "unmaskable": [um()]}}
+        self.assertEqual(len(blur.uncovered_unmaskable([], clips)), 1)
+        small = blur.plan_regions([legacy(1, "s01", bbox=(200, 120, 20, 20), t=(500, 2500))])[0]
+        self.assertEqual(len(blur.uncovered_unmaskable(small, clips)), 1)
+        short = blur.plan_regions([legacy(1, "s01", bbox=(200, 120, 120, 60), t=(500, 900))])[0]
+        self.assertEqual(len(blur.uncovered_unmaskable(short, clips)), 1)
 
     def test_needs_input_exit_2(self):
         with self.assertRaises(blur.BlurError) as cm:
@@ -355,7 +408,7 @@ class VerifyTests(Workspace):
     def test_blurred_output_passes_and_records_checks(self):
         code, res = self.verify(self.blurred)
         self.assertEqual((code, res["verdict"]), (0, "pass"), res)
-        self.assertEqual(res["positive_control"], {"b1": True})
+        self.assertEqual(res["positive_control"], {"b1": True, "fullframe": True})
         self.assertGreater(res["fullframe"]["sampled"], 0)
         self.assertEqual(res["sampled"], res["total"])
         self.assertEqual(self.checks()["blur"]["16x9"]["verdict"], "pass")
@@ -374,7 +427,7 @@ class VerifyTests(Workspace):
         self.make_raw(text=False)   # raw has no readable text: the OCR "cannot read it" there
         code, res = self.verify(self.blurred)
         self.assertEqual((code, res["verdict"]), (10, "inconclusive"))
-        self.assertEqual(res["positive_control"], {"b1": False})
+        self.assertEqual(res["positive_control"], {"b1": False, "fullframe": True})
         self.assertEqual(self.checks()["blur"]["16x9"]["verdict"], "inconclusive")
 
     def test_missing_raw_clip_means_no_control_inconclusive(self):
@@ -391,6 +444,11 @@ class VerifyTests(Workspace):
         self.assertLess(res["sampled"], res["total"])
         self.assertEqual(self.checks()["blur"]["16x9"]["verdict"], "incomplete")
 
+    def test_budget_is_checked_before_every_positive_control_ocr_call(self):
+        code, res = self.verify(self.blurred, ocr=fake_ocr.slow_band_ocr(0.2), extra=["--budget-s", "0.01"])
+        self.assertEqual(code, 3, res)
+        self.assertIs(self.checks()["pass"] if "pass" in self.checks() else False, False)
+
     def test_one_decode_per_output_and_one_per_raw_clip(self):
         real = rb.Bounded
         launched = []
@@ -403,7 +461,8 @@ class VerifyTests(Workspace):
         with mock.patch.object(rb, "Bounded", Spy):
             code, res = self.verify(self.blurred)
         self.assertEqual(code, 0, res)
-        self.assertEqual(launched.count("ffmpeg"), 2)   # 1 raw (positive control) + 1 output
+        # 1 raw (positive control) + 1 output + 1 render of the full-frame control frame
+        self.assertEqual(launched.count("ffmpeg"), 3)
 
     def test_two_outputs_two_aspect_entries(self):
         self.verify(self.blurred)
@@ -428,12 +487,14 @@ class VerifyTests(Workspace):
         self.assertGreater(res["frames"], 0)
         self.assertNotIn("checks", json.load(open(self.pj)))
 
-    def test_seeded_without_regions_passes_fast_with_zero_sampling(self):
+    def test_seeded_without_regions_runs_the_fullframe_pass(self):
         self.write_project([])
         with open(os.path.join(self.sdir, "demo.yaml"), "w") as f:
             f.write('privacy:\n  data_mode: seeded\n  seed_confirmation: "yes"\n')
         code, res = self.verify(self.blurred)
-        self.assertEqual((code, res["verdict"], res["total"]), (0, "pass", 0))
+        self.assertEqual((code, res["verdict"]), (0, "pass"), res)
+        self.assertGreater(res["total"], 0)               # never "pass" on zero samples (S-05, R-11)
+        self.assertGreater(res["fullframe"]["sampled"], 0)
 
     def test_runs_jsonl_redacts_regex_literals(self):
         with open(os.path.join(self.sdir, "demo.yaml"), "w") as f:
@@ -441,6 +502,248 @@ class VerifyTests(Workspace):
         self.verify(self.blurred, extra=["--pattern", "zzz"])
         argv = json.loads(open(os.path.join(self.sdir, "runs.jsonl")).read().splitlines()[-1])["argv"]
         self.assertNotIn("demo@example[.]com", " ".join(argv))
+
+
+@need_ffmpeg
+class VerdictLifecycleTests(Workspace):
+    """R-01/R-02/R-05/S-04/S-05/S-11/S-12/S-14 on a real clip with the fake OCR."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_raw()
+        self.write_project([self.region()])
+        self.blurred = os.path.join(self.root, "blurred.mp4")
+        self.render_with_graph(self.blurred)
+
+    def project_with(self, **extra):
+        d = json.load(open(self.pj))
+        d.update(extra)
+        json.dump(d, open(self.pj, "w"))
+
+    def verify(self, video=None, ocr=fake_ocr.band_ocr, extra=(), aspect="16x9"):
+        return self.cli(["--slug", "vid", "verify", "--video", video or self.blurred, "--aspect", aspect,
+                         *extra], ocr=ocr)
+
+    def checks(self):
+        return json.load(open(self.pj)).get("checks", {})
+
+    def test_verify_resets_pass_and_drops_stale_blur_results(self):
+        old = {"schema": 2, "pass": True, "results": {"blur": {"pass": True}, "black": {"pass": True}},
+               "blur": {"16x9": {"verdict": "pass"}, "1x1": {"verdict": "pass"}}}
+        self.project_with(checks=old)
+        code, res = self.verify(os.path.join(self.sdir, "media", "s01.raw.mp4"))   # leak
+        self.assertEqual(code, 11)
+        ck = self.checks()
+        self.assertIs(ck["pass"], False)
+        self.assertNotIn("blur", ck["results"])
+        self.assertEqual(ck["results"]["black"], {"pass": True})    # other checks' results stay for reference
+        self.assertEqual(ck["blur"]["16x9"]["verdict"], "leak")
+        self.assertEqual(ck["blur"]["1x1"]["verdict"], "pass")      # another aspect is untouched
+
+    def test_verify_never_sets_pass_true(self):
+        self.project_with(checks={"schema": 2, "pass": True})
+        code, res = self.verify()
+        self.assertEqual(code, 0, res)
+        self.assertIs(self.checks()["pass"], False)
+
+    def test_crashed_verify_leaves_pass_false(self):
+        self.project_with(checks={"schema": 2, "pass": True, "blur": {"16x9": {"verdict": "pass"}}})
+        with self.assertRaises(RuntimeError):     # guard_main turns this into exit 70 on the CLI
+            self.verify(ocr=fake_ocr.hang_now)
+        self.assertIs(self.checks()["pass"], False)
+        self.assertNotIn("16x9", self.checks()["blur"])
+
+    def test_verdict_binds_the_verified_file_and_input_versions(self):
+        project.store_key(self.pj, "blur", "privacy-blurrer", json.load(open(self.pj))["blur"], 5)
+        final = os.path.join(self.sdir, "media", "final-16x9.mp4")
+        shutil.copyfile(self.blurred, final)
+        code, res = self.verify(final)
+        self.assertEqual(code, 0, res)
+        e = self.checks()["blur"]["16x9"]
+        self.assertEqual(e["video"], "media/final-16x9.mp4")
+        st = os.stat(final)
+        self.assertEqual((e["file"]["size"], e["file"]["mtime_ns"], e["file"]["ino"]),
+                         (st.st_size, st.st_mtime_ns, st.st_ino))
+        self.assertEqual(len(e["file"]["sha256"]), 64)      # inside the slug folder: hashed via the cache
+        self.assertIn("media/final-16x9.mp4", json.load(open(os.path.join(self.sdir, "cache", "hashes.json"))))
+        self.assertEqual(e["inputs"], {"blur": 1})
+
+    def test_unmaskable_not_in_plan_is_exit_2_for_graph_and_verify(self):
+        d = json.load(open(self.pj))
+        d["events"]["clips"]["s01"]["unmaskable"] = [um()]
+        json.dump(d, open(self.pj, "w"))
+        code, res = self.cli(["--slug", "vid", "graph", "--space", "final"])
+        self.assertEqual(code, 2)
+        self.assertIn("unmaskable", res["error"])
+        code, res = self.verify()
+        self.assertEqual(code, 2)
+        self.assertIs(self.checks()["pass"], False)
+        code, res = self.cli(["--slug", "vid", "plan"])            # plan adds the region ...
+        self.assertEqual((code, res["unmaskable_regions"]), (0, 1))
+        code, res = self.cli(["--slug", "vid", "graph", "--space", "final"])   # ... and graph accepts it
+        self.assertEqual(code, 0, res)
+        self.assertIn("drawbox", res["filter_complex"])
+
+    def test_timeline_scene_before_safe_from_ms_is_exit_2(self):
+        d = json.load(open(self.pj))
+        d["events"]["clips"]["s01"]["safe_from_ms"] = 800
+        d["timeline"]["scenes"][0]["in"] = 200
+        json.dump(d, open(self.pj, "w"))
+        code, res = self.cli(["--slug", "vid", "graph", "--space", "final"])
+        self.assertEqual(code, 2)
+        self.assertEqual(res["failures"][0]["owner"], "sync-editor")
+        self.assertEqual(self.verify()[0], 2)
+
+    def test_non_identity_aspect_needs_transforms(self):
+        sq = os.path.join(self.root, "sq.mp4")
+        self.ff("-i", self.blurred, "-vf", "scale=360:360", "-c:v", "libx264", "-pix_fmt", "yuv420p", sq)
+        code, res = self.verify(sq, aspect="1x1")
+        self.assertEqual(code, 2)
+        self.assertEqual(res["failures"][0], {"id": "transforms.1x1", "owner": "render-engineer",
+                                             "class": "needs-input"})
+        self.assertNotIn("1x1", self.checks().get("blur", {}))
+        code, res = self.cli(["--slug", "vid", "set-transform", "--aspect", "1x1", "--scale", "1",
+                              "--ox", "-140", "--oy", "0"])
+        self.assertEqual(code, 0, res)
+        self.assertEqual(json.load(open(self.pj))["blur"]["transforms"]["1x1"]["ox"], -140)
+        code, res = self.verify(sq, aspect="1x1", ocr=fake_ocr.band_ocr)
+        self.assertNotEqual(code, 2, res)          # mapped now (the fake OCR decides leak/pass)
+
+    def test_motion_zoom_needs_transform_with_segments(self):
+        self.project_with(motion={"effects": [{"scene": "s01", "type": "zoom", "t_start": 500,
+                                               "t_end": 1500, "params": {"scale": 1.6}}]})
+        code, res = self.verify()
+        self.assertEqual(code, 2)
+        self.assertIn("transforms", res["error"])
+        self.assertEqual(self.cli(["--slug", "vid", "set-transform", "--aspect", "16x9", "--identity"])[0], 0)
+        code, res = self.verify()
+        self.assertEqual(code, 2)
+        self.assertIn("segments", res["error"])
+        self.assertEqual(self.cli(["--slug", "vid", "set-transform", "--aspect", "16x9", "--identity",
+                                   "--segment", "0.5", "1.5", "1.6", "-100", "-60"])[0], 0)
+        code, res = self.verify()
+        self.assertNotEqual(code, 2, res)
+        # an effect limited to another aspect does not require it
+        self.project_with(motion={"effects": [{"type": "zoom", "params": {"aspects": ["9x16"]}}]})
+        d = json.load(open(self.pj))
+        d["blur"].pop("transforms")
+        json.dump(d, open(self.pj, "w"))
+        self.assertEqual(self.verify()[0], 0)
+
+    def test_segments_split_rois_by_mapping_window(self):
+        tr = {"scale": 1.0, "ox": 0.0, "oy": 0.0,
+              "segments": [{"t0": 1.0, "t1": 2.0, "scale": 2.0, "ox": -100.0, "oy": -50.0}]}
+        pieces = blur.tr_pieces(tr, [(0.0, 4.0)])
+        self.assertEqual([(p[0]["scale"], p[1]) for p in pieces], [(2.0, [(1.0, 2.0)]),
+                                                                    (1.0, [(0.0, 1.0), (2.0, 4.0)])])
+        clips = {"s01": dict(CLIPS["s01"])}
+        tl = {"scenes": [{"id": "s01", "in": 0, "out": 4000, "speed": 1.0, "start": 0, "end": 4000}]}
+        reg = blur._as_v2([self.region()], clips)
+        rois = blur.build_rois(reg, blur.TimeMap("final", clips, tl), clips, tr, (640, 360), 25, [])
+        self.assertEqual(len(rois), 2)
+        boxes = {roi["bbox"][0] for roi in rois}
+        self.assertEqual(len(boxes), 2)                       # same region, two different output boxes
+
+    def test_seeded_values_are_searched_full_frame(self):
+        self.write_project([])
+        with open(os.path.join(self.sdir, "demo.yaml"), "w") as f:
+            f.write('privacy:\n  data_mode: seeded\n  seed_confirmation: "yes"\n'
+                    '  seed_values: ["demo@example.com"]\n')
+        code, res = self.verify(os.path.join(self.sdir, "media", "s01.raw.mp4"))
+        self.assertEqual((code, res["verdict"]), (11, "leak"))
+        self.assertEqual(res["hits"][0]["region"], "fullframe")
+
+    def test_zero_samples_is_incomplete_never_pass(self):
+        r = blur.run_verify(self.blurred, [], fake_ocr.band_ocr, 4.0, 25.0, (640, 360), budget_s=30,
+                            stride_s=2.0, fullframe=False, full_matcher=blur.make_matcher([r"x"]),
+                            controls={})
+        self.assertEqual((r["verdict"], r["incomplete_reason"]), ("incomplete", "no-samples"))
+
+    def test_blind_fullframe_ocr_is_inconclusive(self):
+        code, res = self.verify(ocr=no_fullframe_text)
+        self.assertEqual((code, res["verdict"]), (10, "inconclusive"))
+        self.assertEqual(res["positive_control"], {"b1": True, "fullframe": False})
+
+    def test_tools_ocr_none_is_inconclusive_not_exit_4(self):
+        with open(os.path.join(self.sdir, "demo.yaml"), "w") as f:
+            f.write("tools:\n  ocr: none\n")
+        code, res = self.cli(["--slug", "vid", "verify", "--video", self.blurred, "--aspect", "16x9"])
+        self.assertEqual((code, res["verdict"]), (10, "inconclusive"))
+        self.assertEqual(self.checks()["blur"]["16x9"]["verdict"], "inconclusive")
+        self.assertEqual(res["failures"][0]["id"], "ocr")
+
+    def test_tools_ocr_maps_to_engine(self):
+        a = type("A", (), {"ocr": None})()
+        for val, want in (("qa-ocr", "rapidocr"), ("qa-ocr-tesseract", "tesseract"), ("none", "none"),
+                          ("null", "rapidocr")):
+            with open(os.path.join(self.sdir, "demo.yaml"), "w") as f:
+                f.write("tools:\n  ocr: %s\n" % val)
+            self.assertEqual(blur.resolve_ocr(a, self.sdir), want)
+        a.ocr = "python:m:f"
+        self.assertEqual(blur.resolve_ocr(a, self.sdir), "python:m:f")
+
+    def test_hmac_key_is_created_0600_in_a_0700_dir(self):
+        blur.hmac_key_for(self.sdir, create=True)
+        key = os.path.join(self.sdir, ".secret", "key")
+        if os.name == "posix":
+            self.assertEqual(os.stat(key).st_mode & 0o777, 0o600)
+            self.assertEqual(os.stat(os.path.dirname(key)).st_mode & 0o777, 0o700)
+        self.assertEqual(blur.hmac_key_for(self.sdir), open(key, "rb").read())
+
+    def test_runs_jsonl_redacts_pattern_literals_and_abbreviations(self):
+        with open(os.path.join(self.sdir, "demo.yaml"), "w") as f:
+            f.write('privacy:\n  seed_values: ["Acme Seed Corp"]\n')
+        self.verify(extra=["--pattern", "zz-literal-99"])
+        line = open(os.path.join(self.sdir, "runs.jsonl")).read().splitlines()[-1]
+        self.assertNotIn("zz-literal-99", line)
+        with self.assertRaises(SystemExit):               # no abbreviations: `--pat` is refused
+            blur.build_parser().parse_args(["--slug", "vid", "verify", "--video", "x", "--aspect", "a",
+                                            "--pat", "secret-lit"])
+
+
+def _ocr_python():
+    """An interpreter with rapidocr: this one, or $DEMO_STUDIO_OCR_PYTHON (a toolkit venv)."""
+    import importlib.util
+    if importlib.util.find_spec("rapidocr") and importlib.util.find_spec("onnxruntime"):
+        return sys.executable
+    cand = os.environ.get("DEMO_STUDIO_OCR_PYTHON")
+    if cand and os.path.exists(cand):
+        r = subprocess.run([cand, "-c", "import rapidocr, onnxruntime"], capture_output=True)
+        return cand if r.returncode == 0 else None
+    return None
+
+
+@need_ffmpeg
+@unittest.skipUnless(_ocr_python(), "real OCR integration needs rapidocr+onnxruntime in this interpreter "
+                                    "or in $DEMO_STUDIO_OCR_PYTHON (not installed)")
+class RealOcrVerifyTests(Workspace):
+    """verify with the real RapidOCR engine: the unblurred crop is read (positive control), the blurred
+    output is not, and a raw output is a leak."""
+
+    def test_real_engine_reads_unblurred_not_blurred(self):
+        self.make_raw()
+        # text_h 64 = a heavier blur (lr 16) than the 32 px text needs: the generic matcher counts ANY
+        # readable text as a hit, and a real engine still reads fuzz out of lr 8 (strength rule: tune
+        # per font; this test only needs a clearly unreadable result)
+        self.write_project([self.region(text_h=64)])
+        blurred = os.path.join(self.root, "blurred.mp4")
+        self.render_with_graph(blurred)
+
+        def cli(video):
+            r = subprocess.run([_ocr_python(), os.path.join(os.path.dirname(HERE), "blur.py"), "--slug",
+                                "vid", "verify", "--video", video, "--aspect", "16x9", "--ocr", "rapidocr",
+                                "--budget-s", "240"], cwd=self.root, capture_output=True, text=True,
+                               timeout=300)
+            return r.returncode, json.loads(r.stdout.strip().splitlines()[-1])
+
+        code, res = cli(blurred)
+        self.assertEqual(code, 0, res)
+        self.assertEqual(res["verdict"], "pass")
+        self.assertEqual(res["positive_control"], {"b1": True, "fullframe": True})   # the raw crop IS read
+        self.assertEqual(res["hits"], [])                                              # the blurred one is not
+        code, res = cli(os.path.join(self.sdir, "media", "s01.raw.mp4"))
+        self.assertEqual(code, 11, res)
+        self.assertEqual(res["verdict"], "leak")
 
 
 @need_ffmpeg

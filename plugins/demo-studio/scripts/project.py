@@ -14,7 +14,12 @@ Usage:
     deps <key> [--json]   keys to re-run after <key> changes (transitive, run order)
     owner <key>           agent that owns <key>
     migrate [--dry-run]   upgrade a schema 1 project to schema 2 (backup first, see below)
-  (deps/owner need no project file)
+    retention [--apply] [--force]   privacy.raw_retention: with `delete-after-delivery`, delete raw
+                          clips / tmp-video / capture specs once #delivery exists (dry listing without
+                          --apply; refuses with exit 3 before delivery unless --force). The hook a
+                          packager or command calls after delivery.
+    stale <key>           list upstream keys whose version changed since <key> was written (exit 10)
+  (deps/owner need no project file). `init` also writes <.demo>/.gitignore (sensitive/bulky paths).
   --slug walks up from cwd to the nearest `.demo/<slug>`; inside `.demo/` with none above it, or
   with a path containing `.demo/.demo`, it refuses (exit 2). `set` prints "<key> version N (<path>)"
   after reading the file back: quote that line in the handoff.
@@ -30,8 +35,12 @@ Schema 2 (docs/redesign §4.5): `_meta.keys.<k>.inputs` = versions of the keys i
 file fingerprints. `checks` is written ONLY by write_checks() (imported by checks.py / blur.py
 verify); `project.py set checks` is always refused (exit 4). `migrate` (schema 1 -> 2): backs up to
 project.json.schema1.bak, sets inputs {} on every key, marks every existing clip
-events.clips.*.masked=false, keeps every #blur region unmerged (source "legacy", the old source text
-moves to "label"), reports data_mode real-redacted. Schema 1 files stay readable and writable.
+events.clips.*.masked=false, resets any #checks.pass to false (results stay for reference; checks.py
+must run again), keeps every #blur region unmerged (source "legacy", the old source text moves to
+"label"), reports data_mode real-redacted. Schema 1 files stay readable and writable.
+
+write_checks() is ADVISORY: `writer` is self-declared, so any importer can pass "checks.py". Enforcement
+lives on the CLI path (`set checks` is refused) and, in P1, in the ownership hook (redesign §4.3).
 
 Writes take an exclusive lock file "<project>.lock" (O_CREAT|O_EXCL), re-read the
 file under the lock, change only the target key and its _meta entry, and replace
@@ -41,6 +50,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -246,6 +256,40 @@ def empty_project():
     return {"_meta": {"schema": SCHEMA, "keys": {}}}
 
 
+# Paths (relative to the `.demo/` folder) that must never be committed or delivered (§6.5, S-11).
+# templates/gitignore is the same list prefixed with `.demo/` for a repo-level .gitignore.
+GITIGNORE_LINES = [
+    "*/media/preview/", "*/.secret/", "*/raw/", "*/media/*.raw.*", "*/media/*.spec.json",
+    "*/media/tmp-video/", "*/tmp-video/", "*/*.spec.json", "*/runs.jsonl", "*/*.schema1.bak",
+    "*/cache/", "*/*.lock",
+]
+GITIGNORE_HEADER = "# demo-studio: sensitive or bulky artefacts (docs/redesign section 6.5); managed by project.py init"
+
+
+def ensure_gitignore(demo_dir):
+    """Create or extend <demo_dir>/.gitignore with GITIGNORE_LINES (idempotent). Returns lines added."""
+    p = os.path.join(demo_dir, ".gitignore")
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            have = f.read()
+    except FileNotFoundError:
+        have = ""
+    present = {l.strip() for l in have.splitlines()}
+    add = [l for l in GITIGNORE_LINES if l not in present]
+    if not add:
+        return []
+    out = have
+    if out and not out.endswith("\n"):
+        out += "\n"
+    if GITIGNORE_HEADER not in present:
+        out += GITIGNORE_HEADER + "\n"
+    out += "\n".join(add) + "\n"
+    os.makedirs(demo_dir, exist_ok=True)
+    with open(p, "w", encoding="utf-8", newline="\n") as f:
+        f.write(out)
+    return add
+
+
 def cmd_init(args, path):
     with FileLock(path, args.timeout):
         if os.path.exists(path):
@@ -254,6 +298,9 @@ def cmd_init(args, path):
         else:
             atomic_write(path, empty_project())
             print("created: %s" % path)
+    demo_dir = os.path.dirname(os.path.dirname(path))
+    if os.path.basename(demo_dir) == ".demo":  # only inside a real .demo/<slug>/ layout
+        ensure_gitignore(demo_dir)
     return 0
 
 
@@ -288,34 +335,92 @@ def load_value(args):
         raise CliError(2, "invalid JSON value: %s" % e)
 
 
-def file_fingerprint(project_dir, rel):
-    """(size, mtime_ns, inode) of a file under the project folder. sha256 is computed (and cached in
-    cache/hashes.json) only when that triple differs from the cached one: a plain `set` never
-    re-hashes hundreds of MB [RT-17]."""
-    full = os.path.join(project_dir, rel)
+def stat_fingerprint(full):
+    """(size, mtime_ns, inode) of a file, or None when it cannot be read."""
     try:
         st = os.stat(full)
-    except OSError as e:
-        raise CliError(2, "cannot fingerprint input %r: %s" % (rel, e))
-    triple = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "ino": st.st_ino}
+    except OSError:
+        return None
+    return {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "ino": st.st_ino}
+
+
+def same_fingerprint(a, b):
+    """True when two fingerprints name the same bytes by (size, mtime_ns, ino)."""
+    return (isinstance(a, dict) and isinstance(b, dict)
+            and all(a.get(k) is not None and a.get(k) == b.get(k) for k in ("size", "mtime_ns", "ino")))
+
+
+def _hash_file(full):
+    h = hashlib.sha256()
+    with open(full, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def file_fingerprint(project_dir, rel, with_sha=False):
+    """(size, mtime_ns, inode) of a file under the project folder. sha256 is computed (and cached in
+    cache/hashes.json, read-modify-write under its own lock) only when that triple differs from the
+    cached one: a plain `set` never re-hashes hundreds of MB [RT-17]. `with_sha` returns the sha too."""
+    full = os.path.join(project_dir, rel)
+    triple = stat_fingerprint(full)
+    if triple is None:
+        raise CliError(2, "cannot fingerprint input %r: file not readable" % rel)
     cache_path = os.path.join(project_dir, "cache", "hashes.json")
-    try:
-        with open(cache_path, "r", encoding="utf-8") as f:
-            cache = json.load(f)
-        if not isinstance(cache, dict):
+    sha = None
+    with FileLock(cache_path, 10.0):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+            if not isinstance(cache, dict):
+                cache = {}
+        except (OSError, ValueError):
             cache = {}
-    except (OSError, ValueError):
-        cache = {}
-    old = cache.get(rel)
-    if not (isinstance(old, dict) and all(old.get(k) == v for k, v in triple.items())):
-        h = hashlib.sha256()
-        with open(full, "rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
-        cache[rel] = dict(triple, sha256=h.hexdigest())
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        atomic_write(cache_path, cache)
-    return triple
+        old = cache.get(rel)
+        if isinstance(old, dict) and all(old.get(k) == v for k, v in triple.items()) and old.get("sha256"):
+            sha = old["sha256"]
+        else:
+            sha = _hash_file(full)
+            cache[rel] = dict(triple, sha256=sha)
+            atomic_write(cache_path, cache)
+    return dict(triple, sha256=sha) if with_sha else triple
+
+
+def current_inputs(data, keys):
+    """{key: version} of the given project keys that exist (a verdict records what it was built on)."""
+    meta = data.get("_meta", {}).get("keys", {})
+    out = {}
+    for k in keys:
+        e = meta.get(k)
+        if isinstance(e, dict) and "version" in e:
+            out[k] = e["version"]
+    return out
+
+
+def stale_inputs(data, key):
+    """Upstream keys whose version differs from the one `key` recorded in _meta.keys.<key>.inputs
+    (schema 2). A key never written, or a schema-1 entry without `inputs`, has nothing to compare."""
+    e = data.get("_meta", {}).get("keys", {}).get(key)
+    if not isinstance(e, dict) or not isinstance(e.get("inputs"), dict):
+        return []
+    rec = e["inputs"]
+    cur = current_inputs(data, UPSTREAM.get(key, []))
+    return sorted(k for k in set(rec) | set(cur) if not k.startswith("file:") and rec.get(k) != cur.get(k))
+
+
+def unsafe_scenes(timeline, clips):
+    """Timeline scenes whose `in` (clip ms) lies before events.clips[sid].safe_from_ms (the first
+    capture-verified-safe time of the clip): [{scene, in, safe_from_ms}]. [S-06 consumer]"""
+    out = []
+    for sc in (timeline or {}).get("scenes") or []:
+        if not isinstance(sc, dict):
+            continue
+        clip = (clips or {}).get(sc.get("id"))
+        safe = clip.get("safe_from_ms") if isinstance(clip, dict) else None
+        if isinstance(safe, (int, float)) and not isinstance(safe, bool) \
+                and isinstance(sc.get("in"), (int, float)) and sc["in"] < safe:
+            out.append({"scene": sc.get("id"), "in": sc["in"], "safe_from_ms": safe})
+    return out
 
 
 def build_inputs(data, key, project_dir, input_files):
@@ -341,11 +446,15 @@ def deep_merge(base, over, depth=2):
     return over
 
 
-def store_key(path, key, owner, value, timeout, expect_version=None, input_files=(), merge=False):
+def store_key(path, key, owner, value, timeout, expect_version=None, input_files=(), merge=False,
+              transform=None):
     """Lock, re-read, replace/merge one key and its _meta entry, write atomically, read back.
+    `transform(data) -> value` (optional) builds the value from the project as read UNDER the lock.
     Returns the stored version."""
     with FileLock(path, timeout):
         data = read_project(path) if os.path.exists(path) else empty_project()
+        if transform is not None:
+            value = transform(data)
         keys = data["_meta"]["keys"]
         entry = keys.get(key)
         current = entry.get("version", 0) if isinstance(entry, dict) else 0
@@ -365,14 +474,16 @@ def store_key(path, key, owner, value, timeout, expect_version=None, input_files
     return stored
 
 
-def write_checks(path, value, writer, timeout=10.0, merge=False):
+def write_checks(path, value, writer, timeout=10.0, merge=False, transform=None):
     """The ONLY way to write `checks` (RT-11). `writer` must be checks.py or blur.py (blur.py verify
     passes merge=True with {"blur": {<aspect>: {...}}}: merged two levels deep, so a new
-    verdict for one aspect replaces that aspect's entry and keeps the others). `project.py set checks` is always refused."""
+    verdict for one aspect replaces that aspect's entry and keeps the others). `transform(data)` builds the
+    whole value under the lock (used to drop stale parts). `project.py set checks` is always refused.
+    ADVISORY: `writer` is self-declared; the enforcement is the CLI refusal and the P1 hook."""
     if writer not in CHECKS_WRITERS:
         raise CliError(4, "owner mismatch: #checks is written only by %s, not %r"
                        % (" / ".join(CHECKS_WRITERS), writer))
-    return store_key(path, "checks", OWNERS["checks"], value, timeout, merge=merge)
+    return store_key(path, "checks", OWNERS["checks"], value, timeout, merge=merge, transform=transform)
 
 
 def cmd_set(args, path):
@@ -394,7 +505,7 @@ def cmd_set(args, path):
 def migrate_data(data):
     """Pure schema 1 -> 2 upgrade of a parsed project (see module doc). Returns a change summary."""
     summary = {"keys": 0, "clips_masked_false": 0, "blur_regions_kept": 0,
-               "data_mode": "real-redacted"}
+               "data_mode": "real-redacted", "checks_pass_reset": False}
     for e in data["_meta"]["keys"].values():
         if isinstance(e, dict):
             e["inputs"] = {}  # unknown fingerprint = stale on the next run of its downstream keys
@@ -405,6 +516,10 @@ def migrate_data(data):
             if isinstance(clip, dict):
                 clip["masked"] = False  # recorded before v0.3: no capture-time mask
                 summary["clips_masked_false"] += 1
+    ck = data.get("checks")
+    if isinstance(ck, dict) and ck.get("pass") is not False:
+        ck["pass"] = False  # an agent-written schema-1 pass proves nothing: checks.py must run again
+        summary["checks_pass_reset"] = True
     blur = data.get("blur")
     if isinstance(blur, dict) and isinstance(blur.get("regions"), list):
         for r in blur["regions"]:  # keep every region, unmerged
@@ -435,6 +550,86 @@ def cmd_migrate(args, path):
             res["backup"] = bak
     print(json.dumps(res))
     return 0
+
+
+def raw_artifacts(sdir, data):
+    """Paths (absolute) of raw / unverified capture artefacts under the slug folder."""
+    found = set()
+    clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
+    for c in (clips or {}).values():
+        if isinstance(c, dict) and isinstance(c.get("file"), str):
+            found.add(os.path.join(sdir, c["file"]))
+    for pat in ("raw", os.path.join("media", "tmp-video"), "tmp-video"):
+        full = os.path.join(sdir, pat)
+        if os.path.isdir(full):
+            found.add(full)
+    media = os.path.join(sdir, "media")
+    if os.path.isdir(media):
+        for n in os.listdir(media):
+            if ".raw." in n or n.endswith(".spec.json"):
+                found.add(os.path.join(media, n))
+    for n in os.listdir(sdir) if os.path.isdir(sdir) else ():
+        if n.endswith(".spec.json"):
+            found.add(os.path.join(sdir, n))
+    root = os.path.realpath(sdir)
+    return sorted(p for p in found if os.path.realpath(p).startswith(root + os.sep)
+                  and os.path.exists(p))
+
+
+def cmd_retention(args, path):
+    """Enforce privacy.raw_retention. Only `delete-after-delivery` deletes, and only once #delivery
+    exists; `--apply` is required to delete anything (default: list what would go)."""
+    data = read_project(path)
+    sdir = os.path.dirname(path)
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import config
+        p = os.path.join(sdir, "demo.yaml")
+        cfg = config.load_config(p) if os.path.exists(p) else config.defaults()
+    except Exception as e:  # noqa: BLE001
+        raise CliError(2, "demo.yaml: %s" % getattr(e, "msg", e))
+    mode = cfg["privacy"]["raw_retention"]
+    files = raw_artifacts(sdir, data)
+    delivered = isinstance(data.get("delivery"), dict) or "delivery" in data["_meta"]["keys"]
+    res = {"status": "ok", "raw_retention": mode, "delivered": delivered, "apply": bool(args.apply),
+           "candidates": [os.path.relpath(f, sdir).replace(os.sep, "/") for f in files], "deleted": []}
+    if mode == "keep":
+        res["note"] = "raw_retention is keep: nothing is deleted"
+        print(json.dumps(res))
+        return 0
+    if args.apply and not delivered and not args.force:
+        res["status"] = "not-delivered"
+        print(json.dumps(res))
+        sys.stderr.write("error: #delivery is not written yet: raw clips are kept until delivery "
+                         "(--force overrides)\n")
+        return 3
+    if args.apply:
+        for f in files:
+            try:
+                if os.path.isdir(f):
+                    shutil.rmtree(f)
+                else:
+                    os.unlink(f)
+                res["deleted"].append(os.path.relpath(f, sdir).replace(os.sep, "/"))
+            except OSError as e:
+                res.setdefault("errors", []).append("%s: %s" % (os.path.basename(f), e))
+        if res.get("errors"):
+            res["status"] = "partial"
+    print(json.dumps(res))
+    try:
+        import run_bounded
+        run_bounded.append_run(sdir, "project.py", ["retention"] + (["--apply"] if args.apply else []),
+                               {"status": res["status"]})
+    except Exception:  # noqa: BLE001
+        pass
+    return 0 if res["status"] == "ok" else 2
+
+
+def cmd_stale(args, path):
+    check_key(args.key)
+    st = stale_inputs(read_project(path), args.key)
+    print(json.dumps({"key": args.key, "stale": st}))
+    return 10 if st else 0
 
 
 def cmd_keys(args, path):
@@ -479,6 +674,10 @@ def cmd_owner(args, path):
 
 
 class Parser(argparse.ArgumentParser):
+    def __init__(self, *a, **k):
+        k.setdefault("allow_abbrev", False)  # an abbreviated flag must not dodge argv redaction (S-12)
+        super().__init__(*a, **k)
+
     def error(self, message):
         self.print_usage(sys.stderr)
         sys.stderr.write("error: %s\n" % message)
@@ -520,6 +719,11 @@ def build_parser():
     d.add_argument("--json", action="store_true", help="JSON output")
     o = sub.add_parser("owner", parents=[common], help="print the agent that owns <key>")
     o.add_argument("key")
+    r = sub.add_parser("retention", parents=[common], help="apply privacy.raw_retention after delivery")
+    r.add_argument("--apply", action="store_true", help="delete (default: only list)")
+    r.add_argument("--force", action="store_true", help="delete even before #delivery exists")
+    st = sub.add_parser("stale", parents=[common], help="upstream keys changed since <key> was written")
+    st.add_argument("key")
     m = sub.add_parser("migrate", parents=[common], help="upgrade a schema 1 project to schema 2")
     m.add_argument("--dry-run", action="store_true", dest="dry_run",
                    help="print what would change, write nothing")
@@ -534,7 +738,8 @@ def main(argv=None):
             pass
     args = build_parser().parse_args(argv)
     handlers = {"init": cmd_init, "get": cmd_get, "set": cmd_set, "keys": cmd_keys,
-                "deps": cmd_deps, "owner": cmd_owner, "migrate": cmd_migrate}
+                "deps": cmd_deps, "owner": cmd_owner, "migrate": cmd_migrate,
+                "retention": cmd_retention, "stale": cmd_stale}
     try:
         path = None if args.cmd in ("deps", "owner") else project_path(args)
         return handlers[args.cmd](args, path)

@@ -1,6 +1,15 @@
 # demo-studio: sensitive or bulky artefacts that must never be committed or delivered
-# (docs/redesign §6.5). Copy these lines into the project's .gitignore.
+# (docs/redesign §6.5). `project.py init` writes the same list, relative, to .demo/.gitignore;
+# copy these lines into the repository's .gitignore only if you do not use that file.
 .demo/*/media/preview/
 .demo/*/.secret/
 .demo/*/raw/
 .demo/*/media/*.raw.*
+.demo/*/media/*.spec.json
+.demo/*/media/tmp-video/
+.demo/*/tmp-video/
+.demo/*/*.spec.json
+.demo/*/runs.jsonl
+.demo/*/*.schema1.bak
+.demo/*/cache/
+.demo/*/*.lock

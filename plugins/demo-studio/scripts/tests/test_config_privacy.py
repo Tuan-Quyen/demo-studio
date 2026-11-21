@@ -72,6 +72,16 @@ class PrivacyConfig(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("regexes[0]", err)
 
+    def test_regex_must_mean_the_same_in_python_and_javascript(self):   # R-08
+        for rx in ("(?i)abc@x", "(?P<n>a)b", "a++", "\\Aabc", "(?>a)b"):
+            self.write("privacy:\n  regexes: [%s]\n" % json.dumps(rx))
+            code, _, err = self.run_cfg("validate")
+            self.assertEqual(code, 2, rx)
+            self.assertIn("regexes[0]", err)
+            self.assertIn("portable", err)
+        self.write('privacy:\n  regexes: ["sk-[A-Za-z0-9]{8,}", "[\\\\w.+-]+@[\\\\w-]+[.]com"]\n')
+        self.assertEqual(self.run_cfg("validate")[0], 0)
+
     def test_lists_and_enums(self):
         self.write('privacy:\n  selectors: [".email"]\n  regexes: ["sk-[A-Za-z0-9]{8,}"]\n'
                    '  seed_values: ["demo@example.com"]\n  mask_style: blur\n  raw_retention: keep\n'

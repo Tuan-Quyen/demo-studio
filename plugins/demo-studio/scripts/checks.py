@@ -5,14 +5,17 @@
 Usage:
   checks.py (--project PATH | --slug SLUG) [--only ID[,ID...]] [--media-dir DIR] [--renderer R]
             [--no-write] [--dry-run] [--json]
-    ids: blur loudness black freeze captions length sync vo  (default: all)
+    ids: blur loudness black freeze captions length sync vo safe_start  (default: all)
 
 Per rendered aspect (demo.yaml `formats`, files media/final-<aspect>.mp4) ONE combined ffmpeg pass
 (ebur128 + blackdetect + freezedetect + silencedetect, ~3x faster than separate runs) through
 run_bounded (wall 0.3 x duration + 60 s, stall 30 s). Checks:
   blur      aggregates #checks.blur.<aspect> written by `blur.py verify`: a verdict is `pass` only if
-            it says pass AND every positive control is true; a failed control = inconclusive; a
-            missing verdict for a rendered aspect = incomplete (run blur.py verify for it).
+            it says pass AND every positive control is true AND it is bound to the exact final file
+            (size, mtime_ns, ino) AND the #blur/#timeline/#events versions it was built on are still
+            current; a failed control = inconclusive; a missing, unbound or stale verdict = incomplete
+            (run blur.py verify again). Also incomplete: a clip with unmaskable[] no region covers.
+  safe_start  no #timeline scene `in` before events.clips[sid].safe_from_ms (owner sync-editor).
   loudness  integrated LUFS vs targets.lufs +-1, true peak <= targets.true_peak, and vs #mix.preview
             (> 0.5 LU / 0.5 dB off = chain not reproducible, owner sound-mixer).
   black     black spans (>= 0.2 s) outside #motion.allow.black.   freeze  likewise (>= 3 s).
@@ -23,12 +26,19 @@ run_bounded (wall 0.3 x duration + 60 s, stall 30 s). Checks:
   sync      total duration vs #timeline end (and audio vs video length) <= targets.max_drift_ms. Per-scene
             drift is not measurable from the file alone.
   vo        every #voice scene file passes vo.check (lead/trail/gaps).
-Also aggregates events.clips.*.mask.frames_unmasked into #checks.privacy_capture.
+Also aggregates events.clips.*.mask.frames_unmasked into #checks.privacy_capture; clips that capture did
+not verify (masked false, mask_style blur, rect_checks 0) are listed as `uncaptured` and, with real data,
+need a #blur region (else incomplete, owner privacy-blurrer).
+
+`pass` is recomputed from scratch on every run from THIS run's results and the live blur verdicts: a
+subset (`--only`) never inherits an old pass, and any REQUIRED check not run makes `pass` false. #checks
+is rewritten (results of older runs dropped; blur.py's verdicts kept).
 
 Result: one JSON line {"status": pass|fail|leak|incomplete, "pass", "elapsed_s", "results", "outputs",
 "failures":[{"id","owner","class"}]}; a run line goes to .demo/<slug>/runs.jsonl.
 Exit codes: 0 pass | 2 input wrong (project, demo.yaml, missing final video) | 3 incomplete (blur verdict
-missing/incomplete, ffmpeg over budget) | 4 tool missing (ffmpeg) | 10 finding (a check failed; blur
+missing/stale/incomplete, ffmpeg over budget, or `pass` false for a missing required check) | 4 tool
+missing (ffmpeg) | 10 finding (a check failed; blur
 inconclusive) | 11 leak (blur leak or a frame with unmasked data at capture) | 70 unexpected error.
 """
 import argparse
@@ -47,11 +57,11 @@ import run_bounded as rbm  # noqa: E402
 import project  # noqa: E402
 
 EXIT = {"ok": 0, "input": 2, "incomplete": 3, "tool": 4, "finding": 10, "leak": 11, "bug": 70}
-ALL = ["blur", "loudness", "black", "freeze", "captions", "length", "sync", "vo"]
-REQUIRED = ("blur", "loudness", "black", "freeze", "length")  # `pass` needs these present
+ALL = ["blur", "loudness", "black", "freeze", "captions", "length", "sync", "vo", "safe_start"]
+REQUIRED = ("blur", "loudness", "black", "freeze", "length", "safe_start")  # `pass` needs these present
 OWNERS = {"sync": "sync-editor", "vo": "voice-producer", "loudness": "sound-mixer",
           "blur": "privacy-blurrer", "black": "capture-operator", "freeze": "capture-operator",
-          "captions": "caption-writer", "length": "storyboarder"}
+          "captions": "caption-writer", "length": "storyboarder", "safe_start": "sync-editor"}
 LUFS_TOL, PREVIEW_TOL = 1.0, 0.5
 BLACK_D, FREEZE_D = 0.2, 3.0
 ALLOW_SLOP_S = 0.15
@@ -181,8 +191,46 @@ def scene_at(timeline, t):
     return None
 
 
-def blur_result(data, aspects, rendered):
-    """Aggregate #checks.blur.<aspect> (written by blur.py verify) for every rendered aspect."""
+def bound_problem(e, a, files, sdir, data):
+    """Why verdict `e` of aspect `a` is not bound to the current output / inputs, or None."""
+    f = files.get(a)
+    cur = project.stat_fingerprint(f) if f else None
+    if cur is None:
+        return "final-%s.mp4 is not readable" % a
+    if not project.same_fingerprint(e.get("file"), cur):
+        return "verdict is not bound to the current final-%s.mp4 (re-rendered since verify, or no fingerprint)" % a
+    rel = os.path.relpath(f, sdir).replace(os.sep, "/")
+    if e.get("video") not in (rel, os.path.abspath(f)):
+        return "verdict was made for another file (%s)" % e.get("video")
+    rec = e.get("inputs")
+    if not isinstance(rec, dict):
+        return "verdict records no #blur/#timeline/#events versions"
+    now = project.current_inputs(data, ("blur", "timeline", "events"))
+    if rec != now:
+        changed = sorted(k for k in set(rec) | set(now) if rec.get(k) != now.get(k))
+        return "stale: %s changed since verify" % ", ".join("#" + k for k in changed)
+    return None
+
+
+def unmaskable_problem(data):
+    """Clips whose unmaskable[] surfaces no #blur region covers (R-04), as a detail string or None."""
+    clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
+    if not isinstance(clips, dict) or not any(isinstance(c, dict) and c.get("unmaskable") for c in clips.values()):
+        return None
+    import blur as blurmod
+    try:
+        blur = data.get("blur") or {}
+        regions = blurmod._as_v2((blur.get("regions") if isinstance(blur, dict) else None) or [], clips)
+    except blurmod.BlurError as e:
+        return "#blur is not plannable: %s" % e.msg
+    unc = blurmod.uncovered_unmaskable(regions, clips)
+    return ("%d unmaskable surface(s) without a blur region (%s)"
+            % (len(unc), ", ".join("%s#%d" % (u["scene"], u["index"]) for u in unc[:5]))) if unc else None
+
+
+def blur_result(data, aspects, rendered, files=None, sdir=""):
+    """Aggregate #checks.blur.<aspect> (written by `blur.py verify`) for every rendered aspect. A verdict
+    counts only when bound to the current file and inputs (R-02, R-13)."""
     stored = ((data.get("checks") or {}).get("blur") or {}) if isinstance(data.get("checks"), dict) else {}
     verdicts, bad, hits = {}, [], 0
     for a in aspects:
@@ -201,17 +249,37 @@ def blur_result(data, aspects, rendered):
             v = "leak"
         if v not in ("pass", "leak", "inconclusive", "incomplete"):
             v = "incomplete"
+        if v == "pass" and not e.get("total") and not (e.get("fullframe") or {}).get("sampled"):
+            v = "incomplete"  # nothing was sampled: no evidence
+        if v in ("pass", "inconclusive") and files is not None:
+            why = bound_problem(e, a, files, sdir, data)
+            if why:
+                v = "incomplete"
+                bad.append("%s: %s" % (a, why))
         verdicts[a] = v
         hits += len(e.get("hits") or [])
-        if v != "pass":
+        if v != "pass" and not any(b.startswith(a + ":") for b in bad):
             bad.append("%s: %s" % (a, v))
+    un = unmaskable_problem(data)
+    if un:
+        bad.append(un)
     worst = next((v for v in ("leak", "inconclusive", "incomplete") if v in verdicts.values()), "pass")
+    if un and worst == "pass":
+        worst = "incomplete"
     if not verdicts:
         worst = "incomplete"
         bad.append("no rendered aspect to verify")
     return {"pass": worst == "pass", "verdict": worst, "verdicts": verdicts, "hits": hits,
-            "owner": OWNERS["blur"] if worst in ("leak", "inconclusive") else "render-engineer",
+            "owner": OWNERS["blur"] if worst in ("leak", "inconclusive") or un else "render-engineer",
             "detail": "; ".join(bad)}
+
+
+def safe_start_result(data):
+    clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
+    bad = project.unsafe_scenes(data.get("timeline"), clips or {})
+    return {"pass": not bad, "scenes": bad, "owner": OWNERS["safe_start"],
+            "detail": "; ".join("%s in=%s ms < safe_from_ms=%s" % (b["scene"], b["in"], b["safe_from_ms"])
+                                for b in bad)}
 
 
 def loudness_result(per, cfg, mix):
@@ -360,17 +428,34 @@ def vo_result(sdir, voice):
             "owner": OWNERS["vo"], "detail": "; ".join(fails[:5])}
 
 
-def privacy_capture(data):
+def clip_uncaptured(c):
+    """A clip whose capture-time mask is no proof: not masked, blur style, or no rect ever checked."""
+    m = c.get("mask") if isinstance(c.get("mask"), dict) else {}
+    style = m.get("mask_style") or m.get("style") or c.get("mask_style")
+    return (not c.get("masked") or style == "blur" or int(m.get("rects_checked", m.get("rect_checks")) or 0) == 0)
+
+
+def privacy_capture(data, real=True):
     clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
     if not isinstance(clips, dict) or not clips:
         return None
-    n = len(clips)
-    masked = sum(1 for c in clips.values() if isinstance(c, dict) and c.get("masked"))
-    unm = sum(int(((c.get("mask") or {}).get("frames_unmasked")) or 0)
-              for c in clips.values() if isinstance(c, dict))
-    return {"clips": n, "masked": masked, "frames_unmasked": unm,
+    cl = {k: c for k, c in clips.items() if isinstance(c, dict)}
+    unc = sorted(k for k, c in cl.items() if clip_uncaptured(c))
+    regs = (data.get("blur") or {}).get("regions") if isinstance(data.get("blur"), dict) else None
+    covered = set()
+    for r in regs or []:
+        if isinstance(r, dict):
+            if r.get("scene"):
+                covered.add(r["scene"])
+            covered.update(sp[2] for sp in r.get("spans") or [] if isinstance(sp, list) and len(sp) == 3)
+    return {"clips": len(clips),
+            "masked": sum(1 for c in cl.values() if c.get("masked")),
+            "frames_unmasked": sum(int(((c.get("mask") or {}).get("frames_unmasked")) or 0)
+                                   for c in cl.values()),
             "rects_checked": sum(int(((c.get("mask") or {}).get("rects_checked")) or 0)
-                                 for c in clips.values() if isinstance(c, dict))}
+                                 for c in cl.values()),
+            "uncaptured": unc,
+            "needs_blur": [k for k in unc if real and k not in covered]}
 
 
 # =========================================================================== command
@@ -406,7 +491,7 @@ def run(args):
     results = {}
     for cid in only:
         if cid == "blur":
-            results["blur"] = blur_result(data, aspects, rendered)
+            results["blur"] = blur_result(data, aspects, rendered, files, sdir)
         elif cid == "loudness":
             results["loudness"] = loudness_result(meas, cfg, mix)
         elif cid in ("black", "freeze"):
@@ -420,7 +505,9 @@ def run(args):
             results["sync"] = sync_result(infos, timeline, cfg)
         elif cid == "vo":
             results["vo"] = vo_result(sdir, data.get("voice"))
-    pc = privacy_capture(data)
+        elif cid == "safe_start":
+            results["safe_start"] = safe_start_result(data)
+    real = cfg["privacy"]["data_mode"] != "seeded"
     outputs = {}
     old = (data.get("checks") or {}) if isinstance(data.get("checks"), dict) else {}
     for a, i in infos.items():
@@ -429,21 +516,43 @@ def run(args):
                       "renderer": args.renderer or (old.get("outputs") or {}).get(a, {}).get("renderer")}
     allow = {"black": ((motion or {}).get("allow") or {}).get("black") or [],
              "freeze": ((motion or {}).get("allow") or {}).get("freeze") or []}
-    merged = dict(copy.deepcopy(old.get("results") or {}), **results)
-    missing = [r for r in REQUIRED if r not in merged]
-    total_pass = (all(r.get("pass") for r in merged.values()) and not missing
-                  and not (pc and pc["frames_unmasked"] > 0))
-    value = {"schema": 2, "results": results, "pass": total_pass}
-    if outputs:
-        value["outputs"] = outputs
-        value["allow"] = allow
-    if pc:
-        value["privacy_capture"] = pc
-    failures = [{"id": k, "owner": r["owner"], "class": "leak" if (k == "blur" and r.get("verdict") == "leak")
-                 else "incomplete" if (k == "blur" and r.get("verdict") == "incomplete") else "finding"}
-                for k, r in results.items() if not r.get("pass")]
-    if pc and pc["frames_unmasked"] > 0:
-        failures.append({"id": "privacy_capture", "owner": "capture-operator", "class": "leak"})
+    box = {}
+
+    def build(cur):
+        """The whole #checks value, built from the project as it is UNDER THE LOCK: blur verdicts are
+        re-read live, `pass` is recomputed from this run's results only, older results are dropped."""
+        res = dict(results)
+        if "blur" in res:
+            res["blur"] = blur_result(cur, aspects, rendered, files, sdir)
+        pc = privacy_capture(cur, real)
+        missing = [r for r in REQUIRED if r not in res]
+        failures = [{"id": k, "owner": r["owner"],
+                     "class": "leak" if (k == "blur" and r.get("verdict") == "leak")
+                     else "incomplete" if (k == "blur" and r.get("verdict") == "incomplete") else "finding"}
+                    for k, r in res.items() if not r.get("pass")]
+        if pc and pc["frames_unmasked"] > 0:
+            failures.append({"id": "privacy_capture", "owner": "capture-operator", "class": "leak"})
+        if pc and pc["needs_blur"]:
+            failures.append({"id": "privacy_capture", "owner": "privacy-blurrer", "class": "incomplete"})
+        total_pass = (all(r.get("pass") for r in res.values()) and not missing
+                      and not any(f["id"] == "privacy_capture" for f in failures))
+        value = {"schema": 2, "results": res, "pass": total_pass}
+        if isinstance(cur.get("checks"), dict) and isinstance(cur["checks"].get("blur"), dict):
+            value["blur"] = cur["checks"]["blur"]  # blur.py's verdicts stay
+        if outputs:
+            value["outputs"] = outputs
+            value["allow"] = allow
+        if pc:
+            value["privacy_capture"] = pc
+        box.update(res=res, pc=pc, missing=missing, failures=failures, total_pass=total_pass)
+        return value
+
+    if args.no_write:
+        build(data)
+    else:
+        version = project.write_checks(path, None, writer="checks.py", transform=build)
+    results, pc, missing = box["res"], box["pc"], box["missing"]
+    failures, total_pass = box["failures"], box["total_pass"]
     leak = any(f["class"] == "leak" for f in failures)
     inc = any(f["class"] == "incomplete" for f in failures)
     other = any(f["class"] == "finding" for f in failures)
@@ -455,13 +564,21 @@ def run(args):
     if missing:
         out["missing_checks"] = missing
     if not args.no_write:
-        out["checks_version"] = project.write_checks(path, value, writer="checks.py", merge=True)
-    code = EXIT["leak"] if leak else EXIT["finding"] if other else EXIT["incomplete"] if inc else 0
+        out["checks_version"] = version
+    if leak:
+        code = EXIT["leak"]
+    elif other:
+        code = EXIT["finding"]
+    elif inc or not total_pass:
+        code = EXIT["incomplete"]  # incomplete evidence (R-03): never exit 0 with pass false
+    else:
+        code = 0
     return out, code
 
 
 def build_parser():
-    p = argparse.ArgumentParser(description="Render checks in code; the only writer of #checks.")
+    p = argparse.ArgumentParser(description="Render checks in code; the only writer of #checks.",
+                                allow_abbrev=False)
     p.add_argument("--project")
     p.add_argument("--slug")
     p.add_argument("--only", action="append", help="check id(s), comma separated or repeated")
