@@ -66,6 +66,21 @@ Then `ffprobe` the clip, record `w,h,fps,duration_ms,offset_ms` in `#events` (th
 ## bbox source
 `locator.bounding_box()` -> CSS px relative to the main frame viewport; `scale` converts to recorded pixels. Re-read it right before the click (layout shifts). Element inside iframes: check the box against the main-frame viewport (verify in dry-run).
 
+## Capture-time masking (privacy_mask.js, default for web)
+Sensitive data is masked while recording, not blurred afterwards. `scripts/privacy_mask.js` is injected with `add_init_script` before any navigation; it never changes the app DOM (CSS Custom Highlight API for text, stylesheet rules for inputs, cover boxes in a closed shadow root for the rest; the only node it may add is that overlay host on `<html>`). It reads `window.__DS_MASK_CONFIG = {selectors, regexes, mask_style}` (`[data-sensitive]` is always included; `mask_style` `"solid"` default | `"blur"`).
+```python
+mask = (SCRIPTS/"privacy_mask.js").read_text()
+context.add_init_script(script="window.__DS_MASK_CONFIG = " + json.dumps(cfg) + ";\n" + mask)
+# before ctx.start(): fail closed, do not record when this is not ok
+r = page.evaluate("window.__dsMaskReady === true && window.__dsMask.assertMasked()")
+if not r or not r["ok"]: raise LeakError(r)      # exit 11; failures[] = {selector, reason, tag}
+```
+- `capture.py --url U --scene s03 --out-dir D --config mask.json [--actions a.json]` does all of it (Node recorder `capture_recorder.js`): non-recording preflight assertion, assertion again before the scene starts, recordVideo, `<sid>.mask.jsonl`, pixel cross-check, `<sid>.events.json` with `clips.<sid>.masked` and `unmaskable[]`. Exit: 0 ok, 2 bad input, 3 over budget, 4 missing tool, 11 leak (nothing is recorded when the assertion fails), 70 bug/env. The clip starts with ~1 s of calibration pulses (included in `offset_ms`).
+- Log per rAF: `{t (epoch ms), kind:"masked", selector, count, rects:[[x,y,w,h]] (viewport CSS px, clipped by scroll containers, occluded rects dropped), state}`; `boxes` marks cover boxes (1 px sentinel border), `partial` rects half hidden.
+- Rects that matter are in the clip's pixel space only when `scale` is 1 and the viewport equals the video size (already required above). `masked:true` is only written when 0 frames fail the pixel check.
+- Limits (go to `unmaskable[]` / the post-hoc tier): regexes match one text node or one input value, so a value typed character by character shows its prefix until the regex matches (never type real secrets); cross-origin iframes, canvas/WebGL, closed or open shadow DOM, `title` tooltips and autofill are not masked; `mask_style:"blur"` is checked by assertion and log only.
+- Do not wrap sensitive text in extra elements and do not add classes to app nodes for masking.
+
 ## Pitfalls
 - `recordVideo` is capped at **25 fps** (all browsers) and **a `size` larger than the viewport does not scale**: the page is drawn 1:1 in the top-left of a grey canvas (a "crisp" clip with grey padding is a bug). So `size == viewport`, web raw = 25 fps, and render upscales without faking 60 fps (`media-specs` Encode). A bigger clip needs a bigger viewport (only if the app layout allows). `ffprobe` every clip and run the full-frame check.
 - Stop right after `ctx.end()`: no wait, screenshot, ffprobe or logging before `context.close()` (held tails of 1.5-2 s were recorded past `scene_end`; report `tail_ms` = clip duration - `offset_ms` - `scene_end` `t` per clip). capture-operator records the real `duration_ms` and compares it with `offset_ms` + `scene_end` `t`; sync-editor trims `out` to that as the fallback.
