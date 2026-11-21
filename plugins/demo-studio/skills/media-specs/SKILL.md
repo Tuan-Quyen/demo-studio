@@ -1,6 +1,6 @@
 ---
 name: media-specs
-description: Load when writing edit.json, captions or render settings, or judging a final video (editor, demo-qa). Encode, loudness, caption rules, motion basics, file names.
+description: Load when writing edit.json, motion.json, captions.json or mix.json, or judging a final video (sync-editor, motion-designer, caption-writer, sound-mixer, render-engineer, demo-qa). Encode, loudness, caption rules, motion basics, file names.
 ---
 
 # Media specs

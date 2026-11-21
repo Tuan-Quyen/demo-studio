@@ -1,5 +1,5 @@
 # demo.yaml - properties of this demo. Simple YAML: "key: value", lists as [a, b], # comments.
-# story fills it at G1; the director records your decisions. Other agents only read it.
+# demo-strategist fills it at G1; privacy-guard owns `privacy.*`; the director records your decisions. Other agents only read it.
 
 platform: null        # web | desktop | android | ios
 length_s: null        # target seconds (final video within +-10%)

@@ -1,6 +1,6 @@
 # Demo Studio
 
-A [Claude Code](https://claude.com/claude-code) plugin that is an **agent-team configuration**: six agents with clear jobs, a few scripts, and three approval gates that turn a product into a narrated, captioned, privacy-safe demo video (web, desktop, Android, iOS). Design: [docs/LEAN.md](docs/LEAN.md).
+A [Claude Code](https://claude.com/claude-code) plugin that is an **agent-team configuration**: eighteen specialist agents with clear jobs, a few scripts, and three approval gates that turn a product into a narrated, captioned, privacy-safe demo video (web, desktop, Android, iOS). Design: [docs/LEAN.md](docs/LEAN.md).
 
 ## Install
 
@@ -10,16 +10,30 @@ A [Claude Code](https://claude.com/claude-code) plugin that is an **agent-team c
 /demo-studio:new Show how a new user creates a project in Acme Tasks, for first-time admins, web
 ```
 
-## Agents
+## Agents (18, each owns one file)
 
-| Agent | Job |
-|---|---|
-| `demo-director` | Understands the request, asks you at the gates, briefs the others, keeps `STATE.md`, installs tools (asks first) |
-| `story` | Brief, `demo.yaml`, storyboard, narration, translations |
-| `app-scout` | Explores the app, maps selectors, prepares seeded data, lists sensitive selectors |
-| `scene-automator` | Writes scene scripts and records them (`capture.py` for web) |
-| `editor` | Voice-over (`vo.py`), `edit.json` (cuts, captions, zooms, cards, music), `render.py` |
-| `demo-qa` | Runs `verify.py`, watches the video, writes `qa.md` PASS/FAIL and names who fixes what |
+| Agent | Job | Writes |
+|---|---|---|
+| `demo-director` | Understands the request, picks the path, asks you at 3 gates, routes fixes | `STATE.md` |
+| `toolsmith` | Proposes and installs tools via `setup_tools.py` (asks first) | none |
+| `demo-strategist` | Brief and video properties | `brief.md`, `demo.yaml` |
+| `app-scout` | Explores the app, selectors, sensitive elements | `app-map.md` |
+| `privacy-guard` | Seeded data / demo account, `privacy.mask`/`patterns`/`seed_values`; owns leak fixes | `demo.yaml#privacy` |
+| `storyboarder` | Scenes, shots, durations | `storyboard.md` |
+| `scriptwriter` | Narration within word budgets | `narration.md` |
+| `localizer` | Translation when voice language differs | `narration.<lang>.md` |
+| `voice-producer` | TTS with `vo.py`, durations | `media/sNN.vo.wav` |
+| `scene-automator` | Scene scripts `sNN(ctx)` | `scenes.<platform>.py` |
+| `capture-operator` | Records with `capture.py` or platform recorders | `media/sNN.raw.*`, `sNN.marks.json` |
+| `sync-editor` | Cuts and timing against the voice | `edit.json` |
+| `motion-designer` | Zooms, title and end cards | `motion.json` |
+| `caption-writer` | Timed captions | `captions.json` |
+| `sound-mixer` | Music and level | `mix.json` |
+| `render-engineer` | Runs `render.py` (merges the JSON files) | `media/final-*.mp4`, `final.vtt` |
+| `demo-qa` | Runs `verify.py`, watches the video, PASS/FAIL and owner | `qa.md` |
+| `packager` | Thumbnail, chapters, description | `media/thumb.png`, `delivery.md` |
+
+Five scripts do the mechanical work: `setup_tools.py`, `vo.py`, `capture.py`, `render.py`, `verify.py`.
 
 ## Commands
 

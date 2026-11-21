@@ -26,9 +26,10 @@ MASK_JS = """(sels) => {
   const css = sels.map(s => s + "{color:transparent!important;-webkit-text-fill-color:transparent!important;" +
     "background:#222!important;text-shadow:none!important;fill:transparent!important;caret-color:transparent!important}").join("\\n");
   const add = () => {
-    if (document.getElementById("__demo_mask")) return;
+    const root = document.head || document.documentElement;
+    if (!root || document.getElementById("__demo_mask")) return;
     const st = document.createElement("style"); st.id = "__demo_mask"; st.textContent = css;
-    (document.head || document.documentElement).appendChild(st);
+    root.appendChild(st);
   };
   add(); document.addEventListener("DOMContentLoaded", add);
   new MutationObserver(add).observe(document, {childList: true, subtree: true});

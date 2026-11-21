@@ -8,36 +8,8 @@ on:
 permissions:
   contents: read
 
-env:
-  TESTS: plugins/demo-studio/scripts/tests
-  # Playwright 1.63.x pairs with the Chromium build that `playwright install chromium` fetches
-  # (plugins/demo-studio/scripts/requirements/capture.txt).
-  PLAYWRIGHT_SPEC: "playwright==1.63.*"
-
 jobs:
-  # Tier 0: everything that needs no browser (hooks, checks, project/config, blur with fake OCR, demo status).
-  tier0:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.10", "3.12"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-      - name: ffmpeg
-        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
-      - name: Toolkit deps
-        run: python -m pip install pytest "$PLAYWRIGHT_SPEC" numpy imageio-ffmpeg
-      - name: Tier 0 tests
-        run: python -m pytest "$TESTS" -q --ignore="$TESTS/test_privacy_mask.py" --ignore="$TESTS/test_capture.py"
-
-  # Tier 1: tests that drive a real Chromium (capture-time masking, capture gate).
-  tier1:
-    needs: tier0
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -51,9 +23,9 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: ffmpeg
         run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
-      - name: Toolkit deps
-        run: python -m pip install pytest "$PLAYWRIGHT_SPEC" numpy imageio-ffmpeg
+      - name: Deps
+        run: python -m pip install pytest "playwright==1.63.*" numpy imageio-ffmpeg rapidocr onnxruntime opencv-python-headless
       - name: Chromium
         run: python -m playwright install --with-deps chromium
-      - name: Tier 1 tests
-        run: python -m pytest "$TESTS/test_privacy_mask.py" "$TESTS/test_capture.py" -q
+      - name: Tests
+        run: python -m pytest plugins/demo-studio/scripts/tests -q

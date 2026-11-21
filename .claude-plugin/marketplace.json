@@ -9,7 +9,7 @@
     {
       "name": "demo-studio",
       "source": "./plugins/demo-studio",
-      "description": "A lean team of 6 agents that plans, records, edits and verifies privacy-safe demo videos for web, desktop and mobile apps.",
+      "description": "A team of 18 specialist agents that plans, records, edits and verifies privacy-safe demo videos for web, desktop and mobile apps.",
       "version": "0.4.0",
       "category": "media",
       "keywords": ["demo", "video", "screen-recording", "voiceover", "captions"]

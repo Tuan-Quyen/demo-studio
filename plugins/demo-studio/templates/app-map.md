@@ -10,7 +10,7 @@
 | <name> | <state> | <step: role/test-id/label> | <state> | <popups, slow loads> |
 
 ## Sensitive elements
-(also listed in demo.yaml `privacy.mask` / `patterns`)
+(privacy-guard turns this into demo.yaml `privacy.mask` / `patterns`)
 | Where | Selector | What it shows |
 |---|---|---|
 | <screen> | <css> | <email, token, name...> |

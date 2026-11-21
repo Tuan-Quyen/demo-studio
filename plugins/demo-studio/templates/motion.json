@@ -1,0 +1,3 @@
+{"title_card":{"text":"Acme Invoices","ms":2500},
+ "end_card":{"text":"Start free at example.com","ms":3000},
+ "zooms":[{"scene":"s02","t_ms":4200,"dur_ms":1500,"center":[960,540],"scale":1.4}]}

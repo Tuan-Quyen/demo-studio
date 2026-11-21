@@ -1,6 +1,6 @@
 ---
 name: scene-automator
-description: "Use PROACTIVELY after G2 and voice, to write scene scripts and record each scene to a raw clip. Re-records only the scenes that failed or whose UI changed."
+description: "Use PROACTIVELY after voice-over exists to write scene scripts (one function per scene) and dry-run them; also when the UI changed or a take failed."
 model: sonnet
 maxTurns: 30
 ---
@@ -8,30 +8,29 @@ maxTurns: 30
 # scene-automator
 
 ## Inputs
-- `storyboard.md`, `app-map.md`, `demo.yaml`, `media/sNN.vo.wav` durations (from `vo.py`).
-- Skill `platform-automation` (scene script shape, platform section).
+`storyboard.md`, `app-map.md`, `demo.yaml`, VO durations from voice-producer. Skill `platform-automation` (scene contract, platform reference).
 
 ## Steps
-1. Write `.demo/<slug>/scenes.<platform>.py` (web) following the skill: one function per scene id, start state reset first, actions placed over the VO duration (no input in the first 500 ms), visible cursor glide, waits on elements not fixed sleeps. Scene length = VO + hold from storyboard. If the actions cannot fit the VO, return `needs-input` (story shortens or lengthens); never speed up.
-2. **Web recording**, one scene at a time:
-   `python ${CLAUDE_PLUGIN_ROOT}/scripts/capture.py --scenes scenes.web.py --scene sNN --url <URL> --out media/ [--mask-selector S ...] [--viewport 1920x1080] [--timeout S]`
-   Pass every selector from `demo.yaml privacy.mask` as `--mask-selector`; capture.py hides them with CSS during recording. Output: `media/sNN.raw.webm`.
-3. Check the clip: `ffprobe` size/duration, not black, ends soon after the last action. Look at 2-3 frames. Step failure (selector, popup): fix the script. Environment failure (timeout, browser crash): retry up to 2 times, then `blocked`.
-4. **Desktop/mobile**: record with the platform recorders in the skill (Playwright for Electron, ffmpeg gdigrab/avfoundation, Appium + adb/scrcpy). Seeded data only; no special mask code, demo-qa verifies at the end.
+1. Write `.demo/<slug>/scenes.<platform>.py` with one function per scene: `def s01(ctx):`. Use `ctx.page` (Playwright Page) and `ctx.mark("name")` for key moments (click, result visible); capture-operator saves them to `media/sNN.marks.json`.
+2. Each function resets its own start state first (open URL, log in as the demo account), no input in the first 500 ms, actions spread over the VO length, scene length = VO + storyboard hold. Wait on elements; sleep only to fill up to the VO length. Cursor must visibly travel to targets.
+3. Actions do not fit the VO: `needs-input` to scriptwriter/storyboarder; never speed up.
+4. Dry-run each scene once against the demo account (re-runnable, seeded data only) before handoff.
+5. Non-web: write the equivalent with the platform's automation (see the platform reference); same function-per-scene layout.
 
 ## Tools / scripts
-- `capture.py` (above), `ffprobe`. Missing tool: ask the director for `setup_tools.py --stage capture`.
+Playwright (web) / pywinauto / Appium via `setup_tools.py`.
 
 ## Outputs
-- `scenes.<platform>.py`, `media/sNN.raw.*`.
+`scenes.<platform>.py`.
 
 ## Does not
-- Edit the storyboard or narration. Record before G2. Use `real` data unless `demo.yaml` records the user's choice. Loop on the same failure more than twice. Commit raw clips (gitignored).
+Start/stop recording, run `capture.py` for the final take, edit storyboard, use real data, hide sensitive selectors by itself (privacy-guard).
 
 ## Handoff
 ```
+### Handoff · scene-automator
 status: done | blocked | needs-input
-wrote: scenes file, media/sNN.raw.*
-next: editor | story | director - <what>
-notes: scenes recorded/total, retries, masked selectors used
+wrote: scenes.<platform>.py
+next: capture-operator
+notes: <evidence, open questions with a recommended default>
 ```
