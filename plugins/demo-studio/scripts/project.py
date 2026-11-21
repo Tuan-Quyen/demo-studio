@@ -412,6 +412,28 @@ def stale_inputs(data, key):
     return sorted(k for k in set(rec) | set(cur) if not k.startswith("file:") and rec.get(k) != cur.get(k))
 
 
+def clip_thresholds(clip):
+    """The capture-gate thresholds recorded on an #events clip, normalised (defaults 0 / [])."""
+    m = clip.get("mask") if isinstance(clip.get("mask"), dict) else {}
+    th = m.get("thresholds") if isinstance(m.get("thresholds"), dict) else {}
+    return {"max_soft": int(th.get("max_soft") or 0), "max_resync": int(th.get("max_resync") or 0),
+            "accepted_unmaskable": sorted(str(x) for x in (th.get("accepted_unmaskable") or []))}
+
+
+def clip_fingerprint(sdir, clip):
+    """Identity of one #events clip as shot: sha256 of its whole record + (size, mtime_ns, ino) of the raw
+    file when it exists. A re-shoot changes it, which voids a recorded acceptance."""
+    rec = hashlib.sha256(json.dumps(clip, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    f = clip.get("file") if isinstance(clip.get("file"), str) else None
+    return {"record_sha256": rec, "file": stat_fingerprint(os.path.join(sdir, f)) if f else None}
+
+
+def same_clip_fingerprint(a, b):
+    if not (isinstance(a, dict) and isinstance(b, dict)) or a.get("record_sha256") != b.get("record_sha256"):
+        return False
+    return not (a.get("file") and b.get("file")) or same_fingerprint(a["file"], b["file"])
+
+
 def unsafe_scenes(timeline, clips):
     """Timeline scenes whose `in` (clip ms) lies before events.clips[sid].safe_from_ms (the first
     capture-verified-safe time of the clip): [{scene, in, safe_from_ms}]. [S-06 consumer]"""
@@ -572,13 +594,31 @@ def stale_tmp_dirs(sdir, data):
     clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
     sids = [re.escape(k) for k in (clips or {})] or [r"[\w-]+"]
     own = re.compile(r"^\.tmp-(?:%s)-\d+$" % "|".join(sids))   # capture's own names only
+    any_scene = re.compile(r"^\.tmp-[\w.-]+-(\d+)$")
+    media = os.path.realpath(os.path.join(sdir, "media"))
     out = []
     for d in _clip_dirs(sdir, data) + [sdir]:
         for n in os.listdir(d):
             full = os.path.join(d, n)
-            if own.match(n) and os.path.isdir(full):
+            if not os.path.isdir(full):
+                continue
+            m = any_scene.match(n)
+            # a scene not yet in #events (killed first take): in media/ only, and only once its pid is gone
+            dead = bool(m) and not pid_alive(int(m.group(1)))   # a live capture's dir is not stale
+            dead_new = dead and os.path.realpath(d) == media
+            if (own.match(n) and dead) or dead_new:
                 out.append(full)
     return sorted(set(out))
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True      # exists, not ours (EPERM) or unknowable: treat as alive
+    return True
 
 
 def split_inside(sdir, paths):

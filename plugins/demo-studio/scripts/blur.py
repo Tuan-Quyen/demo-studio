@@ -1021,7 +1021,8 @@ def build_rois(regions, tmap, clips, tr, out_wh, fps, patterns_cfg):
         for trp, pspans in tr_pieces(tr, merge_pairs(spans)):
             roi = {"id": reg["id"], "spans": merge_pairs(pspans), "pad": reg["pad"],
                    "matcher": make_matcher(pats), "has_pattern": bool(pats),
-                   "src_bbox": reg["bbox"], "scene": reg.get("scene"), "ctrl": ctrl}
+                   "src_bbox": reg["bbox"], "scene": reg.get("scene"), "ctrl": ctrl,
+                   "secret": bool(reg.get("secret"))}
             if reg.get("mode") == "track":
                 sc0 = (reg["spans"][0][2] if len(reg["spans"][0]) == 3 else reg.get("scene"))
                 roi["boxes"] = [(tmap.t(sc0, k[0]), map_bbox(pad_box(k[1:], reg["pad"], sw, sh), trp, ow, oh))
@@ -1155,6 +1156,10 @@ def run_verify(video, rois, ocr, dur, fps, wh, *, budget_s, stride_s, fullframe,
                     # a >= 4 char run or >= 50% similarity with what the raw crop reads (R-16)
                     cands = [t for t in texts if similar_text(t, roi["ctrl_text"])]
                 n = max([roi["matcher"](t) for t in cands] or [0])
+                if roi.get("secret"):   # secrets fail toward leak: any readable text is a hit (R-16 note)
+                    gen = make_matcher([], True)
+                    n = max([n] + [gen(t) for t in texts])
+                    cands = texts
                 if n:
                     hit = {"region": roi["id"], "t_ms": int(round(pts * 1000)), "match_len": n}
                     if hmac_key:

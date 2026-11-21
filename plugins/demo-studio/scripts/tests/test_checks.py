@@ -328,16 +328,63 @@ class StalenessTests(unittest.TestCase):
             self.assertEqual(res["privacy_capture"]["undecided"], ["s01"])
             self.assertEqual(res["failures"][-1], {"id": "privacy_capture", "owner": "demo-director",
                                                    "class": "finding"})
-        # the user's recorded decision (demo.yaml privacy.accepted) is the only way through
-        with open(os.path.join(e.sdir, "demo.yaml"), "a") as f:
-            f.write('privacy:\n  accepted: ["s01: user accepted 2 soft frames on 2026-11-21"]\n')
+        # the user's recorded decision (config.py accept) is the only way through
+        e.put("events", {"clips": {"s01": self.weak_clip(frames_soft=2)}})
+        e.blur("16x9")
+        self.accept(e, "s01")
         code, res = e.run()
         self.assertEqual(code, 0, res)
         self.assertIn("s01", res["privacy_capture"]["weakened"])
-        # a reason-less entry is no decision
-        with open(os.path.join(e.sdir, "demo.yaml"), "w") as f:
-            f.write('formats: ["16:9"]\nlength_s: 6\nprivacy:\n  accepted: ["s01: ok"]\n')
-        self.assertEqual(e.run()[0], 10)
+
+    def accept(self, e, scene, reason="user accepted 2 soft frames on 2026-11-21"):
+        import config
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = config.main(["--project", os.path.join(e.sdir, "demo.yaml"), "accept", "--scene", scene,
+                              "--reason", reason, "--decided-by", "user"])
+        self.assertEqual(rc, 0)
+
+    def test_acceptance_is_void_after_a_reshoot_or_changed_thresholds(self):   # S-24
+        e = self.good()
+        e.put("events", {"clips": {"s01": self.weak_clip(frames_soft=2)}})
+        e.blur("16x9")
+        self.accept(e, "s01")
+        self.assertEqual(e.run()[0], 0)
+        e.put("events", {"clips": {"s01": self.weak_clip(frames_soft=2, frames_total=99)}})   # re-shoot
+        e.blur("16x9")
+        code, res = e.run()
+        self.assertEqual((code, res["privacy_capture"]["undecided"]), (10, ["s01"]))
+        self.accept(e, "s01")
+        self.assertEqual(e.run()[0], 0)
+        e.put("events", {"clips": {"s01": self.weak_clip(frames_soft=2, frames_total=99,
+                                                         thresholds={"max_soft": 5, "max_resync": 0})}})
+        e.blur("16x9")
+        self.assertEqual(e.run()[1]["privacy_capture"]["undecided"], ["s01"])
+
+    def test_hand_written_and_wildcard_entries_are_ignored_with_a_finding(self):
+        e = self.good()
+        e.put("events", {"clips": {"s01": self.weak_clip(frames_soft=2)}})
+        e.blur("16x9")
+        for item in ("s01: user accepted 2 soft frames on 2026-11-21", "*: everything is fine here",
+                     '{"scene": "s01", "reason": "user said fine, 2026-11-21", "decided_by": "agent"}'):
+            with open(os.path.join(e.sdir, "demo.yaml"), "w") as f:
+                f.write('formats: ["16:9"]\nlength_s: 6\nprivacy:\n  accepted: [%s]\n' % json.dumps(item))
+            code, res = e.run()
+            self.assertEqual(code, 10, item)
+            self.assertEqual(res["privacy_capture"]["undecided"], ["s01"])
+            self.assertEqual(len(res["privacy_capture"]["ignored_accepted"]), 1)
+
+    def test_accept_command_refuses_short_reason_unknown_scene_and_non_user(self):
+        import config
+        e = self.good()
+        e.put("events", {"clips": {"s01": self.weak_clip(frames_soft=2)}})
+        base = ["--project", os.path.join(e.sdir, "demo.yaml"), "accept"]
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(config.main(base + ["--scene", "s01", "--reason", "ok", "--decided-by", "user"]), 2)
+            self.assertEqual(config.main(base + ["--scene", "s99", "--reason", "long enough reason",
+                                                 "--decided-by", "user"]), 2)
+            with self.assertRaises(SystemExit):
+                config.main(base + ["--scene", "s01", "--reason", "long enough reason",
+                                    "--decided-by", "agent"])
 
     def test_default_thresholds_without_soft_frames_pass(self):
         e = self.good()
@@ -350,10 +397,10 @@ class StalenessTests(unittest.TestCase):
         e = self.good()
         e.put("events", {"clips": {"s01": self.weak_clip()}})
         e.blur("16x9")
-        os.makedirs(os.path.join(e.sdir, "media", ".tmp-s01-77"))
+        os.makedirs(os.path.join(e.sdir, "media", ".tmp-s01-7700000"))
         code, res = e.run()
         self.assertEqual(code, 10, res)
-        self.assertEqual(res["privacy_capture"]["stale_tmp"], ["media/.tmp-s01-77"])
+        self.assertEqual(res["privacy_capture"]["stale_tmp"], ["media/.tmp-s01-7700000"])
 
     def test_unmaskable_without_region_is_incomplete(self):
         e = self.good()

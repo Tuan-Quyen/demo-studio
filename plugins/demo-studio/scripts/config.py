@@ -9,7 +9,11 @@ Usage:
     diff [--json]        compare with the last applied snapshot; print changed fields
                          and the project.json keys + agents to re-run
     apply                validate, then write the snapshot (.demo.applied.json)
-    apply-lexicon [--text T | --file P | stdin] [--json]
+    accept --scene S --reason "<user's words, date>" --decided-by user
+                       record the user's acceptance of a weaker capture gate (soft frames, raised
+                       thresholds, accepted unmaskable) as a JSON entry in privacy.accepted with the
+                       clip's thresholds and fingerprint; only the director runs it, after AskUserQuestion
+  apply-lexicon [--text T | --file P | stdin] [--json]
                          print TTS input with voice.lexicon applied (whole-word, case-sensitive,
                          longest first, single pass); --json = {text, applied:[{term,spoken,count}]}
   --project PATH is the demo.yaml file; --slug uses .demo/<slug>/demo.yaml under cwd.
@@ -866,6 +870,56 @@ def cmd_init(args, path):
     return 0
 
 
+ACCEPT_RX = re.compile(r"^(?P<ind>[ \t]*)accepted:.*$", re.M)
+
+
+def cmd_accept(args, path):
+    """Record the user's acceptance of a weaker capture gate for one scene: appends a JSON entry
+    {scene, reason, thresholds, clip_fingerprint, decided_by, at} to privacy.accepted. Only the director
+    runs this, after AskUserQuestion, with the user's answer quoted in --reason."""
+    cfg = load_config(path)
+    reason = (args.reason or "").strip()
+    if len(reason) < 10:
+        raise CliError(2, "--reason must quote the user's decision (at least 10 characters)")
+    sdir = os.path.dirname(path)
+    data = project.read_project(os.path.join(sdir, "project.json"))
+    clips = (data.get("events") or {}).get("clips") if isinstance(data.get("events"), dict) else None
+    clip = (clips or {}).get(args.scene)
+    if not isinstance(clip, dict):
+        raise CliError(2, "no #events clip for scene %r: nothing to accept" % args.scene)
+    entry = {"scene": args.scene, "reason": reason, "thresholds": project.clip_thresholds(clip),
+             "clip_fingerprint": project.clip_fingerprint(sdir, clip), "decided_by": args.decided_by,
+             "at": project.now_iso()}
+    items = [i for i in cfg["privacy"]["accepted"] if not _is_scene_entry(i, args.scene)]
+    items.append(json.dumps(entry, sort_keys=True, ensure_ascii=False))
+    line_val = "[" + ", ".join(json.dumps(i, ensure_ascii=False) for i in items) + "]"
+    with open(path, "r", encoding="utf-8-sig") as f:
+        text = f.read()
+    m = ACCEPT_RX.search(text)
+    if m:   # replace the key line and any block-list lines under it
+        end = m.end()
+        rest = text[end:]
+        blk = re.match(r"(?:\n[ \t]+-[^\n]*)*", rest)
+        text = text[:m.start()] + "%saccepted: %s" % (m.group("ind"), line_val) + rest[blk.end():]
+    elif re.search(r"^privacy:[ \t]*$", text, re.M):
+        text = re.sub(r"^(privacy:[ \t]*)$", lambda mm: mm.group(1) + "\n  accepted: " + line_val, text, count=1,
+                      flags=re.M)
+    else:
+        text = text.rstrip("\n") + "\nprivacy:\n  accepted: %s\n" % line_val
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    load_config(path)   # must still be valid
+    print(json.dumps({"status": "ok", "accepted": entry["scene"], "thresholds": entry["thresholds"]}))
+    return 0
+
+
+def _is_scene_entry(item, scene):
+    try:
+        return json.loads(item).get("scene") == scene
+    except (ValueError, AttributeError):
+        return False
+
+
 def cmd_validate(args, path):
     cfg = load_config(path)
     unset = [p for p in ("platform", "length_s", "motion.level", "tools.ocr") if flatten(cfg).get(p) is None]
@@ -968,6 +1022,12 @@ def build_parser():
                        help="changes since the last applied snapshot and what to re-run")
     d.add_argument("--json", action="store_true", help="JSON output")
     sub.add_parser("apply", parents=[common], help="validate and write the applied snapshot")
+    ac = sub.add_parser("accept", parents=[common],
+                        help="record the user's acceptance of a weaker capture gate (director only)")
+    ac.add_argument("--scene", required=True)
+    ac.add_argument("--reason", required=True, help="the user's answer, quoted, with its date")
+    ac.add_argument("--decided-by", dest="decided_by", required=True, choices=["user"],
+                    help="only a decision the user made (AskUserQuestion) may be recorded")
     al = sub.add_parser("apply-lexicon", parents=[common],
                         help="print TTS input with voice.lexicon applied (text, file or stdin)")
     src = al.add_mutually_exclusive_group()
@@ -985,7 +1045,7 @@ def main(argv=None):
             pass
     args = build_parser().parse_args(argv)
     handlers = {"init": cmd_init, "validate": cmd_validate, "get": cmd_get,
-                "diff": cmd_diff, "apply": cmd_apply, "apply-lexicon": cmd_apply_lexicon}
+                "diff": cmd_diff, "apply": cmd_apply, "accept": cmd_accept, "apply-lexicon": cmd_apply_lexicon}
     try:
         return handlers[args.cmd](args, config_path(args))
     except CliError as e:

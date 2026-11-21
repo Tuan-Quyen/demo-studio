@@ -649,8 +649,8 @@ class VerdictLifecycleTests(Workspace):
         tl = {"scenes": [{"id": "s01", "in": 0, "out": 4000, "speed": 1.0, "start": 0, "end": 4000}]}
         tr = blur.default_transform("16x9", (640, 360), (640, 360))
 
-        def run(read):
-            rois = blur.build_rois(blur._as_v2([self.region()], clips), blur.TimeMap("final", clips, tl),
+        def run(read, secret=False):
+            rois = blur.build_rois(blur._as_v2([self.region(secret=secret)], clips), blur.TimeMap("final", clips, tl),
                                    clips, tr, (640, 360), 25, [])
             for r in rois:
                 r["ctrl_text"] = "demo@example.com"
@@ -659,6 +659,7 @@ class VerdictLifecycleTests(Workspace):
                                    stride_s=2.0, fullframe=False, full_matcher=blur.make_matcher([r"x"]),
                                    controls={"b1": True})["verdict"]
         self.assertEqual(run("Bengngie con"), "pass")
+        self.assertEqual(run("Bengngie con", secret=True), "leak")   # secrets fail toward leak
         self.assertEqual(run("demo@example.com"), "leak")
         self.assertEqual(run("demo@exampl"), "leak")        # a real partial read (>= 4 char run)
         self.assertTrue(blur.similar_text("Demo @ Example.com", "demo@example.com"))

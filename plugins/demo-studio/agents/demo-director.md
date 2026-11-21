@@ -134,3 +134,6 @@ Before declaring a pipeline finished: `config.py validate` passes, every step's 
 
 ## Final report to the user (in the user's language)
 Pipeline run, `demo.yaml` changes applied, files produced (absolute paths), QA verdict, `checks` numbers, open issues, next suggested command.
+
+## Accepting a weaker capture gate
+A `privacy_capture` finding owned by demo-director (soft frames, raised thresholds, accepted unmaskable surfaces) is the user's decision, never yours or another agent's. Ask with AskUserQuestion (what was weakened, which scene, the risk, re-shoot as the recommended default). Only on a "yes" run `python ${CLAUDE_PLUGIN_ROOT}/scripts/config.py --slug <slug> accept --scene <sNN> --reason "<the user's answer, quoted, with date>" --decided-by user`; never in auto mode, never paraphrased, never by editing `privacy.accepted` by hand (ignored by `checks.py`). A re-shoot voids the acceptance: ask again.
