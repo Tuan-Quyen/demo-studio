@@ -1,4 +1,4 @@
-Verdict: PASS · Round 2 (no open blocker; R-15 major to fix before P0 exit)
+Verdict: FAIL · Round 3 (R-18 blocker open: `doctor --clean` deletes `.tmp-*` dirs outside the project; R-15..R-17 verified)
 
 # p0-web — code review
 
@@ -23,18 +23,15 @@ Verdict: PASS · Round 2 (no open blocker; R-15 major to fix before P0 exit)
 | R-12 | minor | `scripts/blur.py:207` | Drop test reads only `spans[0]` scene; merged multi-scene region may drop other-scene spans. Source `capture-mask` is emitted by no agent (dead, safe). | Require every span scene masked, or delete the rule. | R1 | verified |
 | R-13 | minor | `scripts/project.py:340-365` | `inputs` fingerprints written but never consumed (no staleness); hash cache written outside the lock. | Wire into `demo.py`/checks (P1) or note; lock cache write. | R1 | verified |
 | R-14 | minor | `scripts/capture.py:68`, `tests/` | capture.py has no unit test; cross-check thresholds only via real Chromium test. `positive_controls` OCR calls not budget-checked. | Add dry-run/spec tests; check clock per OCR call. | R1 | verified |
+| R-18 | blocker | `scripts/project.py:572-581,658-672` | `stale_tmp_dirs` scans every `#events` clip folder, so `doctor --clean` rmtrees any `.tmp-*` dir there, even outside `.demo/<slug>/` (run: `ext/.tmp-keepme` deleted, no `--include-outside`). Retention guards this. | Match `^\.tmp-<sid>-\d+$` only; outside dirs listed, removed only with `--include-outside`. Test. | R3 | open |
+| R-19 | minor | `tests/test_capture.py:177-183`, `capture.py:67,381-382,267-268,531` | Named constants untested: `CARRY_MAX` test is vacuous (cap 100 gives the same 6 carried); `EDGE_MS`, `NEAR_MS`, 60 ms throttle, `UNM_PAD_MS` wiring in `gate()` have no test. | Add a probe that fails if each constant changes; assert gate output carries the pad. | R3 | open |
+| R-20 | minor | `capture.py:271-277,289-294`, `checks.py:459-465`, `web.md` | `_boundary` has unnamed `35`; docstring says a bad neighbour still fails, code only checks entries within `NEAR_MS`. `EDGE_MS` 100 not in docs; `privacy.accepted` `*:` wildcard and 10-char minimum undocumented. | Name `35`; fix docstring; document 100 ms, `*`, minimum length. | R3 | open |
 
-| R-15 | major | `scripts/project.py:262,569-575`, `templates/gitignore`, `capture.py:762,797-804` | Retention and gitignore still name `<scene>.spec.json` (no longer written). Not covered: `.tmp-sNN-<pid>/` (raw unmasked video survives SIGKILL/OOM; `media/*.raw.*` does not match inside a subdir), `*.mask.jsonl`, `*.sync.json`, `*.probe.jsonl`, `--out-dir` outside media. | Add `*/media/.tmp-*/`, `*/media/*.mask.jsonl`, `*.sync.json`, `*.probe.jsonl` to GITIGNORE_LINES, template, `raw_artifacts`; test. | R2 | open |
-| R-16 | minor | `blur.py:740-753,261-263`, `tests/test_blur.py:726` | Generic matcher counts any 4+ char OCR output as a hit, so fuzz read from lr=8 on 32 px text is a false positive; the test dodges it with text_h=64. | See Round detail: match against positive-control text. | R2 | open |
-| R-17 | minor | `scripts/requirements/capture.txt`, `setup_tools.py:86-92` | `playwright>=1.40` unpinned; only 1.63.0 was run. `install chromium` follows the package, so fresh installs are consistent; a preinstalled Chromium is not. | Raise floor to the tested minor (`>=1.63`) or add an upper bound; note in `effort`. | R2 | open |
-
-Closed: R-01..R-14 (verified R2; R-11 now fails closed as `incomplete: no-samples`, stricter than asked)
+Closed: R-01..R-17 (R-15..R-17 verified R3: gitignore, template and `raw_artifacts` cover `.tmp-*`, mask/sync/probe sidecars, `--out-dir` clips; `similar_text` matcher; playwright `>=1.63,<1.64` plus `setup_tools` check)
 
 ## Round detail (latest round only)
-- Round: R2 · 2026-11-21 · diff: c62ff0d..HEAD (plugins, README) · 35 files · fixes 97e6345, 4f5a342, 2272177
-- Evidence: `pytest -q tests` with OCR venv = 327 passed, 1 skipped (220 s)
-- Contracts consistent: unmaskable t_* clip ms, bbox clip px; blur subtracts offset_ms (`blur.py:174`), plan, graph, verify and checks share `uncovered_unmaskable`. `safe_from_ms` clip ms = timeline `in` clip ms (`project.py:411`, `blur.py:392`); capture gates `safe_from <= offset_ms`. `rects_checked`, `style`, `frames_unmasked` read by checks match capture's names; `mask.status` in {failed, needs-input, blur-only, unmasked, verified}, consumed by none (informational).
-- Docs match CLIs (capture run|gate, set-transform, retention/stale, `--accept-unmaskable` only on a quoted user decision, `--ocr` optional). `capture_recorder.js`/Node removed; setup_tools says no Node.
-- Blur strength recommendation: keep the strength rule as a floor; fix the matcher. With a positive-control string (OCR of the raw crop), count a hit only if the blurred text shares a run (>=4 chars or >=50% similarity) with it; keep generic only when no control exists. Optionally raise boxblur to ceil(h/3) and default secrets to opaque.
-- Good: spec no longer on disk, temp dir removed in `finally`, regex dialect check, fail-closed `no-samples`.
-- Needs security review: R-15 (raw video on crash path not ignored).
+- Round: R3 · 2026-11-21 · diff: edd1f68..HEAD (plugins, README) · 26 files
+- Evidence: `pytest -q tests` with OCR venv = 350 passed, 1 skipped (369 s); repro of R-18 in a scratch dir; `probe.py` set `CARRY_MAX=100` on the cap test: unchanged result
+- Contracts consistent: capture `mask.thresholds{max_soft,max_resync,accepted_unmaskable}`, `frames_soft`, `unmaskable[].accepted` are read by `checks.weakened`; `undecided` needs `privacy.accepted` `<scene>: <reason>`. Failures `finding` (demo-director / capture-operator) give exit `finding`, not 0. demo-qa, README, run-kits, capture-operator, web.md match; 6, 37, 300, 60, 250 ms documented.
+- Good: `finish_run` backs up and rolls back on any failure; `similar_text` stays in memory, generic matcher only without a pattern; retention classifies by realpath; TypeGuard fail-closed on every typing path.
+- Fix order: R-18 (blocker), then R-19, R-20. No security-review blocker beyond R-18 (deletes user data outside the project).
