@@ -844,6 +844,15 @@ Lý do: P0-web tốn 3 vòng review riêng (code + security), mỗi vòng mở t
 3. **P3 hoãn** cho tới khi có thiết bị thật. Trong container chỉ làm mô phỏng, và ghi nhãn rõ.
 4. **Điểm dừng mặc định: sau P1.** Mục tiêu chính (blur hết treo, hết chậm) đạt ở P0–P1. P2 (thu gọn roster, giảm token mỗi lần chạy) chỉ làm khi chủ repo yêu cầu lại.
 
+**Phạm vi gọn đã chốt (rev 3):**
+- **P0-native = Electron:** `assets/mask-kits/electron/` (main-process hook + preload chạy `privacy_mask.js`), probe fuse, `electron_adapter.js`. Adapter ghi cùng định dạng sidecar (`sNN.mask.jsonl`, `sNN.sync.json`) như web nên `capture.py gate` dùng lại nguyên. `capture.py run --adapter` chọn adapter.
+- **P1 = phần phục vụ trực tiếp "hết treo, hết chậm, không lộ"**, gồm:
+  - `checks.py` đủ: VTT lint, dead-air, lệnh `dod <stage>`.
+  - `hooks/hooks.json` + `hooks/demo_hook.py`: chặn agent ghi tay `project.json`, `privacy.accepted` (phần còn lại của S-24) và `project.py set checks`.
+  - `maxTurns` cho mọi agent; `demo.py status`; CI Tier 0–1.
+  - Android hybrid/WebView qua CDP (`android_webview_adapter.py`; chỉ mô phỏng bằng Chromium local qua CDP, nhãn "chưa test trên thiết bị").
+- **Hoãn sang backlog:** đổi trải nghiệm gate (nháp ở G2, mẫu giọng, S2b), channel presets, cache key, `blur.py track`/verify non-web/`os_hygiene`, mọi nền tảng khác.
+
 **Trạng thái P0-web:** xong. Code review vòng 3 có 1 blocker (R-18), đã sửa. Security vòng 3: PASS. S-19, S-26, S-27 và S-29 chuyển vào backlog theo quy tắc 1; bản sửa dở được lưu ở `.team/backlog/s19-s26-partial.patch`.
 
 ### P0 (P0-web): chữa nỗi đau chính (blur chậm/treo) mà không đổi roster
