@@ -1,3 +1,0 @@
-rapidocr>=3.0
-onnxruntime>=1.20
-opencv-python-headless>=4.8

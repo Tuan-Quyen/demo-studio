@@ -23,8 +23,8 @@ Load skill `run-kits` first: roster, brief template, handoff format, workspace, 
    - `diff` lists changes: tell the user what changed. Mark the `rerun` keys (and `gates`, if any) stale in STATE.md and restart at the earliest owner in `pre` (app-scout / storyboarder / scriptwriter, with G2 again) or else the first key in `rerun`, then go downstream in order. `needs_user` true (e.g. `length_s`, `platform`) → ask before re-running. Changes that only touch `install.*` or `tools.*` re-run nothing.
    - Snapshots: run `config.py --slug <slug> apply` right after **G1** is approved (baseline, so a later edit is diffable) and again after every pipeline completes (G3 approved). A missing snapshot (`.demo.applied.json` absent) means **first run**: `diff` has nothing to compare, do not treat it as an error or as "everything changed".
    - A `length_s` change re-runs storyboarder (G2 again) → timeline → motion, captions, mix → checks → delivery; voice re-runs only if the narration changes. A `voice.lexicon` change re-runs voice (no G2).
-   - Missing decisions (`get motion.level`, `get platform` are null): ask the user (AskUserQuestion), then record the answer in `demo.yaml` yourself (edit only that field) and `validate`.
-   - Tool choices (`tools.ocr`, `voice.engine`, `motion.level`) are asked just in time with the tools of the stage that needs them (see **Tools, just in time**), not here.
+   - Missing decisions (`get motion.level`, `get platform` are null, or `remotion` is in neither `install.approved` nor `install.declined`): ask the user (AskUserQuestion; render engine and motion level per skill `motion-fx` "Ask once per project": motion-designer plans for the engine, so it is decided here; Remotion itself is installed just in time), then record the answer in `demo.yaml` yourself (edit only that field) and `validate`.
+   - Other tool choices (`voice.engine`) are asked just in time with the tools of the stage that needs them (see **Tools, just in time**), not here.
 
 ## Classify the request
 | Pipeline | Use when | Steps (∥ = parallel) |
@@ -64,9 +64,9 @@ Every agent ends with the Handoff block. For each one:
 
 ## Tools, just in time
 Nothing is installed at the start of a pipeline. Stage names and what each needs: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --stages` (single source; do not copy it into briefs). Stages: scout, voice, scenes, capture, blur, sync, motion, captions, mix, render, qa, package.
-1. **Right before a step** (each agent of a parallel group: its own stage), run `setup_tools.py --stage <name> --platform <platform> --json`. `ready` true → run the step, nothing else.
+1. **Right before a step** (each agent of a parallel group: its own stage), run `setup_tools.py --stage <name> --platform <platform> --json` (stages `motion` and `render` add `--choose render=<remotion|ffmpeg>`: the engine decided at G1). `ready` true → run the step, nothing else.
 2. Not ready → brief toolsmith in mode `suggest` for that stage only (it reads the choices recorded in `demo.yaml` and returns `needs-input` with options, recommended default and the plan). Never ask for another stage's tools.
-3. Ask with AskUserQuestion: install the recommended / an alternative (or `none`/fallback, e.g. cinematic → basic) / skip with the fallback / cancel. Record decisions in `demo.yaml` first (`tools.*`, `voice.engine`, `motion.level`), then `install.approved` / `install.declined`; a declined feature is not asked again.
+3. Ask with AskUserQuestion: install the recommended / an alternative (or `none`/fallback, e.g. cinematic → basic) / skip with the fallback / cancel. Record decisions in `demo.yaml` first (`voice.engine`, `motion.level`), then `install.approved` / `install.declined`; a declined feature is not asked again.
 4. On a yes, brief toolsmith in mode `install` with the exact features and the approval; then run the step. Cancel → stop and say what stays undone.
 5. Agents still `--check` their own features. A `needs-input` for a missing feature is handled by steps 2-4 for that stage. Never install without the user's answer; the `tools` pipeline works the same way.
 At G1 you may show `--stages` as information (what will be needed, sizes); that is not an install question.

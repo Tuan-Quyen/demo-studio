@@ -136,7 +136,7 @@ Locked and owner-checked, so parallel agents do not overwrite each other. Never 
 
 **Dependency order:** voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. A `length_s` change re-runs storyboarder (G2) → timeline → motion, captions, mix → checks → delivery; voice only if narration changes.
 
-**Render checks (`#checks`; thresholds from `demo.yaml` `targets`/`captions`, defaults in skill `media-specs`):** sync drift ≤`targets.max_drift_ms` (80) per scene → sync-editor · `targets.lufs` (−14) ±1 LUFS, ≤`targets.true_peak` (−1) dBTP → sound-mixer · 0 readable text in blur regions (OCR) → privacy-blurrer · no unintended black/freeze → capture-operator · captions ≤`captions.max_chars` (42) chars/line, ≤`targets.caption_offset_ms` (200) off → caption-writer · total length ±10% of `length_s` → storyboarder.
+**Render checks (`#checks`; thresholds from `demo.yaml` `targets`/`captions`, defaults in skill `media-specs`):** sync drift ≤`targets.max_drift_ms` (80) per scene → sync-editor · `targets.lufs` (−14) ±1 LUFS, ≤`targets.true_peak` (−1) dBTP → sound-mixer · every `sensitive` marker covered by `#blur` (`project.py check-blur`, geometric, no OCR) → privacy-blurrer · no unintended black/freeze → capture-operator · captions ≤`captions.max_chars` (42) chars/line, ≤`targets.caption_offset_ms` (200) off → caption-writer · total length ±10% of `length_s` → storyboarder.
 
 ## 7. /fix routing
 
@@ -157,7 +157,7 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 
 ## 8. Toolkit
 
-`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--options [capability]` (alternatives per job, see below) · `--stage [name]` / `--stages` (read-only: what a pipeline stage needs, alternatives, suggested `--plan`; `--platform`, `--choose cap=value`, `--with feature`, `--json`) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/.venv`, records `.demo/toolkit.json`. It never prompts.
+`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--options [capability]` (alternatives per job, see below) · `--stage [name]` / `--stages` (read-only: what a pipeline stage needs, alternatives, suggested `--plan`; `--platform`, `--choose cap=value`, `--with feature`, `--json`) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/` (`.venv`, `remotion/`, `appium/`), records `.demo/toolkit.json`. It never prompts.
 
 | Feature | Gives |
 |---|---|
@@ -166,28 +166,26 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 | `voice-edge` (default) / `voice-kokoro` / `voice-elevenlabs` | free online TTS / offline, heavy (torch) / paid, needs `ELEVENLABS_API_KEY` |
 | `captions` | word-level timing (faster-whisper) |
 | `mix` | ducking and loudness normalisation |
-| `blur` | region blur (OpenCV) |
-| `motion-basic` / `motion-cinematic` | ffmpeg zoom/fade (0 MB) / Remotion titles and callouts (Node ≥18, ~400 MB) |
-| `qa-ocr` (default) / `qa-ocr-tesseract` | OCR check for leftover sensitive text, recommended with real data: RapidOCR + onnxruntime (~120 MB, Python 3.10-3.13) / Tesseract (~60 MB, needs the `tesseract` program on PATH) |
+| `blur` | moving-region blur for the ffmpeg fallback renderer (OpenCV) |
+| `remotion` (default) / `motion-basic` | render engine for every pipeline: Remotion, all motion levels (Node ≥18, ~550 MB, `.demo/remotion/`) / ffmpeg fallback, motion none + basic only (0 MB) |
 | `package` | thumbnails |
 
 Features not yet in `--list` are not installed by the script; report `blocked` rather than improvising.
 
-**Choosing the tool (capabilities).** Where several features do the same job, the user picks; no agent hard-codes one. `setup_tools.py --options [ocr|voice|motion] [--json]` lists the alternatives (tool, effect, size, needs, installed / missing / blocked, recommended first) and the `demo.yaml` field that records the choice:
+**Choosing the tool (capabilities).** Where several features do the same job, the user picks; no agent hard-codes one. `setup_tools.py --options [voice|render] [--json]` lists the alternatives (tool, effect, size, needs, installed / missing / blocked, recommended first) and the `demo.yaml` field that records the choice:
 
 | Capability | demo.yaml | Values (features) |
 |---|---|---|
-| `ocr` | `tools.ocr` | `qa-ocr` (recommended) · `qa-ocr-tesseract` · `none` |
 | `voice` | `voice.engine` | `edge` (`voice-edge`) · `kokoro` · `elevenlabs` · `recorded` (no feature) |
-| `motion` | `motion.level` | `basic` (`motion-basic`) · `cinematic` · `none` |
+| `render` | `install.approved` / `install.declined` (`remotion`) | `remotion` (recommended) · `ffmpeg` (`motion-basic`, motion none/basic only) |
 
-Resolving **OCR tool** (demo-qa, render-engineer, privacy-blurrer, `/review`): `config.py get tools.ocr` → that feature is the one to `--check`. `null` = not chosen: use the first installed option of `--options ocr --json`; none installed → handoff `needs-input` and the director asks (options table, recommended first). `none` = no OCR: the agent checks frames by eye and says so in `notes` (render-engineer: blur row detail `ocr skipped (tools.ocr none)`). Call patterns per tool: `media-specs` (Render checks). A new alternative = a `CATALOG` entry with `capability`, its `CAPABILITIES` value and the matching enum in `config.py`.
+Blur coverage needs no tool choice: `project.py check-blur` (stdlib, geometric) is the only check, no OCR. A new alternative = a `CATALOG` entry with `capability` and its `CAPABILITIES` value.
 
-**Just-in-time flow (nothing is installed at the start of a pipeline).** The stage map lives in `setup_tools.py` (`--stages`); the pipelines name each step's stage.
-1. Right before a step the director runs `--stage <name> --platform <p> --json`. `ready` → run the step.
-2. Not ready → toolsmith `suggest` for that stage only (reads `tools.ocr`, `voice.engine`, `motion.level`, `platform`, `voice.lexicon`, `install.declined` from `demo.yaml`; returns `needs-input` with options table, recommended default and `--plan`, or `done`).
-3. Director asks the user (install recommended / alternative / skip with fallback / cancel). Approved → toolsmith `install` (`--plan` check, `--install`, `--check`), then the step runs. Declined → fall back (cinematic → basic, word captions → sentence captions) and continue.
-4. Director records the decision in `demo.yaml` (`install.approved` / `install.declined`, plus the choice itself: `tools.ocr`, `motion.level`, `voice.engine`) so it is not asked again. Agents keep their own `--check` as a safety net: a missing feature → `needs-input` with the `--plan`, handled by steps 2-4. Never install a feature nobody needs yet.
+**Just-in-time flow (nothing is installed at the start of a pipeline).** The stage map lives in `setup_tools.py` (`--stages`); the pipelines name each step's stage. The render engine is the one choice made at G1 (motion-designer plans for it, `motion-fx`); Remotion itself is still installed just in time, before the motion stage.
+1. Right before a step the director runs `--stage <name> --platform <p> --json` (with `--choose render=<remotion|ffmpeg>` for `motion` / `render`). `ready` → run the step.
+2. Not ready → toolsmith `suggest` for that stage only (reads `voice.engine`, `motion.level`, `platform`, `voice.lexicon`, `install.approved`, `install.declined` from `demo.yaml`; returns `needs-input` with options table, recommended default and `--plan`, or `done`).
+3. Director asks the user (install recommended / alternative / skip with fallback / cancel). Approved → toolsmith `install` (`--plan` check, `--install`, `--check`), then the step runs. Declined → fall back (Remotion → ffmpeg with cinematic → basic, word captions → sentence captions) and continue.
+4. Director records the decision in `demo.yaml` (`install.approved` / `install.declined`, plus the choice itself: `motion.level`, `voice.engine`) so it is not asked again. Agents keep their own `--check` as a safety net: a missing feature → `needs-input` with the `--plan`, handled by steps 2-4. Never install a feature nobody needs yet.
 
 ## 9. Resume
 

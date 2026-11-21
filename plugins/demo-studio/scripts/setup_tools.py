@@ -7,7 +7,7 @@ Non-interactive: never prompts. The agent asks the user first (using ``--plan``)
 then runs ``--install``.
 
     setup_tools.py --list
-    setup_tools.py --options [ocr|voice|motion] [--json]
+    setup_tools.py --options [voice|render] [--json]
     setup_tools.py --plan capture,blur [--json]
     setup_tools.py --install capture,blur [--dry-run] [--json] [--venv PATH]
     setup_tools.py --check [capture,blur] [--json]
@@ -15,7 +15,7 @@ then runs ``--install``.
     setup_tools.py --stage <name> [--platform web|desktop|android|ios] [--choose cap=value,...] [--with f,...] [--json]
     setup_tools.py --stages [--json]
 
---options lists, per capability (a job several features can do: ocr, voice, motion), the alternatives
+--options lists, per capability (a job several features can do: voice, render), the alternatives
 with tool, effect, size, needs, installed/missing/blocked and which one is recommended, plus the
 demo.yaml setting that records the user's choice. The plugin never picks silently: the director shows
 this table and the user chooses.
@@ -31,6 +31,11 @@ installed). Always exit 0; `ready` in the output says whether the stage can run 
 bin/python) for agent briefs: exit 0 if it exists, exit 3 (one line on stderr) if not.
 --json prints {"python": path, "exists": bool}.
 
+Workspace = ``.demo`` under the current directory (``--workspace`` overrides).
+Feature ``remotion`` (the default render engine) copies the plugin's ``remotion/`` source into
+<workspace>/remotion/ and runs ``npm install`` there; the plugin itself never holds node_modules.
+The copy is stamped with a hash of the source (``.sync.json``): after a plugin update ``--check``
+reports it out of date and ``--install remotion`` re-syncs it.
 Appium-based features (capture-desktop on macOS, capture-android, capture-ios) share one
 Appium install in <workspace>/appium/ (APPIUM_HOME). Env DEMO_STUDIO_OS=win|mac|linux
 overrides OS detection (testing only).
@@ -41,6 +46,7 @@ Exit codes: 0 ok, 3 --python: venv not found, 1 a requested feature is missing /
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -56,7 +62,8 @@ if sys.version_info < (3, 10):
 
 REQ_DIR = Path(__file__).resolve().parent / "requirements"
 MIN_NODE_MAJOR = 18
-REMOTION_PKGS = ["remotion", "@remotion/cli", "@remotion/captions"]
+REMOTION_SRC = Path(__file__).resolve().parent.parent / "remotion"  # plugin source, no node_modules
+REMOTION_SKIP = {"node_modules", "package-lock.json", "out", ".sync.json"}
 APPIUM_CORE_MB = 250  # shared Appium npm install (counted once per plan)
 APPIUM_DRIVER_PKGS = {  # driver id -> npm package (node_modules detection)
     "uiautomator2": "appium-uiautomator2-driver",
@@ -93,7 +100,7 @@ CATALOG: dict[str, dict] = {
         "node": False,
         "size_mb": 250,
         "size_note": "",
-        "agents": ["scene-automator", "capture-operator"],
+        "agents": ["scene-automator", "capture-operator", "privacy-blurrer", "demo-qa"],
     },
     "capture-desktop": {
         "effect": "Record a desktop app window (Windows: pywinauto UI automation; macOS: Appium Mac2)",
@@ -212,7 +219,7 @@ CATALOG: dict[str, dict] = {
         "agents": ["sound-mixer"],
     },
     "blur": {
-        "effect": "Blur/redact sensitive regions (emails, tokens, faces) in recorded frames",
+        "effect": "Moving-region blur (OpenCV) for the ffmpeg fallback renderer; Remotion blurs by itself",
         "reqs": "blur.txt",
         "modules": ["cv2", "numpy"],
         "post": [],
@@ -221,12 +228,12 @@ CATALOG: dict[str, dict] = {
         "node": False,
         "size_mb": 60,
         "size_note": "",
-        "agents": ["privacy-blurrer"],
+        "agents": ["render-engineer"],
     },
     "motion-basic": {
-        "capability": "motion",
+        "capability": "render",
         "tool": "ffmpeg filters",
-        "effect": "Zoom/pan, overlays and fades via ffmpeg filters (no extra packages)",
+        "effect": "Fallback render engine (ffmpeg filters) when Remotion is declined or Node is missing: motion none/basic only",
         "reqs": None,
         "modules": ["imageio_ffmpeg"],
         "post": [],
@@ -237,48 +244,19 @@ CATALOG: dict[str, dict] = {
         "size_note": "uses ffmpeg from capture",
         "agents": ["motion-designer"],
     },
-    "motion-cinematic": {
-        "capability": "motion",
-        "tool": "Remotion (Node)",
-        "effect": "Cinematic titles, transitions and animated captions rendered with Remotion",
+    "remotion": {
+        "capability": "render",
+        "tool": "Remotion (Node + headless Chrome)",
+        "effect": "Default render engine: blur, motion, captions and audio in one pass (all motion levels)",
         "reqs": None,
         "modules": [],
         "post": ["remotion"],
         "requires": [],
         "env": None,
         "node": True,
-        "size_mb": 400,
-        "size_note": "npm packages in <workspace>/remotion/",
+        "size_mb": 550,
+        "size_note": "npm packages + headless Chrome in .demo/remotion/",
         "agents": ["motion-designer", "render-engineer"],
-    },
-    "qa-ocr": {
-        "capability": "ocr",
-        "tool": "RapidOCR + ONNX Runtime",
-        "effect": "OCR the finished video to verify on-screen text, captions and redactions",
-        "reqs": "qa-ocr.txt",
-        "modules": ["rapidocr", "onnxruntime", "cv2"],
-        "post": [],
-        "requires": [],
-        "env": None,
-        "node": False,
-        "size_mb": 120,
-        "size_note": "models ship inside the wheel; Python 3.10-3.13",
-        "agents": ["demo-qa", "render-engineer", "privacy-blurrer"],
-    },
-    "qa-ocr-tesseract": {
-        "capability": "ocr",
-        "tool": "Tesseract (pytesseract)",
-        "effect": "OCR the finished video with Tesseract: light, but less accurate on UI text; needs the tesseract program",
-        "reqs": "qa-ocr-tesseract.txt",
-        "modules": ["pytesseract", "cv2"],
-        "post": [],
-        "requires": [],
-        "env": None,
-        "node": False,
-        "bins": {"tesseract": "tesseract program not found on PATH (apt install tesseract-ocr | brew install tesseract | winget install UB-Mannheim.TesseractOCR)"},
-        "size_mb": 60,
-        "size_note": "+ the tesseract program, installed separately",
-        "agents": ["demo-qa", "render-engineer", "privacy-blurrer"],
     },
     "package": {
         "effect": "Thumbnails, posters and cover images for delivery",
@@ -298,18 +276,11 @@ CATALOG: dict[str, dict] = {
 # Capabilities: a job that several features can do. The user chooses; the catalog only lists.
 #   setting  demo.yaml field that records the choice
 #   default  recommended feature (listed first)
-#   values   feature -> value written to `setting` (ocr: the feature key itself)
-#   none     value meaning "no tool", with what that costs
-# config.py keeps the enum of `tools.ocr` in step (a test compares both).
+#   values   feature -> value written to `setting`
+#   none     optional: value meaning "no tool", with what that costs (render has none: every video
+#            needs an engine)
 # ---------------------------------------------------------------------------
 CAPABILITIES: dict[str, dict] = {
-    "ocr": {
-        "title": "Text recognition (OCR) for blur and QA checks",
-        "setting": "tools.ocr",
-        "default": "qa-ocr",
-        "values": {"qa-ocr": "qa-ocr", "qa-ocr-tesseract": "qa-ocr-tesseract"},
-        "none": {"value": "none", "effect": "no OCR: blur and text checked by eye on sampled frames only, a warning is logged"},
-    },
     "voice": {
         "title": "Narration voice",
         "setting": "voice.engine",
@@ -317,12 +288,11 @@ CAPABILITIES: dict[str, dict] = {
         "values": {"voice-edge": "edge", "voice-kokoro": "kokoro", "voice-elevenlabs": "elevenlabs"},
         "none": {"value": "recorded", "effect": "you record your own WAVs; no TTS feature"},
     },
-    "motion": {
-        "title": "Motion (zoom, titles, transitions)",
-        "setting": "motion.level",
-        "default": "motion-basic",
-        "values": {"motion-basic": "basic", "motion-cinematic": "cinematic"},
-        "none": {"value": "none", "effect": "no motion effects"},
+    "render": {
+        "title": "Render engine (blur, motion, captions, audio in one pass)",
+        "setting": "install.approved / install.declined (remotion)",
+        "default": "remotion",
+        "values": {"remotion": "remotion", "motion-basic": "ffmpeg"},
     },
 }
 
@@ -350,14 +320,15 @@ STAGES: dict[str, dict] = {
                            ("capture", "voice.engine is recorded (ffmpeg only)")]},
     "scenes": {"step": "Scenes", "agents": ["scene-automator"], "needs_by_platform": PLATFORM_FEATURES},
     "capture": {"step": "Capture", "agents": ["capture-operator"], "needs_by_platform": PLATFORM_FEATURES},
-    "blur": {"step": "Post", "agents": ["privacy-blurrer"], "needs": ["blur"], "choices": ["ocr"]},
+    "blur": {"step": "Post", "agents": ["privacy-blurrer"], "needs": ["capture"],
+             "note": "geometric check (project.py check-blur) + ffmpeg placement frames; no OCR"},
     "sync": {"step": "Post", "agents": ["sync-editor"], "needs": ["capture"], "note": "ffmpeg comes with capture"},
-    "motion": {"step": "Post", "agents": ["motion-designer"], "choices": ["motion"]},
+    "motion": {"step": "Post", "agents": ["motion-designer"], "choices": ["render"]},
     "captions": {"step": "Post", "agents": ["caption-writer"], "needs": ["captions"]},
     "mix": {"step": "Post", "agents": ["sound-mixer"], "needs": ["mix"]},
-    "render": {"step": "Render", "agents": ["render-engineer"], "needs": ["capture"], "choices": ["ocr"],
-               "optional": [("motion-cinematic", "motion.level is cinematic (Remotion render)")]},
-    "qa": {"step": "QA", "agents": ["demo-qa"], "choices": ["ocr"]},
+    "render": {"step": "Render", "agents": ["render-engineer"], "needs": ["capture"], "choices": ["render"],
+               "optional": [("blur", "engine is ffmpeg and #blur has moving regions (keyframes)")]},
+    "qa": {"step": "QA", "agents": ["demo-qa"], "needs": ["capture"], "note": "frames by eye; no OCR"},
     "package": {"step": "Package", "agents": ["packager"], "needs": ["package"]},
 }
 
@@ -371,7 +342,7 @@ class Ctx:
         self.demo_dir = self.cwd / ".demo"
         self.toolkit = self.demo_dir / "toolkit.json"
         self.venv = Path(venv).expanduser().resolve() if venv else (self.demo_dir / ".venv")
-        self.workspace = Path(workspace).expanduser().resolve() if workspace else self.cwd
+        self.workspace = Path(workspace).expanduser().resolve() if workspace else self.demo_dir
         self.remotion_dir = self.workspace / "remotion"
         self.appium_dir = self.workspace / "appium"
         self.appium_queued = False  # core npm install already scheduled in this run
@@ -584,6 +555,50 @@ def node_info() -> dict:
     return {"ok": True, "version": ver, "npm": npm, "reason": None}
 
 
+def remotion_source_files() -> list[Path]:
+    out = []
+    for f in sorted(REMOTION_SRC.rglob("*")):
+        rel = f.relative_to(REMOTION_SRC)
+        if f.is_file() and not (set(rel.parts) & REMOTION_SKIP):
+            out.append(f)
+    return out
+
+
+def remotion_source_hash() -> str:
+    h = hashlib.sha256()
+    for f in remotion_source_files():
+        h.update(f.relative_to(REMOTION_SRC).as_posix().encode() + b"\0" + f.read_bytes() + b"\0")
+    return h.hexdigest()[:16]
+
+
+def remotion_synced(ctx: Ctx) -> bool:
+    try:
+        data = json.loads((ctx.remotion_dir / ".sync.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return data.get("hash") == remotion_source_hash()
+
+
+def sync_remotion(ctx: Ctx) -> None:
+    """Copy the plugin's remotion/ source into the workspace (node_modules stay there)."""
+    dst = ctx.remotion_dir
+    dst.mkdir(parents=True, exist_ok=True)
+    keep = {f.relative_to(REMOTION_SRC) for f in remotion_source_files()}
+    for f in sorted(dst.rglob("*"), reverse=True):  # drop files the plugin no longer ships
+        rel = f.relative_to(dst)
+        if set(rel.parts) & REMOTION_SKIP:
+            continue
+        if f.is_file() and rel not in keep:
+            f.unlink()
+        elif f.is_dir() and not any(f.iterdir()):
+            f.rmdir()
+    for rel in sorted(keep):
+        (dst / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REMOTION_SRC / rel, dst / rel)
+    (dst / ".sync.json").write_text(json.dumps({"hash": remotion_source_hash(), "source": str(REMOTION_SRC),
+                                                "synced_at": now()}, indent=2) + "\n", encoding="utf-8")
+
+
 def remotion_installed(ctx: Ctx) -> str | None:
     pj = ctx.remotion_dir / "node_modules" / "remotion" / "package.json"
     try:
@@ -653,9 +668,12 @@ def feature_states(ctx: Ctx, keys: list[str]) -> dict[str, dict]:
             return {"status": "blocked", "reason": "; ".join(bins), "hard": True, "env_block": True}
         if is_remotion(f):
             ver = remotion_installed(ctx)
-            if ver and k in record:
-                return {"status": "installed", "reason": f"remotion {ver}"}
-            return {"status": "missing", "reason": f"remotion not installed in {ctx.remotion_dir}"}
+            if not (ver and k in record):
+                return {"status": "missing", "reason": f"remotion not installed in {ctx.remotion_dir}"}
+            if not remotion_synced(ctx):
+                return {"status": "missing",
+                        "reason": "remotion source out of date (plugin changed); re-run --install remotion"}
+            return {"status": "installed", "reason": f"remotion {ver} in {ctx.remotion_dir}"}
         if not ctx.venv_exists:
             return {"status": "missing", "reason": f"venv not found at {ctx.venv}"}
         absent = [m for m in pos(f, "modules", []) if not mods.get(m)]
@@ -720,10 +738,14 @@ def feature_commands(ctx: Ctx, key: str) -> list[dict]:
                          "cmd": [str(ctx.vpy), "-m", "playwright", "install", "chromium"], "cwd": None})
         elif step == "remotion":
             npm = shutil.which("npm") or "npm"
-            if not (ctx.remotion_dir / "package.json").exists():
-                cmds.append({"label": "npm init", "cmd": [npm, "init", "-y"], "cwd": str(ctx.remotion_dir)})
-            cmds.append({"label": "npm install remotion",
-                         "cmd": [npm, "install", *REMOTION_PKGS], "cwd": str(ctx.remotion_dir)})
+            npx = shutil.which("npx") or "npx"
+            rdir = str(ctx.remotion_dir)
+            cmds.append({"label": "copy remotion source", "cmd": ["copy", str(REMOTION_SRC), rdir],
+                         "cwd": None, "fn": lambda: sync_remotion(ctx)})
+            cmds.append({"label": "npm install (remotion)",
+                         "cmd": [npm, "install", "--no-audit", "--no-fund"], "cwd": rdir})
+            cmds.append({"label": "remotion browser ensure",
+                         "cmd": [npx, "--no-install", "remotion", "browser", "ensure"], "cwd": rdir})
     drivers = pos(f, "appium") or []
     if drivers:
         npm = shutil.which("npm") or "npm"
@@ -845,7 +867,7 @@ def cmd_options(args, ctx: Ctx, cap: str) -> int:
                          "needs": needs_text(f), "status": st["status"], "reason": st.get("reason"),
                          "recommended": k == spec["default"]})
         out.append({"capability": c, "title": spec["title"], "setting": spec["setting"],
-                    "default": spec["values"][spec["default"]], "none": spec["none"], "options": opts})
+                    "default": spec["values"][spec["default"]], "none": spec.get("none"), "options": opts})
     if args.json:
         print(json.dumps({"capabilities": out}, indent=2))
         return 0
@@ -858,7 +880,8 @@ def cmd_options(args, ctx: Ctx, cap: str) -> int:
             print(f"  {'':<18} {o['tool']}: {o['effect']}{why}")
             if o["needs"] != "-":
                 print(f"  {'':<18} needs: {o['needs']}")
-        print(f"  {item['none']['value']:<18} {'-':<18} {'-':<9} {item['none']['effect']}")
+        if item["none"]:
+            print(f"  {item['none']['value']:<18} {'-':<18} {'-':<9} {item['none']['effect']}")
     return 0
 
 
@@ -870,7 +893,7 @@ def _feature_row(k: str, st: dict) -> dict:
 
 
 def parse_choices(raw: str | None, stage: dict, name: str) -> dict[str, str]:
-    """`voice=kokoro,ocr=none` -> {capability: feature or "none"}."""
+    """`voice=kokoro,render=ffmpeg` -> {capability: feature or "none"}."""
     out: dict[str, str] = {}
     for part in [p.strip() for p in (raw or "").split(",") if p.strip()]:
         cap, sep, val = part.partition("=")
@@ -880,12 +903,13 @@ def parse_choices(raw: str | None, stage: dict, name: str) -> dict[str, str]:
         if cap not in stage.get("choices", []):
             raise UsageError(f"Stage {name} has no choice {cap!r}. Valid: {', '.join(stage.get('choices', [])) or 'none'}")
         spec = CAPABILITIES[cap]
-        if val == spec["none"]["value"]:
+        none = spec.get("none")
+        if none and val == none["value"]:
             out[cap] = "none"
             continue
         match = [k for k, v in spec["values"].items() if val in (k, v)]
         if not match:
-            valid = ", ".join(list(spec["values"].values()) + [spec["none"]["value"]])
+            valid = ", ".join(list(spec["values"].values()) + ([none["value"]] if none else []))
             raise UsageError(f"Unknown value {val!r} for {cap}. Valid: {valid}")
         out[cap] = match[0]
     return out
@@ -920,7 +944,7 @@ def stage_report(ctx: Ctx, name: str, platform: str | None, chosen: dict[str, st
         choices.append({"capability": c, "title": spec["title"], "setting": spec["setting"],
                         "recommended": spec["values"][spec["default"]], "chosen": spec["none"]["value"] if pick == "none"
                         else (spec["values"][pick] if pick else None),
-                        "status": status, "options": opts, "none": spec["none"]})
+                        "status": status, "options": opts, "none": spec.get("none")})
     optional = [{**_feature_row(k, states[k]), "when": when, "included": k in with_} for k, when in opt]
     ready = all(r["status"] == "installed" for r in required) and all(c["status"] in ("ok", "installed", "skipped") for c in choices)
     # suggested plan: missing required + chosen (or best available recommended) option + requested optional
@@ -975,7 +999,8 @@ def cmd_stage(args, ctx: Ctx, name: str) -> int:
             why = f" - {o['reason']}" if o["reason"] and o["status"] != "installed" else ""
             print(f"    {o['value']:<12} {o['feature']:<18} {o['status']:<9} {o['size']}{tag}{why}")
             print(f"    {'':<12} {o['tool']}: {o['effect']}" + (f"; needs: {o['needs']}" if o["needs"] != "-" else ""))
-        print(f"    {c['none']['value']:<12} {'-':<18} {'-':<9} {c['none']['effect']}")
+        if c["none"]:
+            print(f"    {c['none']['value']:<12} {'-':<18} {'-':<9} {c['none']['effect']}")
     for o in rep["optional"]:
         mark = " [in plan]" if o["included"] else ""
         print(f"  option {o['feature']:<18} {o['status']:<9} {o['size']}  when {o['when']}{mark}")
@@ -1049,6 +1074,12 @@ def cmd_check(args, ctx: Ctx, keys: list[str]) -> int:
 
 
 def run_step(step: dict, capture: bool) -> tuple[int, str]:
+    if step.get("fn"):
+        try:
+            step["fn"]()
+            return 0, ""
+        except OSError as e:
+            return 1, str(e)
     cwd = step["cwd"]
     if cwd:
         Path(cwd).mkdir(parents=True, exist_ok=True)
@@ -1177,7 +1208,9 @@ def feature_states_after_install(ctx: Ctx, key: str, record: dict) -> str | None
     """Return an error string if the feature is not usable after its steps ran."""
     f = CATALOG[key]
     if is_remotion(f):
-        return None if remotion_installed(ctx) else "remotion not found in node_modules after install"
+        if not remotion_installed(ctx):
+            return "remotion not found in node_modules after install"
+        return None if remotion_synced(ctx) else "remotion source copy does not match the plugin"
     wanted = pos(f, "modules", [])
     mods = probe_modules(ctx, wanted)
     absent = [m for m in wanted if not mods.get(m)]
@@ -1205,12 +1238,13 @@ def main(argv: list[str] | None = None) -> int:
                    help="read-only: what a pipeline stage needs (%s); no name = overview" % ", ".join(STAGES))
     g.add_argument("--stages", action="store_true", help="read-only overview of all stages")
     ap.add_argument("--platform", help="with --stage/--stages: web|desktop|android|ios (default web)")
-    ap.add_argument("--choose", metavar="CAP=VALUE,...", help="with --stage: the user's choice per capability, e.g. voice=kokoro,ocr=none")
+    ap.add_argument("--choose", metavar="CAP=VALUE,...", help="with --stage: the user's choice per capability, e.g. voice=kokoro,render=ffmpeg")
     ap.add_argument("--with", dest="with_", metavar="A,B", help="with --stage: optional features to include in the plan")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--dry-run", action="store_true", help="with --install: print commands only")
     ap.add_argument("--venv", help="venv directory (default: .demo/.venv under the current directory)")
-    ap.add_argument("--workspace", help="workspace root; Remotion goes in <workspace>/remotion (default: cwd)")
+    ap.add_argument("--workspace", help="workspace root; Remotion and Appium go in <workspace>/remotion and "
+                    "<workspace>/appium (default: .demo under the current directory)")
     args = ap.parse_args(argv)
     ctx = Ctx(args.venv, args.workspace)
     try:

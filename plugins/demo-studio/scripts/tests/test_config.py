@@ -195,20 +195,6 @@ class Validation(Workspace):
         self.bad("install:\n  approved: [a]\n  declined: [a]\n", "both approved and declined")
         self.bad("install:\n  approved: [Bad Name]\n", "not a valid feature")
 
-    def test_tools_ocr(self):
-        self.bad("tools:\n  ocr: easyocr\n", "tools.ocr")
-        self.write("tools:\n  ocr: none\n")
-        self.assertEqual(config.load_config(self.path)["tools"]["ocr"], "none")
-        self.write("tools:\n  ocr: qa-ocr-tesseract\n")
-        self.assertEqual(config.load_config(self.path)["tools"]["ocr"], "qa-ocr-tesseract")
-        self.assertIsNone(config.defaults()["tools"]["ocr"])
-
-    def test_tools_ocr_enum_matches_catalog(self):
-        import setup_tools
-        spec = setup_tools.CAPABILITIES["ocr"]
-        self.assertEqual(config.SCHEMA["tools"]["ocr"]["enum"], list(spec["values"]) + [spec["none"]["value"]])
-        self.assertEqual(spec["setting"], "tools.ocr")
-
     def test_language(self):
         self.bad("voice:\n  language: english language\n", "voice.language")
         self.write("voice:\n  language: pt-BR\n")
@@ -646,11 +632,14 @@ class DiffMapping(Workspace):
         self.assertEqual(res["rerun"], [])
         self.assertEqual(len(res["changed"]), 1)
 
-    def test_tools_only(self):
-        res = self.diff("", "tools:\n  ocr: qa-ocr-tesseract\n")
+    def test_declining_remotion_switches_engine(self):
+        res = self.diff("install:\n  approved: [remotion]\n", "install:\n  declined: [remotion]\n")
+        self.assertEqual(self.keys(res), ["motion", "checks", "delivery"])
+        self.assertTrue(any("render engine changed (remotion -> ffmpeg)" in n for n in res["notes"]))
+
+    def test_approving_remotion_keeps_engine(self):
+        res = self.diff("", "install:\n  approved: [remotion]\n")
         self.assertEqual(res["rerun"], [])
-        self.assertEqual(res["pre"], [])
-        self.assertEqual(len(res["changed"]), 1)
 
     def test_multiple_changes_run_order_and_owners(self):
         res = self.diff("", "music:\n  style: calm\nprivacy:\n  real_data: true\n")

@@ -8,24 +8,27 @@ color: orange
 # render-engineer
 
 Inputs: `media/`, `project.json` keys `blur`, `timeline`, `motion`, `captions`, `mix` (all must exist).
-Read `demo.yaml` with `config.py --slug <slug> get formats|targets|captions` (ratios to render, thresholds). Load skill `media-specs` (codecs, measuring commands, default thresholds) and `motion-fx` (engine specifics).
+Read `demo.yaml` with `config.py --slug <slug> get formats|targets|captions|motion.level|install` (ratios to render, thresholds, engine choice). Load skill `media-specs` (codecs, measuring commands, default thresholds) and `motion-fx` (render engine, `render.mjs` usage).
 
 ## Tool check
-OCR tool: the user's choice, not hard-coded. Resolve it per skill `run-kits` §8 (OCR tool): `python ${CLAUDE_PLUGIN_ROOT}/scripts/config.py --slug <slug> get tools.ocr` → feature to check (`null` = first installed of `setup_tools.py --options ocr --json`, none installed → `needs-input` asking the director to offer the options); `none` = no OCR, check by eye and say so in `notes`.
-Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check capture,<the OCR feature>` (only `capture` when `none`). Add `motion-cinematic` when `#motion.engine` is Remotion. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
+Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check capture,remotion`. Engine: Remotion unless `remotion` is in `install.declined` or its check is `blocked` (then the ffmpeg fallback: check `motion-basic` and `blur` instead of `remotion`; see `motion-fx` Render engine). `remotion` `missing` (not installed or out of date after a plugin update) is a missing feature, never a reason to fall back. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
 Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
 ## Steps
 0. Before mixing run `scripts/vo.py check media/sNN.vo.wav` on every scene with one `--pause-ms <v>` per value of `#voice.scenes[].pauses_ms` (and confirm `#voice` has `lead_ms`, `trail_ms`, `sentences`, `words_per_s`, `pauses_ms`); a failure is a `vo` result in `#checks` with owner `voice-producer` and you return `blocked`.
 1. Confirm the five keys exist (`python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> keys`); missing key: return `blocked` naming the owner.
-2. Audio: run `#mix.chain` **verbatim**, never rebuild it from the parts; loudness off `#mix.preview` by > 0.5 LUFS or 0.5 dB = `blocked`, owner sound-mixer (chain not reproducible). Render in **one pass** at the source fps (never duplicate frames to reach 60): blur + motion + captions + mix into `final-16x9.mp4`; derive `final-9x16.mp4` and `final-1x1.mp4` only for the ratios in `formats` (demo.yaml) (reframe per `media-specs`, keep sensitive regions covered; map `#blur` scene-relative regions and `#motion` through `#timeline`/`media-specs` Spaces and time). Export `final.vtt`.
+2. Audio: run `#mix.chain` **verbatim** with ffmpeg (from `capture`) into `media/render/mix.wav` (48 kHz stereo PCM; `media/render/` is the render work folder, not a deliverable), never rebuild it from the parts; loudness of that file off `#mix.preview` by > 0.5 LUFS or 0.5 dB = `blocked`, owner sound-mixer (chain not reproducible).
+   Video, one pass per ratio in `formats` (demo.yaml), at the source fps (never duplicate frames to reach 60): blur + motion + captions + mix.
+   - **Remotion**: `node .demo/remotion/render.mjs --project .demo/<slug>/project.json --ratio <16x9|9x16|1x1> --out .demo/<slug>/media/final-<ratio>.mp4 --audio .demo/<slug>/media/render/mix.wav --level <motion.level>` plus `--burn-in` when `captions.burn_in` is true and `--layout <captions.layout>`. Exit 2 = bad project data: return `blocked` naming the key owner from the error; exit 1 = render failure: `blocked` with the last stderr lines (owner render-engineer). Never edit `.demo/remotion/` and never fall back to ffmpeg after a failed Remotion render.
+   - **ffmpeg fallback**: one filter graph per ratio per `media-specs` Encode and `motion-fx` ffmpeg recipes (blur first, then motion, reframe, captions; map `#blur` scene-relative regions and `#motion` through `#timeline` per `media-specs` Spaces and time).
+   Export `final.vtt` (and `final.srt`) from `#captions`. Delete `media/render/` after the checks pass.
 3. Measure the output and write all numbers:
    - sync drift per scene <= `targets.max_drift_ms` (default 80)
    - loudness `targets.lufs` (default -14) +/- 1 LUFS, true peak <= `targets.true_peak` (default -1) dBTP
-   - OCR on blur regions: 0 readable text via ONE `blur_check.py` call per output (`media-specs`: render as CLIP, `--control-clip` the raw, regions mapped to output px and final time; never a hand-rolled frame loop; exit 2 = partial: record the coverage reached, no retry; with `none` record the blur row as checked by eye, detail `ocr skipped (tools.ocr none)`)
+   - blur coverage: `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> check-blur` (geometric, no OCR; with `#timeline` present it checks only what reaches the final) exits 0; copy its `pass`, `tracks`, `frames_checked`, `fps`, `gaps`, `invalid`, `weak` into `results.blur` (owner privacy-blurrer; capture-operator when only `invalid` failed)
    - no unintended black frames or freezes
    - captions <= `captions.max_chars` (default 42) chars/line and **every** cue within `targets.caption_offset_ms` (default 200) ms of the measured onset of its first word (method in `media-specs`)
    - total length within 10% of `length_s`
-4. Write `#checks` (shape: `media-specs` project.json schemas; every result carries `owner`; `outputs.<ratio>.renderer` = the engine you actually used: ffmpeg | opencv | remotion, whatever `#motion.engine` hinted) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set checks --as render-engineer --file <json>`. For every failed result `owner` is the key owner (sync -> sync-editor, blur -> privacy-blurrer, loudness -> sound-mixer, captions -> caption-writer, black/freeze -> capture-operator, effects -> motion-designer).
+4. Write `#checks` (shape: `media-specs` project.json schemas; every result carries `owner`; `outputs.<ratio>.renderer` = the engine you actually used: `remotion` (from the `render.mjs` JSON line) | ffmpeg | opencv, whatever `#motion.engine` hinted) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set checks --as render-engineer --file <json>`. For every failed result `owner` is the key owner (sync -> sync-editor, blur -> privacy-blurrer, loudness -> sound-mixer, captions -> caption-writer, black/freeze -> capture-operator, effects -> motion-designer).
 5. Do not fix a failed item yourself: return `blocked` listing items and owners; thresholds come from `demo.yaml` (defaults in `media-specs`); never change them.
 
 ## Outputs
@@ -43,7 +46,7 @@ End your reply with exactly this block (`status` is `blocked` for a failure you 
 ### Handoff · render-engineer
 status: done | needs-input | blocked
 wrote: media/final-*.mp4, media/final.vtt, project.json#checks
-facts: pass, ratios rendered, max drift, LUFS, OCR hits, failed items with owners
+facts: renderer, pass, ratios rendered, max drift, LUFS, blur gaps, failed items with owners
 next: demo-qa (or key owner when blocked)
 notes: <issues; questions with options + recommended default>
 ```

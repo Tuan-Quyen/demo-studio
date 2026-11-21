@@ -47,7 +47,9 @@ voice:
   lexicon: {}
 
 motion:
-  level: null        # none | basic | cinematic. Default: null (director asks you once)
+  level: null        # none | basic | cinematic (cinematic needs the Remotion engine). Default: null (director asks you once)
+                     # Render engine: Remotion (feature remotion, Node >= 18) unless remotion is in
+                     # install.declined; then the ffmpeg fallback renders none/basic only.
 
 music:
   style: null        # text such as "calm electronic", or null for voice only. Default: null
@@ -67,15 +69,8 @@ targets:
 
 privacy:
   blur: []           # extra things to always blur, e.g. ["customer email", "API token"]. Default: []
-  real_data: false   # true = the app shows real personal data (qa-ocr check is then recommended). Default: false
-
-tools:
-  # Which tool does a job when several can. Ask the director for the options table
-  # (python <plugin>/scripts/setup_tools.py --options ocr). voice.engine and motion.level above are
-  # the same kind of choice for narration and motion.
-  ocr: null          # qa-ocr (RapidOCR, recommended) | qa-ocr-tesseract (light, needs the tesseract program)
-                     # | none (no OCR: blur checked by eye only). Default: null (director asks you once)
+  real_data: false   # true = the app shows real personal data (mark every element; demo-qa looks harder for unmarked leaks). Default: false
 
 install:
-  approved: []       # toolkit features you approved, e.g. [motion-cinematic]. Default: []
+  approved: []       # toolkit features you approved, e.g. [remotion]. Default: []
   declined: []       # toolkit features you declined, e.g. [voice-kokoro]. Default: []

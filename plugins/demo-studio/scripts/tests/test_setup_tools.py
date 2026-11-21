@@ -80,6 +80,58 @@ class PythonPath(unittest.TestCase):
         self.assertEqual(run("--python", "--list")[0], 2)
 
 
+class Remotion(unittest.TestCase):
+    """remotion/ source ships in the plugin; node_modules live only in <workspace>/remotion."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = setup_tools.Path(os.path.realpath(self._tmp.name))
+        self.src = root / "src"
+        (self.src / "src").mkdir(parents=True)
+        (self.src / "package.json").write_text('{"name": "x"}')
+        (self.src / "src" / "index.ts").write_text("registerRoot()")
+        (self.src / "node_modules" / "junk").mkdir(parents=True)
+        (self.src / "node_modules" / "junk" / "a.js").write_text("")
+        self._old = setup_tools.REMOTION_SRC
+        setup_tools.REMOTION_SRC = self.src
+        self.addCleanup(setattr, setup_tools, "REMOTION_SRC", self._old)
+        self.ctx = setup_tools.Ctx(None, str(root / "ws"))
+
+    def test_sync_copies_source_without_node_modules(self):
+        setup_tools.sync_remotion(self.ctx)
+        dst = self.ctx.remotion_dir
+        self.assertTrue((dst / "src" / "index.ts").exists())
+        self.assertFalse((dst / "node_modules").exists())
+        self.assertTrue(setup_tools.remotion_synced(self.ctx))
+
+    def test_plugin_change_marks_copy_out_of_date(self):
+        setup_tools.sync_remotion(self.ctx)
+        (self.src / "src" / "index.ts").write_text("registerRoot(Root)")
+        self.assertFalse(setup_tools.remotion_synced(self.ctx))
+        setup_tools.sync_remotion(self.ctx)
+        self.assertTrue(setup_tools.remotion_synced(self.ctx))
+
+    def test_resync_drops_removed_files_keeps_node_modules(self):
+        (self.src / "src" / "old.ts").write_text("")
+        setup_tools.sync_remotion(self.ctx)
+        dst = self.ctx.remotion_dir
+        (dst / "node_modules" / "remotion").mkdir(parents=True)
+        (self.src / "src" / "old.ts").unlink()
+        setup_tools.sync_remotion(self.ctx)
+        self.assertFalse((dst / "src" / "old.ts").exists())
+        self.assertTrue((dst / "node_modules" / "remotion").exists())
+
+    def test_default_workspace_is_dot_demo(self):
+        ctx = setup_tools.Ctx(None, None)
+        self.assertEqual(ctx.remotion_dir, setup_tools.Path.cwd() / ".demo" / "remotion")
+
+    def test_plugin_ships_render_entry(self):
+        for rel in ("package.json", "render.mjs", "src/index.ts"):
+            self.assertTrue((self._old / rel).exists(), rel)
+        self.assertFalse((self._old / "node_modules").exists(), "plugin must not keep node_modules")
+
+
 class Pins(unittest.TestCase):
     def test_captions_stack_is_pinned(self):
         lines = (setup_tools.REQ_DIR / "captions.txt").read_text().split()
@@ -102,28 +154,19 @@ class Capabilities(unittest.TestCase):
         for k, f in setup_tools.CATALOG.items():
             self.assertIn(f.get("capability"), (None, *setup_tools.CAPABILITIES), k)
 
-    def test_ocr_requirements(self):
-        reqs = (setup_tools.REQ_DIR / "qa-ocr.txt").read_text()
-        self.assertIn("rapidocr>=", reqs)
-        self.assertNotIn("rapidocr-onnxruntime", reqs)
-        self.assertIn("onnxruntime>=", reqs)  # rapidocr 3.x ships no inference engine
-        self.assertEqual(setup_tools.CATALOG["qa-ocr"]["modules"], ["rapidocr", "onnxruntime", "cv2"])
-        for f in ("qa-ocr", "qa-ocr-tesseract"):
-            self.assertTrue((setup_tools.REQ_DIR / setup_tools.CATALOG[f]["reqs"]).exists())
-
     def test_options_json(self):
-        code, out, _ = run("--options", "ocr", "--json", "--venv", self.venv)
+        code, out, _ = run("--options", "render", "--json", "--venv", self.venv)
         self.assertEqual(code, 0)
         cap = json.loads(out)["capabilities"][0]
-        self.assertEqual(cap["setting"], "tools.ocr")
-        self.assertEqual([o["feature"] for o in cap["options"]], ["qa-ocr", "qa-ocr-tesseract"])
+        self.assertEqual([o["feature"] for o in cap["options"]], ["remotion", "motion-basic"])
+        self.assertEqual([o["value"] for o in cap["options"]], ["remotion", "ffmpeg"])
         self.assertEqual([o["recommended"] for o in cap["options"]], [True, False])
-        self.assertEqual(cap["none"]["value"], "none")
+        self.assertIsNone(cap["none"])  # every video needs a render engine
 
     def test_options_all_and_text(self):
         code, out, _ = run("--options", "--venv", self.venv)
         self.assertEqual(code, 0)
-        for word in ("ocr:", "voice:", "motion:", "(recommended)", "recorded"):
+        for word in ("voice:", "render:", "(recommended)", "recorded"):
             self.assertIn(word, out)
 
     def test_options_unknown(self):
@@ -131,20 +174,12 @@ class Capabilities(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("Unknown capability", err)
 
-    def test_tesseract_needs_binary_on_path(self):
-        old = os.environ.get("PATH")
-        os.environ["PATH"] = self._tmp.name  # empty dir: no tesseract
-        self.addCleanup(lambda: os.environ.__setitem__("PATH", old))
-        code, out, _ = run("--check", "qa-ocr-tesseract", "--json", "--venv", self.venv)
-        self.assertEqual(code, 1)
-        self.assertEqual(json.loads(out)["features"][0]["status"], "blocked")
-
-    def test_list_still_works(self):
+    def test_no_ocr_feature(self):
         code, out, _ = run("--list", "--json")
         self.assertEqual(code, 0)
         keys = [r["key"] for r in json.loads(out)["features"]]
-        self.assertIn("qa-ocr", keys)
-        self.assertIn("qa-ocr-tesseract", keys)
+        self.assertFalse([k for k in keys if "ocr" in k], keys)  # blur is checked by project.py check-blur
+        self.assertNotIn("ocr", setup_tools.CAPABILITIES)
 
 
 class Stages(unittest.TestCase):
@@ -202,8 +237,9 @@ class Stages(unittest.TestCase):
         self.assertEqual(rep["suggested_features"], [])
         self.assertTrue(rep["ready"])
         self.assertIsNone(rep["plan"])
-        _, rep, _ = self.stage("qa", "--choose", "ocr=qa-ocr-tesseract")
-        self.assertEqual(rep["choices"][0]["chosen"], "qa-ocr-tesseract")
+        _, rep, _ = self.stage("render", "--choose", "render=ffmpeg", "--with", "blur")
+        self.assertEqual(rep["choices"][0]["chosen"], "ffmpeg")
+        self.assertIn("blur", rep["suggested_features"])
 
     def test_platform_features(self):
         _, rep, _ = self.stage("capture")
@@ -232,7 +268,7 @@ class Stages(unittest.TestCase):
 
     def test_usage_errors(self):
         self.assertEqual(run("--stage", "nope", "--venv", self.venv)[0], 2)
-        self.assertEqual(run("--stage", "voice", "--choose", "ocr=none", "--venv", self.venv)[0], 2)
+        self.assertEqual(run("--stage", "voice", "--choose", "render=none", "--venv", self.venv)[0], 2)
         self.assertEqual(run("--stage", "voice", "--choose", "voice=zzz", "--venv", self.venv)[0], 2)
         self.assertEqual(run("--stage", "mix", "--with", "captions", "--venv", self.venv)[0], 2)
         self.assertEqual(run("--stage", "scenes", "--platform", "tv", "--venv", self.venv)[0], 2)

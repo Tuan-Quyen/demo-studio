@@ -9,7 +9,7 @@ Tunable values (loudness, true peak, drift, caption width and offset, burn-in, f
 
 ## Encode
 - Record at the largest native size the platform gives; the render scales to the output size (`scale=1920:1080:flags=lanczos`). Web: Playwright `recordVideo` size MUST equal the viewport (a larger size pads, it does not scale), so a web clip is the viewport size (default 1280x720) and render upscales; pick a larger viewport only if the app layout allows. Never claim 1440p for a clip `ffprobe` does not show as 1440p.
-- Outputs: 16:9 1920x1080, 9:16 1080x1920, 1:1 1080x1080. One encode, from raw clips + project.json (blur, motion, captions, mix applied in the same pass).
+- Outputs: 16:9 1920x1080, 9:16 1080x1920, 1:1 1080x1080. One encode, from raw clips + project.json (blur, motion, captions, mix applied in the same pass). Renderer: Remotion (`.demo/remotion/render.mjs`, default) or the ffmpeg fallback (`motion-fx` Render engine); both must meet every spec below, and `#checks` measures the result the same way.
 - **fps = source fps.** Playwright `recordVideo` is capped at 25 fps, so a web raw is 25 fps and the output is 25 fps; never fake 60 by frame duplication. 60 fps output only when every raw clip is a real 60 fps recording (desktop/mobile recorders); clips with different fps: output at the lowest, resample only down. Record the real value in `#checks.outputs`.
 - H.264 High, yuv420p, AAC 48 kHz 192 kbps, `+faststart`. **CRF governs quality; there is no bitrate target** (low-motion screen content is fine far below 10 Mbps); `-maxrate` is only a safety cap:
 ```
@@ -24,7 +24,7 @@ Target **`targets.lufs` integrated (default -14), true peak <= `targets.true_pea
 VTT (`media/final.vtt`) and SRT (`media/final.srt`); per language add `.<lang>` (`final.vi.vtt`). <= **`captions.max_chars` characters per line (default 42), <= 2 lines**, 1-6 s per cue, <= 17 chars/s reading speed (soft). Break at phrases, never mid-word; text = narration text (spelling and punctuation as written). Every cue start within **`targets.caption_offset_ms` (default 200)** of the measured onset of its first word (see the captions check). Cue text aligns to the written narration in `voice.language` (`narration.<voice.language>.md` if it exists, else `narration.md`), never to the spoken (lexicon) spelling. No speaker labels or sound tags unless asked. Burn-in only when `captions.burn_in` is true (default false; read from demo.yaml, not stored in `#captions`). `captions.layout`: `overlay` = text over the picture at the cue `pos`; `band` = picture scaled to fit the width and aligned top, captions in the remaining bottom band (`#blur`/`#motion` coordinates go through the same scale).
 
 ## File naming
-`<slug>` = lowercase ascii kebab-case. Scenes `sNN` (two digits). In `.demo/<slug>/media/`: `sNN.raw.webm` (non-web platforms may be `.mp4/.mov/.mkv`; `#events.clips` is authoritative), `sNN.vo.wav`, `final-16x9.mp4`, `final-9x16.mp4`, `final-1x1.mp4`, `final.vtt`, `final.srt`, `thumb.png` (1280x720 PNG). Language variant: `final-16x9.<lang>.mp4`. No other intermediate videos are kept.
+`<slug>` = lowercase ascii kebab-case. Scenes `sNN` (two digits). In `.demo/<slug>/media/`: `sNN.raw.webm` (non-web platforms may be `.mp4/.mov/.mkv`; `#events.clips` is authoritative), `sNN.vo.wav`, `final-16x9.mp4`, `final-9x16.mp4`, `final-1x1.mp4`, `final.vtt`, `final.srt`, `thumb.png` (1280x720 PNG). Language variant: `final-16x9.<lang>.mp4`. Render work folder `media/render/` (`mix.wav` = `#mix.chain` output) is deleted once `#checks` pass. No other intermediate videos are kept.
 
 ## Delivery limits
 Thumbnail `media/thumb.png` 1280x720 PNG (16:9, <= 2 MB). Title <= 100 characters, description <= 5000 characters. First chapter at 00:00.
@@ -36,7 +36,7 @@ Thresholds are the defaults; the project's `demo.yaml` overrides them (key in th
 | vo | each `sNN.vo.wav` clean: lead <= 200, trail <= 150, gaps <= 500 ms except declared pauses; `#voice` fields present | `vo.py check <file> [--pause-ms N...]` exit 0 (run before mixing) | voice-producer |
 | sync | rendered scene length vs timeline | drift <= `targets.max_drift_ms` (80) per scene | render-engineer knows each scene's cut points; `ffprobe` the final and compare scene durations/VO onsets with `#timeline` | sync-editor |
 | loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP | `ffmpeg -nostdin -nostats -i F -af ebur128=peak=true -f null -` (read summary `I:` and `True peak`) | sound-mixer |
-| blur | readable text in blur regions | 0 | `blur_check.py` once per scene or region set (see Measuring snippets): bounded ROI-crop OCR, never full frames, never a hand-written loop; exit 0 pass, 1 text found, 2 budget hit (partial coverage, report it, no retry), 3 tool/input error; OCR tool from `tools.ocr`; pattern of the sensitive value, not a bare `@`; positive control on an unblurred crop | privacy-blurrer |
+| blur | every `sensitive` marker covered by `#blur` in space and time; bbox valid; strength enough | 0 gaps, 0 invalid, 0 weak | `project.py check-blur` (geometric, no OCR, milliseconds): checks every frame that reaches the picture (render fps = lowest clip fps; with `#timeline` the frames of `in`..`out` mapped as the renderer does, without it every clip frame), so no rendered frame falls between samples; between two markers of a label the whole hull of both boxes must be covered (box shrunk 1 px for rounding); strength `>= max(8, 0.3 x box height)`, pixelate x1.6. Both renderers blur the source frame before zoom/reframe, so source px suffice | privacy-blurrer (`invalid`: capture-operator) |
 | black | black frames not intended | none (>0.2 s) outside `allow.black` | `-vf blackdetect=d=0.2:pix_th=0.10 -an -f null -` | capture-operator |
 | freeze | frozen video not intended | none (>=3 s) outside `allow.freeze` | `-vf freezedetect=n=-60dB:d=3 -an -f null -` | capture-operator |
 | captions | chars/line, lines, onset offset | <= `captions.max_chars` (42), <= 2 lines; **for EVERY cue** `|t_start - onset of its first word| <= targets.caption_offset_ms` (200) | parse `final.vtt`; measure each word onset in the final audio: 10 ms RMS window, onset = first window above -40 dBFS after a silence, merging silences < 150 ms; match cues to words by order in `narration.md`. Report the max over all cues and the count over the limit; one cue over = fail | caption-writer |
@@ -49,33 +49,19 @@ Measuring snippets:
 ffmpeg -nostdin -nostats -i media/final-16x9.mp4 -vn -af ebur128=peak=true -f null - 2>&1 | tail -n 14
 # black + freeze in one pass
 ffmpeg -nostdin -i media/final-16x9.mp4 -vf "blackdetect=d=0.2:pix_th=0.10,freezedetect=n=-60dB:d=3" -an -f null - 2>&1 | grep -E "black_start|freeze_start"
-# blur regions: ONE bounded call (toolkit interpreter from `setup_tools.py --python`); never a per-frame loop
-python scripts/blur_check.py media/s03.raw.mp4 --regions blur.json --scene s03 --ocr <tools.ocr> --pattern email --apply-blur --budget-s 300
+# blur coverage (exit 0 pass, 1 fail; JSON with gaps / invalid / weak)
+python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> check-blur
+# placement frame (privacy-blurrer, one per region): raw frame at clip time t + offset_ms, region box drawn
+ffmpeg -nostdin -y -ss T -i media/sNN.raw.webm -frames:v 1 -vf drawbox=x=X:y=Y:w=W:h=H:color=red:t=3 media/preview/b1.png
 ```
-`blur_check.py` does per region ONE `ffmpeg -nostdin -y ... -vf select,crop -fps_mode vfr %04d.png` (every 3rd frame, all frames when `keyframes` is set) into `media/preview/blur_check/<id>/` (old crops cleared first), builds the OCR engine once, runs the positive control on an unblurred crop, then OCRs the crops; `--apply-blur` blurs the crops in-process per region `mode`/`strength` (input = unblurred raw), for a finished render pass the render as CLIP with `--control-clip <raw>`. Flags: `--pattern email|key|<regex>` (default: any word), `--ocr qa-ocr|qa-ocr-tesseract|none`, `--budget-s` (hard deadline, default 300), `--step N`, `--out-dir` (under `media/preview/`). Stdout JSON: per region `frames_sampled`/`frames_total`, `matches`, `control_ok`, `seconds`. Exit 0 pass, 1 text found, 2 budget exceeded (partial), 3 tool/input error (a failed control is 3: no evidence).
 Every ffmpeg call in a script or snippet carries `-nostdin` (with stdin open ffmpeg waits on an overwrite prompt; inside `while read` it eats the loop's input) and `-y` when it writes a file (without it a rerun silently keeps the stale file).
-OCR call (what `blur_check.py` does internally; use it for blur checks and only hand-write OCR for one-off frames; run with the toolkit interpreter, `python -I`; build the engine once, not per frame). `tools.ocr: qa-ocr` (RapidOCR 3.x, `from rapidocr import RapidOCR`; the old `rapidocr_onnxruntime` package is gone):
-```
-import cv2
-from rapidocr import RapidOCR
-ocr = RapidOCR(params={"Global.log_level": "error"})
-r = ocr(cv2.imread("blur_check.png"))          # BGR array or path
-texts = list(r.txts or ())                     # r.txts / r.boxes (4x2 px) / r.scores are None when nothing is found
-```
-`tools.ocr: qa-ocr-tesseract` (needs the `tesseract` program; other languages need their traineddata, pass `lang="vie"`):
-```
-import cv2, pytesseract
-d = pytesseract.image_to_data(cv2.imread("blur_check.png"), output_type=pytesseract.Output.DICT)
-texts = [t for t, c in zip(d["text"], d["conf"]) if t.strip() and float(c) > 30]   # d has left/top/width/height per word
-```
-Whatever the tool, run the positive control on an unblurred crop first; a tool that cannot read it is no evidence. Tesseract reads small UI text worse than RapidOCR: crop tight and upscale 2x before calling it.
-Blur filter (static region; privacy-blurrer verifies one preview frame per region):
+Blur filter, ffmpeg fallback only (Remotion draws its own blur from `#blur`):
 ```
 [0:v]split[a][b];[b]crop=W:H:X:Y,boxblur=lr=min(25\,H/4):lp=3[bl];[a][bl]overlay=X:Y:enable='between(t,T0,T1)'
 # stronger, text-proof alternative: pixelate
 [b]crop=W:H:X:Y,scale=iw/16:ih/16,scale=iw*16:ih*16:flags=neighbor[bl]
 ```
-Moving regions (scroll) use per-frame `keyframes` and the OpenCV path (feature `blur`). If OCR still reads text, switch to pixelate or enlarge the padding.
+Moving regions (scroll): one region over the hull of consecutive markers (see the blur check); `keyframes` are optional and must still cover that hull. Remotion interpolates `keyframes` itself; the ffmpeg fallback needs the OpenCV path (feature `blur`) for them.
 
 ## Voice lexicon
 Pronunciation rules, `apply-lexicon` and starter entries: skill `voice-over`.
@@ -100,7 +86,7 @@ Single source for every shape below; agents reference this section and never res
 ```json
 {"schema":1,"space":"source","time":"scene","regions":[{"id":"b1","scene":"s03","t_start":4100,"t_end":9200,"bbox":[820,300,420,60],"pad":12,"margin_ms":150,"mode":"boxblur","strength":25,"source":"events:sensitive:customer email","keyframes":null,"preview":"logs/b1.png"}]}
 ```
-Every `sensitive` marker in `#events` must be covered; `pad` px on all sides; `margin_ms` before/after. `mode`: `boxblur|pixelate`.
+Every `sensitive` marker in `#events` must be covered (verified by `project.py check-blur`); `pad` px on all sides; `margin_ms` before/after. `mode`: `boxblur|pixelate`. `preview` = the placement frame.
 
 **#motion** (motion-designer; recipes in `motion-fx`):
 ```json
@@ -113,7 +99,7 @@ Every `sensitive` marker in `#events` must be covered; `pad` px on all sides; `m
   {"scene":null,"type":"title_card","t_start":0,"t_end":2500,"params":{"title":"Invoice in 60 seconds","subtitle":"","bg":"#0B1020"}},
   {"scene":"s02","type":"fade","t_start":12000,"t_end":12300,"params":{"mode":"cross"}}]}
 ```
-`engine`: `ffmpeg|opencv|remotion|null` is a hint, not a contract (render-engineer records what it actually used in `#checks.outputs.<ratio>.renderer`); `level`: `none|basic|cinematic` (copied from `motion.level`; `none` -> `engine:null`, `effects:[]`). `type` in `zoom, pan, cursor_highlight, ripple, callout, title_card, fade, device_frame, reframe`. `allow` lists intentional black/freeze spans (ms, final timeline) for the checks. Optional `params.aspects` (e.g. `["9x16"]`) limits an effect to some outputs. Every effect derives from an `#events` marker or a storyboard camera note; none over a `#blur` region; effects the level cannot do are not written.
+`engine`: `remotion` (default) `|ffmpeg|opencv|null` is a hint, not a contract (render-engineer records what it actually used in `#checks.outputs.<ratio>.renderer`); `level`: `none|basic|cinematic` (copied from `motion.level`; `none` -> `engine:null`, `effects:[]`). `type` in `zoom, pan, cursor_highlight, ripple, callout, title_card, fade, device_frame, reframe`. `allow` lists intentional black/freeze spans (ms, final timeline) for the checks. Optional `params.aspects` (e.g. `["9x16"]`) limits an effect to some outputs. Every effect derives from an `#events` marker or a storyboard camera note; none over a `#blur` region; effects the level cannot do are not written.
 
 **#mix** (sound-mixer):
 ```json
@@ -133,7 +119,7 @@ Every `sensitive` marker in `#events` must be covered; `pad` px on all sides; `m
  "results":{"sync":{"pass":true,"measured_ms_max":42,"threshold_ms":80,"owner":"sync-editor","detail":""},
             "vo":{"pass":true,"scenes_checked":4,"failures":[],"owner":"voice-producer","detail":""},
             "loudness":{"pass":true,"lufs":-14.1,"tp_db":-1.6,"owner":"sound-mixer","detail":""},
-            "blur":{"pass":true,"regions_checked":3,"text_found":0,"owner":"privacy-blurrer","detail":""},
+            "blur":{"pass":true,"tracks":3,"frames_checked":620,"fps":25,"gaps":[],"invalid":[],"weak":[],"owner":"privacy-blurrer","detail":""},
             "black":{"pass":true,"hits":[],"owner":"capture-operator","detail":""},
             "freeze":{"pass":true,"hits":[],"owner":"capture-operator","detail":""},
             "captions":{"pass":true,"max_chars":38,"cues":24,"cues_over_offset":0,"max_offset_ms":120,"owner":"caption-writer","detail":""},

@@ -19,7 +19,7 @@ This repo is a plugin marketplace (`demo-record-teams`) that ships one plugin: `
 |---|---|
 | Python 3.10+ | always (toolkit and `project.py` are stdlib-only scripts) |
 | ffmpeg | comes with the `capture` toolkit feature (bundled via imageio-ffmpeg); no system install needed |
-| Node.js >= 18 | only for Remotion (`motion-cinematic`), Android/iOS Appium, and macOS desktop capture |
+| Node.js >= 18 | for the Remotion render engine (`remotion`, the default for every video; without Node the ffmpeg fallback renders basic motion), Android/iOS Appium, and macOS desktop capture |
 | macOS + Xcode | only for iOS (`capture-ios`); on other systems it reports `blocked` |
 | `adb` on PATH | only for Android |
 | `ELEVENLABS_API_KEY` | only for the paid `voice-elevenlabs` option |
@@ -119,7 +119,7 @@ Only two kinds of video file exist: raw clips and finals. Blur, motion, captions
 
 ### `demo.yaml`: the video's properties (you own it)
 
-`brief.md` holds only prose (audience, goal, message, CTA, out of scope). Everything you can tune lives in `.demo/<slug>/demo.yaml`: `platform`, `length_s`, `formats`, `voice` (engine, name, language, lexicon), `motion.level`, `music` (style, duck_db), `captions` (burn_in, max_chars), `targets` (lufs, true_peak, max_drift_ms, caption_offset_ms), `privacy` (blur, real_data), `tools` (ocr), `install`. The strategist creates it at G1 from `templates/demo.yaml` (every field commented with allowed values and its default); the director records your decisions in it; all other agents only read it.
+`brief.md` holds only prose (audience, goal, message, CTA, out of scope). Everything you can tune lives in `.demo/<slug>/demo.yaml`: `platform`, `length_s`, `formats`, `voice` (engine, name, language, lexicon), `motion.level`, `music` (style, duck_db), `captions` (burn_in, max_chars), `targets` (lufs, true_peak, max_drift_ms, caption_offset_ms), `privacy` (blur, real_data), `install`. The strategist creates it at G1 from `templates/demo.yaml` (every field commented with allowed values and its default); the director records your decisions in it; all other agents only read it.
 
 Edit it any time. On `/demo-studio:run` (or `/demo-studio:fix`) the director validates it and diffs it against the last snapshot (taken after G1 and after every G3; no snapshot = first run), then re-runs only what your change affects (e.g. `voice.*` re-runs voice and everything after it; `music.*` re-runs the mix; `platform` re-records everything).
 
@@ -149,13 +149,14 @@ Dependency order: voice → timeline, captions, mix · events → blur, timeline
 
 ```
 python scripts/project.py owner blur     # privacy-blurrer
+python scripts/project.py --slug <slug> check-blur   # blur covers every sensitive marker (exit 1 = gap)
 ```
 
 ## Toolkit
 
-Nothing is installed up front. Right before a stage runs, the director checks what that stage needs; if something is missing, toolsmith suggests the options for **that stage only** and **you are asked first** with the size and effect (and a recommended default). Later stages are asked later. Declined features fall back (cinematic to basic motion, word captions to sentence captions). Installs go into `.demo/.venv` and are recorded in `.demo/toolkit.json`. Your choice is saved in `demo.yaml` (`install.approved` / `install.declined`), so you are not asked twice.
+Nothing is installed up front. Right before a stage runs, the director checks what that stage needs; if something is missing, toolsmith suggests the options for **that stage only** and **you are asked first** with the size and effect (and a recommended default). Later stages are asked later. Declined features fall back (Remotion to the ffmpeg renderer with basic motion, word captions to sentence captions). Installs go into `.demo/` (`.venv`, `remotion/`, `appium/`) and are recorded in `.demo/toolkit.json`. Your choice is saved in `demo.yaml` (`install.approved` / `install.declined`), so you are not asked twice.
 
-Where several tools can do the same job you choose, and the recommended one is listed first: `scripts/setup_tools.py --options [ocr|voice|motion]` shows the alternatives with size, requirements and status. The choice is stored in `demo.yaml` (`tools.ocr`, `voice.engine`, `motion.level`); `none` skips the job (OCR: blur and text are checked by eye only).
+Where several tools can do the same job you choose, and the recommended one is listed first: `scripts/setup_tools.py --options [voice|render]` shows the alternatives with size, requirements and status. The choice is stored in `demo.yaml` (`voice.engine`; the render engine as `remotion` in `install.approved` / `install.declined`).
 
 ```
 python scripts/setup_tools.py --list | --options [job] | --stage [name] | --stages | --check [features] | --plan <features> | --install <features>
@@ -172,11 +173,20 @@ python scripts/setup_tools.py --list | --options [job] | --stage [name] | --stag
 | `voice-elevenlabs` | ElevenLabs voices; paid API | ~5 MB |
 | `captions` | Word timing (faster-whisper), SRT/ASS | ~150 MB |
 | `mix` | Music ducking, loudness normalisation | ~30 MB |
-| `blur` | Blur emails, tokens, faces in frames | ~60 MB |
-| `motion-basic` | Zoom/pan, overlays, fades via ffmpeg | ~0 MB |
-| `motion-cinematic` | Titles, transitions, animated captions via Remotion | ~400 MB |
-| `qa-ocr` | OCR the finished video to verify text and redactions: RapidOCR + onnxruntime, Python 3.10-3.13 (default) | ~120 MB |
-| `qa-ocr-tesseract` | Same job with Tesseract: lighter, less accurate; needs the `tesseract` program on PATH | ~60 MB |
+| `blur` | Moving-region blur for the ffmpeg fallback renderer (Remotion blurs by itself) | ~60 MB |
+| `remotion` | Default render engine for every video: blur, motion (all levels), captions, audio in one pass | ~550 MB |
+| `motion-basic` | Fallback renderer via ffmpeg filters (motion none/basic) | ~0 MB |
+
+### Render engine (Remotion)
+
+Every pipeline renders through one Remotion composition that ships with the plugin in `plugins/demo-studio/remotion/` (`render.mjs` + `src/`). The plugin never holds `node_modules`: `setup_tools.py --install remotion` copies that source into the project's `.demo/remotion/` (stamped with a source hash in `.sync.json`), then runs `npm install` and downloads headless Chrome there. After a plugin update, `--check remotion` reports the copy as out of date and `--install remotion` re-syncs it. Agents only run it, never edit it:
+
+```
+node .demo/remotion/render.mjs --project .demo/<slug>/project.json --ratio 16x9 --out .demo/<slug>/media/final-16x9.mp4
+     [--audio .demo/<slug>/media/render/mix.wav] [--burn-in] [--layout overlay|band] [--from-ms A --to-ms B | --still MS]
+```
+
+Remotion is free for individuals and companies of up to 3 people; larger companies need a [Remotion company license](https://www.remotion.dev/license). Without Node, or with `remotion` declined, the ffmpeg fallback renders motion none/basic.
 | `package` | Thumbnails, posters, covers | ~10 MB |
 
 ## Fixing a finished video
@@ -202,7 +212,7 @@ Owner unclear: it asks you. Same defect after two attempts: it stops and reports
 
 - Real data in the app is **blurred, not replaced**: `privacy-blurrer` never fakes or swaps content.
 - `app-scout` flags sensitive elements up front; scene scripts report their boxes with `mark()`.
-- The render check requires zero readable text inside blur regions (OCR); an OCR tool (`tools.ocr`) is recommended whenever the app shows real data.
+- Blur coverage is checked geometrically, not by OCR: `project.py check-blur` proves every `mark()`ed sensitive box is covered by a blur region for its whole time on screen (a moving element: the whole path between two marks). It runs in milliseconds and cannot hang.
 - `demo-qa` also looks for leaked personal data by eye before you reach G3.
 
 ## License
