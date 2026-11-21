@@ -5,6 +5,8 @@ render.py --slug S [--aspect 16x9,9x16,1x1] [--root .demo] [--timeout 900] [--bu
 edit.json: {"fps","size":[w,h],"scenes":[{"id","clip","in_ms","out_ms","speed","vo","vo_offset_ms"}],
   "captions":[{"start_ms","end_ms","text"}], "title_card":{"text","ms"}|null, "end_card":{"text","ms"}|null,
   "music":null|{"file","gain_db"}, "zooms":[{"scene","t_ms","dur_ms","center":[x,y],"scale"}]}
+Optional siblings in the same folder override edit.json keys: motion.json {title_card,end_card,zooms},
+captions.json {captions}, mix.json {music}.
 Times: scene `in/out_ms` are source-clip time; captions are on the final timeline without the title card (the card's
 length is added); zoom `t_ms` is scene-local after speed, `center` is in frame pixels of `size`.
 Loudness: 2-pass loudnorm to demo.yaml targets.lufs / targets.true_peak (measured once, applied per aspect).
@@ -21,6 +23,20 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import _run, find_ffmpeg, load_config, out  # noqa: E402
+
+
+SIBLINGS = {"motion.json": ("title_card", "end_card", "zooms"), "captions.json": ("captions",), "mix.json": ("music",)}
+
+
+def load_edit(proj):
+    """edit.json plus optional sibling files (motion/captions/mix); a sibling's keys override edit.json's."""
+    edit = json.loads((proj / "edit.json").read_text())
+    for name, keys in SIBLINGS.items():
+        f = proj / name
+        if f.exists():
+            extra = json.loads(f.read_text())
+            edit.update({k: extra[k] for k in keys if k in extra})
+    return edit
 
 
 def vtt_time(ms):
@@ -143,7 +159,7 @@ def main(argv=None):
         out({"ok": False, "error": "ffmpeg not found (run setup_tools.py --install capture)"}, 2)
     try:
         cfg = load_config(proj / "demo.yaml") if (proj / "demo.yaml").exists() else load_config_default()
-        edit = json.loads((proj / "edit.json").read_text())
+        edit = load_edit(proj)
         aspects = a.aspect.split(",") if a.aspect else cfg["formats"]
         assert edit["scenes"], "edit.json has no scenes"
         bad = [x for x in aspects if x not in ("16x9", "9x16", "1x1")]

@@ -52,8 +52,8 @@ def test_capture_masks_selector(tmp_path):
         assert [m["name"] for m in json.loads((d / "s01.marks.json").read_text())["marks"]] == ["start", "end"]
         png = d / "f.png"
         subprocess.run([FF, "-y", "-v", "error", "-ss", "0.5", "-i", str(d / "s01.raw.webm"), "-frames:v", "1", str(png)], check=True)
-        # white "pill" holding the email sits at the right of the header: count white pixels there
-        raw = subprocess.run([FF, "-v", "error", "-i", str(png), "-vf", "crop=460:40:500:20", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        # white "pill" holding the email sits in the header: count white pixels there
+        raw = subprocess.run([FF, "-v", "error", "-i", str(png), "-vf", "crop=370:40:105:20", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
                              capture_output=True, check=True).stdout
         return sum(1 for b in raw if b > 200)
 
@@ -85,6 +85,21 @@ def test_render_duration(tmp_path):
     assert "WEBVTT" in (media / "final.vtt").read_text() and "00:00:01.200" in (media / "final.vtt").read_text()
     for asp in ("16x9", "9x16"):
         assert abs(common.media_duration(str(media / ("final-%s.mp4" % asp)), FF) - 3.5) < 0.2
+
+
+@pytest.mark.skipif(not FF, reason="ffmpeg missing")
+def test_render_merges_siblings(tmp_path):
+    import render
+    p = tmp_path / "x"
+    p.mkdir()
+    (p / "edit.json").write_text(json.dumps({"scenes": [], "captions": [{"start_ms": 0, "end_ms": 1, "text": "old"}],
+                                             "title_card": {"text": "T", "ms": 1}, "music": None}))
+    (p / "captions.json").write_text(json.dumps({"captions": [{"start_ms": 0, "end_ms": 1, "text": "new"}]}))
+    (p / "motion.json").write_text(json.dumps({"title_card": None, "zooms": [], "junk": 1}))
+    (p / "mix.json").write_text(json.dumps({"music": {"file": "m.wav", "gain_db": -18}}))
+    e = render.load_edit(p)
+    assert e["captions"][0]["text"] == "new" and e["title_card"] is None and e["music"]["gain_db"] == -18
+    assert e["zooms"] == [] and "junk" not in e
 
 
 def run_verify(tmp_path, clip, yaml):
