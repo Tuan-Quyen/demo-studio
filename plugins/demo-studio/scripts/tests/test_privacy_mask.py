@@ -75,14 +75,18 @@ class Recording(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="dsmask-")
         cls.out = os.path.join(cls.tmp, "main")
-        cls.dscap_before = set(glob.glob(os.path.join(tempfile.gettempdir(), "dscap-*")))
+        cls.priv = tempfile.mkdtemp(prefix="dspriv-")       # private temp root: only this class's spec dirs can appear in it
+        cls.old_tempdir = tempfile.tempdir
+        tempfile.tempdir = cls.priv
         cls.code, cls.res = run_capture("run", "--url", INDEX, "--scene", "s01", "--scene-script", SCENE, "--out-dir", cls.out,
                                         *rx_args(), "--probe", "#hdr-email", "--probe", "#toast")
         cls.log = capture.load_log(cls.res["mask_log"]) if cls.code == 0 else []
 
     @classmethod
     def tearDownClass(cls):
+        tempfile.tempdir = cls.old_tempdir
         shutil.rmtree(cls.tmp, ignore_errors=True)
+        shutil.rmtree(cls.priv, ignore_errors=True)
 
     def setUp(self):
         # one failed recording must be ONE failure (test_zero_frames...), not seven: the others skip with the reason
@@ -114,7 +118,7 @@ class Recording(unittest.TestCase):
         self.assertEqual(ev["bbox_space"]["frame"], [1280, 720])
         self.assertTrue(any(m["type"] == "scene_start" for m in ev["markers"]))
         self.assertEqual(leftovers(self.out), [])
-        self.assertEqual(set(glob.glob(os.path.join(tempfile.gettempdir(), "dscap-*"))), self.dscap_before)  # spec dir removed
+        self.assertEqual(glob.glob(os.path.join(self.priv, "dscap-*")), [])      # the spec dir (regexes, typed text) is gone
 
     def test_gate_standalone_reverifies_existing_clip(self):
         c = self.res["clip"]

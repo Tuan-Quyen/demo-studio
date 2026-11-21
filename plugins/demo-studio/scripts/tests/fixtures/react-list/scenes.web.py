@@ -22,7 +22,6 @@ def s01(ctx):
     page.evaluate(SMOOTH_EL, {"selector": "#inner", "to": 300, "ms": 800})
     page.wait_for_timeout(1500)
     page.evaluate(SET_NOTE)
-    page.evaluate(SMOOTH, {"to": 0, "ms": 1600})
     page.wait_for_timeout(300)
 
 

@@ -264,7 +264,8 @@ def entry_verdict(fr, e, pill, res):
     return ("soft" if soft else "strict"), None, None
 
 
-NEAR_MS = 26.0          # an entry this close in time counts as the frame's own (1.5 rAF)
+EDGE_MS = 100.0         # soft frames this close to the start/end of an element's run carry no information (it appears/disappears)
+NEAR_MS = 37.0          # an entry this close counts as the frame's own: video pts are quantised to 40 ms (+-20) plus one rAF (16.7)
 
 
 def _boundary(cands, te, narrow):
@@ -274,7 +275,21 @@ def _boundary(cands, te, narrow):
     return not w or not any(t >= te + narrow - 35 for t in w) or not any(t <= te - narrow + 35 for t in w)
 
 
-def eval_group(fr, cands, te, narrow, pill, res):
+def run_edges(es):
+    """Times at which a run of rect-bearing log entries of one group starts or ends (element appears / disappears)."""
+    out, prev = [], None
+    for e in es:
+        if not e["rects"]:
+            continue
+        if prev is None or e["t"] - prev > GAP_MS:
+            out += ([prev] if prev is not None else []) + [e["t"]]
+        prev = e["t"]
+    if prev is not None:
+        out.append(prev)
+    return out
+
+
+def eval_group(fr, cands, te, narrow, pill, res, edges=None):
     """Verdict for one selector group in one frame (S-02/S-19: the entry nearest in time decides: strict -> ok, glyph edges /
     wrong shape / state unmasked -> bad; a bad neighbour still fails the frame; strict matches that are not the nearest
     entry are `resync`, counted). Returns (verdict, why, rect):
@@ -292,7 +307,7 @@ def eval_group(fr, cands, te, narrow, pill, res):
     inner = [v for e, v in zip(near, vs) if abs(e["t"] - te) <= NEAR_MS] or vs[:1]   # "nearest" = within ~1.5 rAF (video pts are quantised to 40 ms)
     if any(v[0] == "strict" for v in inner):
         return "strict", None, None
-    bad = next((v for v in inner if v[0] == "bad"), None) or next((v for v in vs if v[0] == "bad"), None)
+    bad = next((v for v in inner if v[0] == "bad"), None)
     if bad:      # S-19: nothing but a strict NEAREST entry rescues a frame whose nearest entry shows glyph edges
         return "bad", bad[1], bad[2]
     if any(v[0] == "strict" for v in vs):
@@ -302,7 +317,8 @@ def eval_group(fr, cands, te, narrow, pill, res):
     for e in sorted(cands, key=lambda e: abs(e["t"] - te)):
         if e["rects"] and abs(e["t"] - te) > narrow and entry_verdict(fr, e, pill, res)[0] == "strict":
             return "resync", None, None
-    if any(not e["rects"] for e in cands if abs(e["t"] - te) <= narrow) or _boundary(cands, te, narrow):
+    if any(not e["rects"] for e in cands if abs(e["t"] - te) <= narrow) or _boundary(cands, te, narrow) \
+            or (edges and any(abs(t - te) <= EDGE_MS for t in edges)):
         return "empty", None, None      # the element appears/disappears around this frame: uniform pixels, nothing readable
     return "soft", None, None
 
@@ -363,7 +379,7 @@ def ready_time(groups, ticks):
 
 
 DUP_MAX = 16     # a region whose every pixel is within this of the anchor frame is unchanged (stale screencast frame)
-CARRY_MAX = 3    # consecutive frames that may be carried from one anchor
+CARRY_MAX = 6    # consecutive frames that may be carried from one anchor (measured stale-screencast runs: 3-5 frames)
 
 
 def _same_region(fr, anchor, rects=None):
@@ -392,6 +408,7 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
     whole-frame repeat. Identical pixels show identical content, so a carried frame is exactly as safe as its anchor."""
     res = _new_res("solid")
     sel_t = {k: [e["t"] for e in es] for k, es in by_sel.items()}
+    sel_edges = {k: run_edges(es) for k, es in by_sel.items()}
     bad_f, soft_f, resync_f, masked_f = set(), set(), set(), set()
     n = unverified = carried = strict_frames = 0
     anchor, run_len, seen_strict, leadin_end = None, 0, False, None
@@ -415,7 +432,7 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s, scene_sta
                     gap = True
                     fbad.append({"frame": i, "t_ms": round(times[i] * 1000), "selector": sel, "reason": "log_gap"})
                 continue
-            verdict, why, rect = eval_group(fr, cands, te, FRAME_TOL_MS, pill, res)
+            verdict, why, rect = eval_group(fr, cands, te, FRAME_TOL_MS, pill, res, sel_edges[sel])
             anym = anym or verdict != "empty"
             fstrict = fstrict or verdict == "strict"
             if verdict in ("soft", "resync", "bad"):    # carry only needs these groups' positions unchanged
