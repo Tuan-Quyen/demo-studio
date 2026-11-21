@@ -105,7 +105,7 @@ Key dependency order: voice → timeline, captions, mix · events → blur, time
 | localizer | `narration.md`, `storyboard.md`, `app-map.md`, `demo.yaml` (`language`, `voice.language`) | `localization.md`, `narration.<voice.language>.md`, lexicon proposals in `notes` |
 | voice-producer | `narration.<voice.language>.md` if it exists else `narration.md`, `demo.yaml` (`voice`) | `media/sNN.vo.wav`, `#voice` |
 | scene-automator | `storyboard.md`, `app-map.md`, `#voice` | `scenes.<platform>.*`, dry-run PASS |
-| capture-operator | scene scripts (web: `scenes.web.actions.sNN.json`, run by `capture.py`), platform, app-map SENSITIVE, `demo.yaml` `privacy` | `media/sNN.raw.*`, `#events` (`masked` per clip) |
+| capture-operator | scene scripts (web: `scenes.web.py`, run unmodified by `capture.py run` through the fixed `web_adapter.py`), platform, app-map SENSITIVE, `demo.yaml` `privacy` | `media/sNN.raw.*`, `#events` (`masked` per clip) |
 | privacy-blurrer | raw clips, `#events` (`masked`, `unmaskable`), app-map SENSITIVE list, `demo.yaml` `privacy` | `#blur` (via `blur.py plan`/`preview`) |
 | sync-editor | clips, VO, `#events`, `#voice` | `#timeline` |
 | motion-designer | `#timeline`, `#events`, storyboard camera intent, `localization.md` on-screen strings (if any) | `#motion` |

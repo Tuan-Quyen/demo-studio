@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Modal (fixture)</title>
+<style>
+  body { margin: 0; font: 22px Arial, sans-serif; background: #fff; color: #111; }
+  main { padding: 40px; }
+  .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; z-index: 50; transition: opacity .6s; }
+  .backdrop.on { opacity: 1; }
+  .dialog { position: fixed; left: 20%; top: 30%; width: 60%; height: 40%; background: rgba(255,255,255,.35); z-index: 60; }
+  input { font-size: 20px; padding: 6px 10px; width: 420px; }
+</style></head>
+<body><main>
+  <p id="mail" data-sensitive>ada.lovelace@example.com</p>
+  <input id="e" value="grace.hopper@navy.example">
+  <p>Plain text</p>
+</main>
+<div class="backdrop" id="bd"></div><div class="dialog" id="dlg"></div>
+<script>setTimeout(()=>document.getElementById('bd').classList.add('on'),500);
+setTimeout(()=>document.getElementById('bd').classList.remove('on'),1800);</script>
+</body></html>

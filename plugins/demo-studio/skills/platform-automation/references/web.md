@@ -1,6 +1,6 @@
 # Platform: web (Playwright, Python)
 
-Feature `capture` (playwright + chromium + ffmpeg). One browser context **per scene** so each scene is its own clip.
+Feature `capture` (python playwright + chromium + numpy + ffmpeg; no Node). One browser context **per scene** so each scene is its own clip.
 
 ## Automation (scene-automator)
 ```python
@@ -27,58 +27,29 @@ def s03(ctx):
 ```
 Never call `scroll_into_view_if_needed()` on an element in a sticky/fixed header or footer: Chromium scrolls the page to the element's in-flow position (observed: 1801 -> 1435 px) and with CSS `scroll-behavior:smooth` it animates, so the clip shows a jump before the click. Prefer role/test-id locators. `locator.click()` teleports the pointer and the video has no cursor, so use `glide_click` and the overlay below.
 
-## Recorder adapter (capture-operator)
-```python
-from playwright.sync_api import sync_playwright
-import shutil, pathlib, time
-VIEW = {"width": 1280, "height": 720}                # the clip size: recordVideo size MUST equal the viewport
-CURSOR_JS = """(()=>{const d=document.createElement('div');d.style.cssText='position:fixed;z-index:2147483647;pointer-events:none;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:rgba(255,80,60,.55);border:2px solid #fff;transition:transform .08s';
-addEventListener('DOMContentLoaded',()=>document.documentElement.appendChild(d));
-addEventListener('mousemove',e=>{d.style.left=e.clientX+'px';d.style.top=e.clientY+'px'},true);
-addEventListener('mousedown',()=>d.style.transform='scale(.7)',true);addEventListener('mouseup',()=>d.style.transform='scale(1)',true)})()"""
-
-def view_state(page): return page.evaluate("[scrollX, scrollY]")
-
-def record_scene(p, mod, sid, out, vo_ms, dry=False):   # mod = scene module (SCENES, optional prepare)
-    browser = p.chromium.launch()
-    kw = dict(viewport=VIEW)                          # device_scale_factor 1: the clip is viewport-sized anyway
-    if not dry:
-        kw.update(record_video_dir=str(out/"tmp"), record_video_size=VIEW)
-    context = browser.new_context(**kw)
-    context.add_init_script(CURSOR_JS)
-    page = context.new_page(); t_page = time.monotonic()
-    ctx = Ctx(sid, page, vo_ms, scale=1.0, dry=dry)   # Ctx from SKILL.md
-    if hasattr(mod, "prepare"): mod.prepare(sid, page)  # SAME sequence in the dry-run; no goto/reload after this
-    before = view_state(page)
-    offset_ms = round((time.monotonic() - t_page) * 1000)   # recorded as clips[sid].offset_ms (verify with the frame check)
-    ctx.start()
-    if view_state(page) != before: raise StepError("start state moved between prepare and start")
-    try:    mod.SCENES[sid](ctx)
-    finally:
-        ctx.end()                                     # scene_end; NOTHING after this but the close
-        vpath = page.video.path() if not dry else None
-        context.close()                               # stop recording now; video is finalized only on close
-        browser.close()
-    if vpath: shutil.move(vpath, out/f"media/{sid}.raw.webm")
-```
-Then `ffprobe` the clip, record `w,h,fps,duration_ms,offset_ms` in `#events` (the video starts at page creation, so `offset_ms` covers `prepare`; confirm with a frame at `offset_ms` showing the start state). Login/consent/cookie banners: do them in a **setup** context outside the recording and reuse `storage_state` so the clip starts on the target screen.
+## Recorder adapter (fixed: `scripts/web_adapter.py`, run by `capture.py`)
+Never written per project, never copied. The Python scene script is the **single source of scene steps**: it exports `SCENES` and optional `prepare(sid, page)` and uses only `ctx` (actions + `mark()`); it runs unmodified. `capture.py run` spawns the adapter (Python Playwright, no Node; `run_bounded`, jsonl heartbeat) which does, per scene and in this order:
+1. launch Chromium; `add_init_script` injects `privacy_mask.js` (mask) and `privacy_oracle.js` (independent DOM oracle) before any navigation; `expose_function("__dsMaskSink")` streams the page's mask log out;
+2. **non-recording preflight context**: goto `--url` -> `prepare(sid, page)` (same sequence as the dry-run; it must be re-runnable) -> `assertMasked()`. Not ok -> exit 11 and nothing is recorded; a regex the browser (JS semantics) cannot compile -> exit 2;
+3. **recording context** (`record_video_dir` = a TEMP dir, `size == viewport`, 25 fps): 5 calibration pulses on about:blank -> goto -> `prepare` -> `assertMasked()` -> start-state check -> `ctx.start()` -> `SCENES[sid](ctx)` -> `ctx.end()` -> final `assertMasked()` -> close (nothing after `ctx.end()` but those two calls and the close);
+4. **typed text**: every `keyboard.type/press/insert_text`, `locator.type/fill/press_sequentially`, `page.type/fill` text is tested against the regexes before the first key; on a match the target field is masked first (overlay box painted before typing) or, when it cannot be pre-masked (not an input/textarea/contenteditable), the run is refused (exit 2). Never type real secrets anyway; text split over many calls is checked cumulatively but a prefix of a regex match can still show;
+5. sidecars in the temp dir: `sNN.raw.webm`, `sNN.mask.jsonl` (mask + oracle + unmaskable + tick entries), `sNN.sync.json` (`t_flashes`, `scene_start_epoch`, `scene_end_epoch`, markers, assertion summaries), optional `sNN.probe.jsonl`.
+The adapter decides nothing: `capture.py gate` re-verifies from the files and only then renames the clip into `media/` and writes `#events`. The scene's `ctx.hold_until` uses `page.wait_for_timeout` (keeps the mask sink draining); pass `--vo-ms` (from `project.json#voice`) so scene length = VO. Scene step errors exit 10 (`step`, scene-automator's), Playwright timeouts exit 3.
+Login/consent/cookie banners: do them in `prepare`, or in a setup context outside the recording that reuses `storage_state`, so the clip starts on the target screen.
 
 ## bbox source
 `locator.bounding_box()` -> CSS px relative to the main frame viewport; `scale` converts to recorded pixels. Re-read it right before the click (layout shifts). Element inside iframes: check the box against the main-frame viewport (verify in dry-run).
 
 ## Capture-time masking (privacy_mask.js, default for web)
-Sensitive data is masked while recording, not blurred afterwards. `scripts/privacy_mask.js` is injected with `add_init_script` before any navigation; it never changes the app DOM (CSS Custom Highlight API for text, stylesheet rules for inputs, cover boxes in a closed shadow root for the rest; the only node it may add is that overlay host on `<html>`). It reads `window.__DS_MASK_CONFIG = {selectors, regexes, mask_style}` (`[data-sensitive]` is always included; `mask_style` `"solid"` default | `"blur"`).
-```python
-mask = (SCRIPTS/"privacy_mask.js").read_text()
-context.add_init_script(script="window.__DS_MASK_CONFIG = " + json.dumps(cfg) + ";\n" + mask)
-# before ctx.start(): fail closed, do not record when this is not ok
-r = page.evaluate("window.__dsMaskReady === true && window.__dsMask.assertMasked()")
-if not r or not r["ok"]: raise LeakError(r)      # exit 11; failures[] = {selector, reason, tag}
-```
-- `capture.py --url U --scene s03 --out-dir D --config mask.json [--actions a.json]` does all of it (Node recorder `capture_recorder.js`): non-recording preflight assertion, assertion again before the scene starts, recordVideo, `<sid>.mask.jsonl`, pixel cross-check, `<sid>.events.json` with `clips.<sid>.masked` and `unmaskable[]`. Exit: 0 ok, 2 bad input, 3 over budget, 4 missing tool, 11 leak (nothing is recorded when the assertion fails), 70 bug/env. The clip starts with ~1 s of calibration pulses (included in `offset_ms`). With `--slug S` it adds `demo.yaml` `privacy.selectors/regexes/mask_style/capture_mask` to the config and merges the clip + markers (scene-tagged, `masked` flags) into `.demo/S/project.json#events` as capture-operator; the action list is the JSON `--actions` file (`scenes.web.actions.sNN.json`).
-- Log per rAF: `{t (epoch ms), kind:"masked", selector, count, rects:[[x,y,w,h]] (viewport CSS px, clipped by scroll containers, occluded rects dropped), state}`; `boxes` marks cover boxes (1 px sentinel border), `partial` rects half hidden.
-- Rects that matter are in the clip's pixel space only when `scale` is 1 and the viewport equals the video size (already required above). `masked:true` is only written when 0 frames fail the pixel check.
-- Limits (go to `unmaskable[]` / the post-hoc tier): regexes match one text node or one input value, so a value typed character by character shows its prefix until the regex matches (never type real secrets); cross-origin iframes, canvas/WebGL, closed or open shadow DOM, `title` tooltips and autofill are not masked; `mask_style:"blur"` is checked by assertion and log only.
+Sensitive data is masked while recording, not blurred afterwards. `privacy_mask.js` never changes the app DOM (CSS Custom Highlight API for text, stylesheet rules for inputs, cover boxes in a closed shadow root for the rest; the only node it may add is that overlay host on `<html>`). Config `window.__DS_MASK_CONFIG = {selectors, regexes, mask_style}` (`[data-sensitive]` always included).
+- `python scripts/capture.py run --url U --scene s03 --scene-script .demo/<slug>/scenes.web.py --vo-ms N --slug S [--config mask.json] [--selector S] [--regex R]` (with `--slug`, `demo.yaml` `privacy.selectors/regexes/mask_style/capture_mask` are added). `capture.py gate --clip F --mask-log F --sync F [--slug S]` re-verifies an existing clip. Exit: 0 ok, 2 bad input (also refused typed text, invalid regex), 3 over budget, 4 missing tool (python playwright, numpy, ffmpeg; `setup_tools.py --plan capture`), 10 scene step failed, 11 leak / unverifiable / unmaskable (needs-input), 70 env.
+- The gate (pixels, trusts nothing from the adapter) fails when: the mask log is missing/empty; sensitive rects were on screen but none could be pixel-checked; any frame shows glyph edges or the wrong colour at a logged **or oracle** rect, or the log says `unmasked` (no grace for lead-in or appearing elements); soft (uniform, not mask-coloured) or resynced frames exceed `--max-soft` / `--max-resync` (**default 0**: secrets get no tolerance; alignment is re-calibrated once, then fails); viewport != clip size. Frames before the page was fully parsed or first painted are *unverified*: `clips[sid].safe_from_ms` = first verified clip time, the timeline must not use earlier frames (and `offset_ms >= safe_from_ms` is required).
+- Occlusion is never inferred: overlays are always drawn, occluded rects are logged (`occluded`) and checked from pixels; only a DOM-proven opaque occluder (opacity chain 1, opaque first background) lets a rect be skipped (`skip`). A dimming modal backdrop over highlight-masked text gives uniform-but-dim pill frames (soft): use `--force-overlay` (overlay above the backdrop) or accept `--max-soft N` knowingly.
+- Independent oracle (S-09): `privacy_oracle.js` re-discovers sensitive text from the live DOM (selectors + regexes, own clipping/occlusion code, separate frame timing) and the gate checks pixels at those rects too, so overlays are not self-verified. What remains: it shares the selector/regex config, and a lagging overlay is only caught within the +-90 ms window.
+- `#events` `clips.<sid>`: `masked`, `safe_from_ms`, `unmaskable[]`, `mask{style, status, rects_checked, oracle_rects_checked, frames_unmasked, frames_soft, frames_resynced, ...}`. `mask_style:"blur"` or `capture_mask:false`/`--no-mask` always give `masked:false` (post-hoc blur covers everything).
+- **Unmaskable surfaces** are detected, never silent: `clips.<sid>.unmaskable[] = {surface, selector, reason, t_start, t_end (clip ms), bbox:[x,y,w,h] clip px}` for iframes, canvas/video/object/embed, shadow DOM (open or closed) holding sensitive text/selectors, pseudo-element `content`, broken-image alt, hovered `title` tooltips (and `scan-budget` for DOM > 30000 nodes). Any live entry makes `capture.py` exit 11 / `needs-input` and the clip `masked:false` (clip kept) so privacy-blurrer covers it (`blur.py plan` fails closed without a covering region). `--accept-unmaskable <selector-or-surface>` lists an item as accepted (not blocking) - only on the user's recorded decision.
+- Failure never leaves state: the clip is recorded to a temp dir and renamed only after the gate passes; on failure the temp dir is deleted and an existing `#events` clip entry becomes `masked:false`. The spec (regexes, typed text) lives in a private temp dir removed on every exit path; `runs.jsonl` and dry-run output never hold regex literals or URL query strings.
+- Remaining untested/uncovered: native `<select>` popups, autofill dropdowns, background-image text, WebGL, text typed piecewise across separate calls (prefix shows until the regex matches), cross-document navigation mid-scene (re-asserted only at the end), cursors/OS overlays, headed mode.
 - Do not wrap sensitive text in extra elements and do not add classes to app nodes for masking.
 
 ## Pitfalls

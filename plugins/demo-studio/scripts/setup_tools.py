@@ -84,7 +84,7 @@ APPIUM_DRIVER_PKGS = {  # driver id -> npm package (node_modules detection)
 # ---------------------------------------------------------------------------
 CATALOG: dict[str, dict] = {
     "capture": {
-        "effect": "Record the app in a real browser (Playwright Chromium) with capture-time masking (capture.py needs numpy) + bundled ffmpeg for video/audio processing and checks.py",
+        "effect": "Record the app in a real browser (python Playwright Chromium via web_adapter.py, no Node) with capture-time masking (capture.py needs numpy) + bundled ffmpeg (imageio-ffmpeg: used when ffmpeg is not on PATH) for video/audio processing and checks.py",
         "reqs": "capture.txt",
         "modules": ["playwright", "imageio_ffmpeg", "numpy"],
         "post": ["playwright-chromium"],

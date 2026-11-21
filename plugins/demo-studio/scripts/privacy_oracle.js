@@ -90,11 +90,11 @@
     return c;
   }
   function opaque(e) {
-    let bg = false;
+    let bg = false, seen = false;
     for (let n = e; n && n.nodeType === 1; n = n.parentElement) {
       const cs = getComputedStyle(n);
       if (parseFloat(cs.opacity) < 1 || (cs.filter && cs.filter !== 'none') || (cs.backdropFilter && cs.backdropFilter !== 'none')) return false;
-      if (!bg) { const m = /^rgba?\(([^)]*)\)$/.exec(cs.backgroundColor || ''); if (m) { const p = m[1].split(','); if (p.length === 3 || parseFloat(p[3]) === 1) bg = true; } }
+      if (!bg && !seen) { const m = /^rgba?\(([^)]*)\)$/.exec(cs.backgroundColor || ''); if (m) { const p = m[1].split(','); const al = p.length === 3 ? 1 : parseFloat(p[3]); if (al > 0) { seen = true; bg = al === 1; } } }
     }
     return bg;
   }

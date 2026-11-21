@@ -340,14 +340,14 @@
   // A DOM proof that `e` paints an opaque surface: no opacity/filter anywhere up the chain and an opaque
   // background on some ancestor-or-self. Anything else (fading backdrop, translucent modal, filter) is NOT proof.
   function opaqueProof(e) {
-    let bgOk = false;
+    let bgOk = false, bgSeen = false;
     for (let n = e; n && n.nodeType === 1; n = n.parentElement) {
       const cs = getComputedStyle(n);
       if (parseFloat(cs.opacity) < 1 || (cs.filter && cs.filter !== 'none') || (cs.backdropFilter && cs.backdropFilter !== 'none') ||
           (cs.mixBlendMode && cs.mixBlendMode !== 'normal') || (cs.maskImage && cs.maskImage !== 'none') || (cs.clipPath && cs.clipPath !== 'none')) return false;
-      if (!bgOk) {
+      if (!bgOk && !bgSeen) {   // the FIRST painted background decides: a translucent layer over an opaque ancestor is no proof
         const m = /^rgba?\(([^)]*)\)$/.exec(cs.backgroundColor || '');
-        if (m) { const p = m[1].split(',').map((x) => parseFloat(x)); if (p.length === 3 || p[3] === 1) bgOk = true; }
+        if (m) { const p = m[1].split(',').map((x) => parseFloat(x)); const al = p.length === 3 ? 1 : p[3]; if (al > 0) { bgSeen = true; bgOk = al === 1; } }
       }
     }
     return bgOk;

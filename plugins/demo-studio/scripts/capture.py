@@ -349,7 +349,7 @@ DUP_MAX = 16     # a frame whose every pixel is within this of the previous fram
 
 def _is_repeat(fr, prev, rects=None):
     """True when fr equals prev everywhere that matters: the whole frame, or (rects given) every logged/oracle rect
-    position of the surrounding window, dilated by 6 px (the app may repaint elsewhere without touching them)."""
+    position of the narrow window, dilated by 6 px (the app may repaint elsewhere without touching them)."""
     import numpy as np
     if prev is None:
         return False
@@ -371,7 +371,7 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s):
     sel_t = {k: [e["t"] for e in es] for k, es in by_sel.items()}
     bad_f, soft_f, resync_f, masked_f = set(), set(), set(), set()
     n = unverified = carried = 0
-    prev, prev_ok = None, False
+    prev, prev_ok, seen_strict, leadin_end = None, False, False, None
     for i, fr in iter_frames(video, clip["w"], clip["h"], budget_s):
         n += 1
         if i >= len(times):
@@ -381,7 +381,7 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s):
             unverified += 1     # before the page was fully parsed: not judged, safe_from_ms starts after these
             prev, prev_ok = fr, False
             continue
-        fbad, fsoft, fres, anym, wide_rects = [], False, False, False, []
+        fbad, fsoft, fres, anym, wide_rects, fstrict = [], False, False, False, [], False
         for sel, es in by_sel.items():
             ts = sel_t[sel]
             lo, hi = bisect.bisect_left(ts, te - WIDE_TOL_MS), bisect.bisect_right(ts, te + WIDE_TOL_MS)
@@ -393,8 +393,10 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s):
                     fbad.append({"frame": i, "t_ms": round(times[i] * 1000), "selector": sel, "reason": "log_gap"})
                 continue
             verdict, why, rect = eval_group(fr, cands, te, FRAME_TOL_MS, pill, res)
-            wide_rects.extend(r for e in cands for r in e["rects"])
+            if verdict in ("soft", "resync", "bad"):    # carry only needs these groups' positions unchanged; the others verified themselves
+                wide_rects.extend(r for e in cands if abs(e["t"] - te) <= FRAME_TOL_MS for r in e["rects"])
             anym = anym or verdict != "empty"
+            fstrict = fstrict or verdict == "strict"
             if verdict == "soft":
                 fsoft = True
             elif verdict == "resync":
@@ -404,6 +406,14 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s):
                 if rect:
                     f["rect"] = rect
                 fbad.append(f)
+        if (fsoft or fres) and not fbad and not seen_strict:
+            # first paint not reached yet (uniform, nothing readable, no strict evidence so far): not judged, and
+            # safe_from_ms starts after it. Glyph edges (bad) are never excused this way.
+            unverified += 1
+            leadin_end = i
+            prev, prev_ok = fr, False
+            continue
+        seen_strict = seen_strict or fstrict
         ok = not (fbad or fsoft or fres)
         if not ok and prev_ok and _is_repeat(fr, prev, wide_rects[:400]):
             carried += 1
@@ -417,13 +427,16 @@ def _pass(video, clip, times, by_sel, epoch0, ready_t, pill, budget_s):
                     res["failures"].append(f)
         elif fsoft:
             soft_f.add(i)
+            res.setdefault("soft_detail", []).append({"frame": i, "t_ms": round(times[i] * 1000), "kind": "soft"}) if len(res.get("soft_detail", [])) < 12 else None
         elif fres:
             resync_f.add(i)
+            res.setdefault("soft_detail", []).append({"frame": i, "t_ms": round(times[i] * 1000), "kind": "resync"}) if len(res.get("soft_detail", [])) < 12 else None
         prev, prev_ok = fr, ok
     if n != len(times):
         raise Fail(EXIT_BUG, "decoded %d frames, the probe lists %d" % (n, len(times)))
     res.update(frames_total=n, frames_with_masks=len(masked_f | bad_f), frames_unmasked=len(bad_f),
-               frames_soft=len(soft_f), frames_resynced=len(resync_f), frames_unverified=unverified, frames_carried=carried)
+               frames_soft=len(soft_f), frames_resynced=len(resync_f), frames_unverified=unverified, frames_carried=carried,
+               leadin_end_ms=round(times[leadin_end + 1] * 1000) if leadin_end is not None and leadin_end + 1 < len(times) else None)
     return res
 
 
@@ -459,7 +472,7 @@ def cross_check(video, clip, log, t_flashes, t_page_epoch, scene_start, pill, ma
 
 
 # ------------------------------------------------------------------ unmaskable + safe_from
-def aggregate_unmaskable(entries, epoch0, accepted=()):
+def aggregate_unmaskable(entries, epoch0, accepted=(), duration_ms=None):
     """Log entries kind 'unmaskable' -> contract list {surface, selector, reason, t_start, t_end (clip ms),
     bbox:[x,y,w,h] clip px, [accepted]} (one interval per surface/selector run, bbox = union)."""
     runs, open_ = [], {}
@@ -480,7 +493,8 @@ def aggregate_unmaskable(entries, epoch0, accepted=()):
     for r in runs:
         b = r.pop("_box")
         r.pop("_last")
-        r["t_start"], r["t_end"] = max(r["t_start"], 0), max(r["t_end"], 0)
+        cap = duration_ms if duration_ms is not None else 1 << 62
+        r["t_start"], r["t_end"] = min(max(r["t_start"], 0), cap), min(max(r["t_end"], 0), cap)
         r["bbox"] = [int(b[0] // 1), int(b[1] // 1), int(-(-b[2] // 1) - int(b[0] // 1)), int(-(-b[3] // 1) - int(b[1] // 1))]
         if r["selector"] in accepted or r["surface"] in accepted:
             r["accepted"] = True
@@ -606,7 +620,9 @@ def gate(clip_path, log_path, sync_path, scene, mask, accepted=(), max_soft=0, m
     safe_from = None
     if enabled and first_t is not None:
         safe_from = next((round(tv * 1000) for tv in times if epoch0 + tv * 1000.0 >= first_t - FRAME_TOL_MS), None)
-    unmaskable = aggregate_unmaskable(unm, epoch0, accepted) if enabled else []
+        if safe_from is not None and res.get("leadin_end_ms"):
+            safe_from = max(safe_from, res["leadin_end_ms"])
+    unmaskable = aggregate_unmaskable(unm, epoch0, accepted, clip["duration_ms"]) if enabled else []
     offset_ms = round(scene_start - epoch0) if scene_start else 0
     if enabled and kind != "blur" and "mask_log_missing_or_empty" not in reasons and (safe_from is None or safe_from > offset_ms):
         reasons.append("scene_start_before_safe_from")   # S-06: the scene must start on verified frames
@@ -784,7 +800,8 @@ def finish_run(a, spec, rec, tmp, t0, attempts):
     os.replace(rec["mask_log"], logp)
     os.replace(rec["sync"], syncp)
     if rec.get("probe_log"):
-        os.replace(rec["probe_log"], os.path.join(out_dir, sid + ".probe.jsonl"))
+        rec["probe_log"] = os.path.join(out_dir, sid + ".probe.jsonl")
+        os.replace(os.path.join(tmp, sid + ".probe.jsonl"), rec["probe_log"])
     rel = lambda f: os.path.relpath(f, base).replace(os.sep, "/") if base and f.startswith(base + os.sep) else f  # noqa: E731
     mode = (sync.get("mask_mode") or None)
     crec = clip_record(rel(final), g, mask, rel(syncp), rel(logp), mode)
@@ -811,7 +828,7 @@ def _result(a, g, rec, sync, attempts, t0, status, video):
            "safe_from_ms": g["safe_from_ms"], "gate_fail": g["gate_fail"], "unmaskable": g["unmaskable"],
            "cross_check": {k: g.get(k) for k in ("frames_total", "frames_with_masks", "frames_unmasked", "rect_checks",
                                                  "oracle_rect_checks", "rects_failed", "frames_soft", "frames_resynced",
-                                                 "rects_skipped_proven", "frames_unverified", "frames_carried", "rects_uniform_nopill", "failures", "sync", "check_s",
+                                                 "rects_skipped_proven", "frames_unverified", "frames_carried", "leadin_end_ms", "soft_detail", "rects_uniform_nopill", "failures", "sync", "check_s",
                                                  "recalibrated")},
            "assertion": {k: _brief(sync.get(k)) for k in ("preflight", "inline", "final")},
            "overhead": sync.get("perf"), "probe_log": rec.get("probe_log"), "retries": attempts - 1,

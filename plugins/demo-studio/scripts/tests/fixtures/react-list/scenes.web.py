@@ -27,3 +27,4 @@ def s01(ctx):
 
 
 SCENES = {"s01": s01}
+SCENES["s02"] = lambda ctx: (ctx.target.evaluate(SMOOTH, {"to": 300, "ms": 500}), ctx.target.wait_for_timeout(500))
