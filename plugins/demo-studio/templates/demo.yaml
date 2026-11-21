@@ -1,6 +1,6 @@
 # demo.yaml - the properties of this demo video. You own this file: edit it any time.
 # demo-strategist creates it at G1, demo-director records your decisions in it
-# (motion level, voice, install choices). Every other agent only reads it.
+# (motion level, voice, tools, install choices). Every other agent only reads it.
 #
 # After an edit the director runs `config.py diff` and re-runs only what changed.
 # Check it yourself: python <plugin>/scripts/config.py --slug <slug> validate

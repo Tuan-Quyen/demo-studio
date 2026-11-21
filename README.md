@@ -67,7 +67,7 @@ Only `demo-director` runs pipelines; the others each do one job and write only t
 | Agent | One job | Model |
 |---|---|---|
 | `demo-director` | Classify the request, pick the pipeline, delegate, gate you, keep the resume point | opus |
-| `toolsmith` | Install only the toolkit features you approved | haiku |
+| `toolsmith` | Suggests the tools a stage needs (read-only); installs only what you approved | haiku |
 | `demo-strategist` | Audience, goal, message, CTA; creates `demo.yaml` | inherit |
 | `app-scout` | Explore the app, check platform, map flows and selectors, flag sensitive elements | inherit |
 | `storyboarder` | Scenes and shots: on-screen action, camera intent, duration | opus |
@@ -154,10 +154,12 @@ python scripts/project.py --slug <slug> check-blur   # blur covers every sensiti
 
 ## Toolkit
 
-Nothing is installed up front. When a step needs a feature, the agent runs a check; if it is missing, **you are asked first** with the size and effect (and a recommended default). Declined features fall back (Remotion to the ffmpeg renderer with basic motion, word captions to sentence captions). Installs go into `.demo/` (`.venv`, `remotion/`, `appium/`) and are recorded in `.demo/toolkit.json`. Your choice is saved in `demo.yaml` (`install.approved` / `install.declined`), so you are not asked twice.
+Nothing is installed up front. Right before a stage runs, the director checks what that stage needs; if something is missing, toolsmith suggests the options for **that stage only** and **you are asked first** with the size and effect (and a recommended default). Later stages are asked later. Declined features fall back (Remotion to the ffmpeg renderer with basic motion, word captions to sentence captions). Installs go into `.demo/` (`.venv`, `remotion/`, `appium/`) and are recorded in `.demo/toolkit.json`. Your choice is saved in `demo.yaml` (`install.approved` / `install.declined`), so you are not asked twice.
+
+Where several tools can do the same job you choose, and the recommended one is listed first: `scripts/setup_tools.py --options [voice|render]` shows the alternatives with size, requirements and status. The choice is stored in `demo.yaml` (`voice.engine`; the render engine as `remotion` in `install.approved` / `install.declined`).
 
 ```
-python scripts/setup_tools.py --list | --check [features] | --plan <features> | --install <features>
+python scripts/setup_tools.py --list | --options [job] | --stage [name] | --stages | --check [features] | --plan <features> | --install <features>
 ```
 
 | Feature | What it gives | Size |

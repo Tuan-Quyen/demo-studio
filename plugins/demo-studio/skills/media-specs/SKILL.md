@@ -13,7 +13,7 @@ Tunable values (loudness, true peak, drift, caption width and offset, burn-in, f
 - **fps = source fps.** Playwright `recordVideo` is capped at 25 fps, so a web raw is 25 fps and the output is 25 fps; never fake 60 by frame duplication. 60 fps output only when every raw clip is a real 60 fps recording (desktop/mobile recorders); clips with different fps: output at the lowest, resample only down. Record the real value in `#checks.outputs`.
 - H.264 High, yuv420p, AAC 48 kHz 192 kbps, `+faststart`. **CRF governs quality; there is no bitrate target** (low-motion screen content is fine far below 10 Mbps); `-maxrate` is only a safety cap:
 ```
-ffmpeg -y <inputs/filtergraph> -c:v libx264 -preset slow -crf 18 -maxrate 20M -bufsize 40M -profile:v high -pix_fmt yuv420p -r <source fps> -c:a aac -b:a 192k -ar 48000 -movflags +faststart media/final-16x9.mp4
+ffmpeg -nostdin -y <inputs/filtergraph> -c:v libx264 -preset slow -crf 18 -maxrate 20M -bufsize 40M -profile:v high -pix_fmt yuv420p -r <source fps> -c:a aac -b:a 192k -ar 48000 -movflags +faststart media/final-16x9.mp4
 ```
 - Blur first in the graph (before scale/reframe) so bbox stay in source-frame pixels.
 
@@ -35,7 +35,7 @@ Thresholds are the defaults; the project's `demo.yaml` overrides them (key in th
 |---|---|---|---|---|
 | vo | each `sNN.vo.wav` clean: lead <= 200, trail <= 150, gaps <= 500 ms except declared pauses; `#voice` fields present | `vo.py check <file> [--pause-ms N...]` exit 0 (run before mixing) | voice-producer |
 | sync | rendered scene length vs timeline | drift <= `targets.max_drift_ms` (80) per scene | render-engineer knows each scene's cut points; `ffprobe` the final and compare scene durations/VO onsets with `#timeline` | sync-editor |
-| loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP | `ffmpeg -nostats -i F -af ebur128=peak=true -f null -` (read summary `I:` and `True peak`) | sound-mixer |
+| loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP | `ffmpeg -nostdin -nostats -i F -af ebur128=peak=true -f null -` (read summary `I:` and `True peak`) | sound-mixer |
 | blur | every `sensitive` marker covered by `#blur` in space and time; bbox valid; strength enough | 0 gaps, 0 invalid, 0 weak | `project.py check-blur` (geometric, no OCR, milliseconds): samples every 20 ms of each sensitive span inside the rendered `#timeline` window; between two markers of a label the whole hull of both boxes must be covered (box shrunk 1 px for rounding); strength `>= max(8, 0.3 x box height)`, pixelate x1.6. Both renderers blur the source frame before zoom/reframe, so source px suffice | privacy-blurrer (`invalid`: capture-operator) |
 | black | black frames not intended | none (>0.2 s) outside `allow.black` | `-vf blackdetect=d=0.2:pix_th=0.10 -an -f null -` | capture-operator |
 | freeze | frozen video not intended | none (>=3 s) outside `allow.freeze` | `-vf freezedetect=n=-60dB:d=3 -an -f null -` | capture-operator |
@@ -46,14 +46,15 @@ Intentional black (fade through black, title cards) and deliberate holds (screen
 Measuring snippets:
 ```
 # loudness
-ffmpeg -nostats -i media/final-16x9.mp4 -vn -af ebur128=peak=true -f null - 2>&1 | tail -n 14
+ffmpeg -nostdin -nostats -i media/final-16x9.mp4 -vn -af ebur128=peak=true -f null - 2>&1 | tail -n 14
 # black + freeze in one pass
-ffmpeg -i media/final-16x9.mp4 -vf "blackdetect=d=0.2:pix_th=0.10,freezedetect=n=-60dB:d=3" -an -f null - 2>&1 | grep -E "black_start|freeze_start"
+ffmpeg -nostdin -i media/final-16x9.mp4 -vf "blackdetect=d=0.2:pix_th=0.10,freezedetect=n=-60dB:d=3" -an -f null - 2>&1 | grep -E "black_start|freeze_start"
 # blur coverage (exit 0 pass, 1 fail; JSON with gaps / invalid / weak)
 python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> check-blur
 # placement frame (privacy-blurrer, one per region): raw frame at clip time t + offset_ms, region box drawn
-ffmpeg -y -ss T -i media/sNN.raw.webm -frames:v 1 -vf drawbox=x=X:y=Y:w=W:h=H:color=red:t=3 media/preview/b1.png
+ffmpeg -nostdin -y -ss T -i media/sNN.raw.webm -frames:v 1 -vf drawbox=x=X:y=Y:w=W:h=H:color=red:t=3 media/preview/b1.png
 ```
+Every ffmpeg call in a script or snippet carries `-nostdin` (with stdin open ffmpeg waits on an overwrite prompt; inside `while read` it eats the loop's input) and `-y` when it writes a file (without it a rerun silently keeps the stale file).
 Blur filter, ffmpeg fallback only (Remotion draws its own blur from `#blur`):
 ```
 [0:v]split[a][b];[b]crop=W:H:X:Y,boxblur=lr=min(25\,H/4):lp=3[bl];[a][bl]overlay=X:Y:enable='between(t,T0,T1)'
