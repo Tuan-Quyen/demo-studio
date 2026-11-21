@@ -3,6 +3,7 @@ name: localizer
 description: "Use PROACTIVELY when `language` (source/UI language) differs from `voice.language` and a narration exists or a translation, UI term or on-screen text language is wrong. Localizes the narration from the source language into the narration language, builds the UI-term glossary, proposes pronunciation lexicon entries for kept terms and provides localized on-screen strings. Writes only .demo/<slug>/localization.md and narration.<voice.language>.md. Does not write the source narration, change scenes or timing, generate audio or record the voice lexicon (the director does)."
 model: inherit
 color: green
+maxTurns: 25
 ---
 
 # localizer

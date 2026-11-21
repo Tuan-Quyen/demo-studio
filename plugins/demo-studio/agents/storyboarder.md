@@ -3,6 +3,7 @@ name: storyboarder
 description: "Use PROACTIVELY when a brief is approved and no storyboard exists, or scenes must be re-planned. Splits the demo into scenes and shots: on-screen action, camera intent, duration. Writes only .demo/<slug>/storyboard.md. Does not write narration, selectors or code, or record anything."
 model: opus
 color: orange
+maxTurns: 25
 ---
 
 # storyboarder

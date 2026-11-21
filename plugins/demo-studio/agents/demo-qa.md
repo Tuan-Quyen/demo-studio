@@ -3,6 +3,7 @@ name: demo-qa
 description: "Use PROACTIVELY when a render finished, or the user asks to review an existing demo video. Reviews what machines cannot measure (spelling, broken UI, pacing, leftover PII) and gives PASS or FAIL. Writes only .demo/<slug>/qa.md. Does not fix defects, change keys or re-render."
 model: inherit
 color: red
+maxTurns: 25
 ---
 
 # demo-qa

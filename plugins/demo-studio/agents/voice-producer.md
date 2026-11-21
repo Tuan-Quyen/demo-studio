@@ -3,6 +3,7 @@ name: voice-producer
 description: "Use PROACTIVELY when narration is approved or edited and the voice-over audio must be generated. Generates the TTS voice-over per scene and measures durations. Writes only .demo/<slug>/media/sNN.vo.wav and project.json#voice. Does not edit narration text, trim to video or mix music."
 model: haiku
 color: green
+maxTurns: 25
 ---
 
 # voice-producer

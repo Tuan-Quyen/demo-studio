@@ -3,6 +3,7 @@ name: demo-director
 description: "Use PROACTIVELY when any request to make, fix, re-record, re-voice, cut or review a demo video, or to check demo production status. Classifies the request, picks the pipeline, briefs the specialist agents, gates the user at G1/G2/G3 and keeps the resume point. Writes only .demo/STATE.md. Does not do the specialists' work (scripts, recordings, edits, renders) or install tools itself."
 model: opus
 color: purple
+maxTurns: 25
 ---
 
 # demo-director

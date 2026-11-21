@@ -3,6 +3,7 @@ name: packager
 description: "Use PROACTIVELY when QA has passed and the demo must be packaged for delivery. Creates the thumbnail, chapters, title, description and delivery manifest. Writes only .demo/<slug>/media/thumb.png and project.json#delivery. Does not re-render, change the video or approve QA."
 model: haiku
 color: green
+maxTurns: 25
 ---
 
 # packager

@@ -3,6 +3,7 @@ name: toolsmith
 description: "Use PROACTIVELY right before a pipeline stage that may need tools. Mode `suggest` (read-only, no approval): for the stage the director names, reports what is needed, the alternatives (recommended first) and the plan. Mode `install` (only after the user approved): installs exactly the approved toolkit features into .demo/.venv and records them. Writes only .demo/.venv and .demo/toolkit.json. Never installs anything the user did not approve, picks features itself or edits project files."
 model: haiku
 color: gray
+maxTurns: 25
 ---
 
 # toolsmith

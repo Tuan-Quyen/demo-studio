@@ -205,6 +205,77 @@ class ChecksTests(unittest.TestCase):
         with open(os.path.join(e.sdir, "runs.jsonl")) as f:
             self.assertTrue(any('"checks.py"' in l for l in f))
 
+    def test_dead_air_found_and_allowed(self):
+        gap = LOUD + ",volume=enable='between(t,1,5)':volume=0"   # 4 s silent, like M-2
+        e = self.good(af=gap)
+        code, res = e.run("--only", "dead_air")
+        self.assertEqual(code, 10, res)
+        h = res["results"]["dead_air"]["hits"][0]
+        self.assertAlmostEqual(h["t_end"] - h["t_start"], 4.0, delta=0.3)
+        self.assertEqual(res["failures"][0], {"id": "dead_air", "owner": "sync-editor", "class": "finding"})
+        e.put("motion", {"allow": {"black": [], "freeze": [], "dead_air": [[900, 5100]]}})
+        code, res = e.run("--only", "dead_air")
+        self.assertTrue(res["results"]["dead_air"]["pass"], res)
+
+    def test_short_silence_is_not_dead_air(self):
+        e = self.good(af=LOUD + ",volume=enable='between(t,1,3)':volume=0")   # 2 s reading hold
+        code, res = e.run("--only", "dead_air")
+        self.assertTrue(res["results"]["dead_air"]["pass"], res)
+
+    def test_vtt_without_header_fails_the_gate(self):
+        e = self.good()
+        with open(os.path.join(e.sdir, "media", "final.vtt"), "w") as f:
+            f.write("00:00:00.300 --> 00:00:02.900\nCreate an invoice\n")
+        e.blur("16x9")
+        code, res = e.run()
+        self.assertEqual(code, 10, res)
+        self.assertIn("WEBVTT", res["results"]["captions"]["detail"])
+
+    def test_captions_and_dead_air_are_required(self):
+        e = self.good()
+        e.blur("16x9")
+        code, res = e.run("--only", "blur,loudness,black,freeze,length,safe_start")
+        self.assertEqual(code, 3, res)
+        self.assertEqual(res["missing_checks"], ["dead_air", "captions"])
+
+    def test_dod_commands(self):
+        e = self.good()
+        def dod(stage):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                code = checks.main(["dod", stage, "--project", e.pj])
+            return code, json.loads(out.getvalue().strip().splitlines()[-1])
+        code, res = dod("checks")
+        self.assertEqual((code, res["pass"]), (10, False))          # checks.py has not run
+        self.assertEqual(res["failures"][0]["owner"], "render-engineer")
+        e.blur("16x9")
+        e.run()
+        code, res = dod("render-engineer")                          # agent alias -> checks
+        self.assertEqual((code, res["stage"], res["pass"]), (0, "checks", True), res)
+        e.put("blur", {"regions": []})                              # blur changed after checks: stale
+        code, res = dod("checks")
+        self.assertEqual(code, 10)
+        self.assertEqual(dod("nope")[0], 2)
+        code, res = dod("qa")
+        self.assertEqual(code, 10)
+        with open(os.path.join(e.sdir, "qa.md"), "w") as f:
+            f.write("## Verdict: FAIL (gate only)\n\nFinal verdict: **PASS**\n")
+        self.assertEqual(dod("qa")[0], 0)
+        with open(os.path.join(e.sdir, "runs.jsonl")) as f:
+            self.assertFalse(any('"dod"' in l for l in f))          # read-only: no run line
+
+    def test_dod_render_duration_vs_timeline(self):
+        e = self.good()
+        e.put("timeline", {"scenes": [{"id": "s01", "start": 0, "end": 6000}]})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = checks.main(["dod", "render", "--project", e.pj])
+        self.assertEqual(code, 0, out.getvalue())
+        e.put("timeline", {"scenes": [{"id": "s01", "start": 0, "end": 7000}]})
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = checks.main(["dod", "render", "--project", e.pj])
+        self.assertEqual(code, 10)
+
     def test_dry_run_runs_no_ffmpeg_and_writes_nothing(self):
         e = self.good()
         code, res = e.run("--dry-run")

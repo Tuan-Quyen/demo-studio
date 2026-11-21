@@ -3,6 +3,7 @@ name: motion-designer
 description: "Use PROACTIVELY when a timeline exists but has no visual effects yet, or zooms/callouts are wrong. Plans zoom and pan on clicks, cursor and touch highlights, ripples, callouts, title cards and device frames. Writes only project.json#motion. Does not retime scenes, edit narration, blur data or render the final file."
 model: inherit
 color: magenta
+maxTurns: 25
 ---
 
 # motion-designer

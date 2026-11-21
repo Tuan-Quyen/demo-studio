@@ -3,6 +3,7 @@ name: sync-editor
 description: "Use PROACTIVELY when new clips or new voice-over must be aligned on a timeline, or audio and video drift. Aligns raw clips with the voice-over on a timeline: pad, trim and change speed. Writes only project.json#timeline. Does not apply effects, change narration text or render the final file."
 model: inherit
 color: magenta
+maxTurns: 25
 ---
 
 # sync-editor

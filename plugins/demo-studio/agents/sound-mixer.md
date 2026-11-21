@@ -3,6 +3,7 @@ name: sound-mixer
 description: "Use PROACTIVELY when voice-over or music changed and the audio mix must be set. Chooses background music, ducking and loudness targets (from demo.yaml, default -14 LUFS, -1 dBTP) and checks them with a quick audio-only render. Writes only project.json#mix. Does not record or edit voice-over, write narration or render the video."
 model: haiku
 color: green
+maxTurns: 25
 ---
 
 # sound-mixer

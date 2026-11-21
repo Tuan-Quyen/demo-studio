@@ -5,7 +5,13 @@
 Usage:
   checks.py (--project PATH | --slug SLUG) [--only ID[,ID...]] [--media-dir DIR] [--renderer R]
             [--no-write] [--dry-run] [--json]
-    ids: blur loudness black freeze captions length sync vo safe_start  (default: all)
+    ids: blur loudness black freeze dead_air captions length sync vo safe_start  (default: all)
+  checks.py dod <stage|agent> (--project PATH | --slug SLUG)    Definition of Done of one stage
+    (redesign §5), read-only, no ffmpeg except `render`: {"status","stage","pass","items":[{"id",
+    "pass","detail","owner"}],"failures"}. Exit 0 pass | 2 unknown stage / project | 3 an item could
+    not be evaluated | 10 an item failed. An agent name maps to its stage (DOD_AGENT_STAGE) and is
+    judged on the items it owns only (parallel post-production agents must not fail each other).
+    stages: plan script scenes voice capture privacy post render checks qa package
 
 Per rendered aspect (demo.yaml `formats`, files media/final-<aspect>.mp4) ONE combined ffmpeg pass
 (ebur128 + blackdetect + freezedetect + silencedetect, ~3x faster than separate runs) through
@@ -19,7 +25,9 @@ run_bounded (wall 0.3 x duration + 60 s, stall 30 s). Checks:
   loudness  integrated LUFS vs targets.lufs +-1, true peak <= targets.true_peak, and vs #mix.preview
             (> 0.5 LU / 0.5 dB off = chain not reproducible, owner sound-mixer).
   black     black spans (>= 0.2 s) outside #motion.allow.black.   freeze  likewise (>= 3 s).
-  captions  final.vtt lint: chars/line, lines/cue, cue length, order. Onset offset is reported
+  dead_air  audio silence >= 3 s (silencedetect -40 dB, same combined pass) outside #motion.allow.dead_air
+            (redesign M-2: 4.2 s without VO). Blind while a music bed stays above -40 dB.
+  captions  GATE: final.vtt lint: WEBVTT header, chars/line, lines/cue, cue length, order. Onset offset is reported
             (`onset_*`, phrase-level from silence ends) but does not gate: word onsets need the
             captions-check of media-specs.
   length    duration vs demo.yaml length_s +-10%.
@@ -60,13 +68,15 @@ import run_bounded as rbm  # noqa: E402
 import project  # noqa: E402
 
 EXIT = {"ok": 0, "input": 2, "incomplete": 3, "tool": 4, "finding": 10, "leak": 11, "bug": 70}
-ALL = ["blur", "loudness", "black", "freeze", "captions", "length", "sync", "vo", "safe_start"]
-REQUIRED = ("blur", "loudness", "black", "freeze", "length", "safe_start")  # `pass` needs these present
+ALL = ["blur", "loudness", "black", "freeze", "dead_air", "captions", "length", "sync", "vo", "safe_start"]
+REQUIRED = ("blur", "loudness", "black", "freeze", "dead_air", "captions", "length", "safe_start")  # `pass` needs these present
 OWNERS = {"sync": "sync-editor", "vo": "voice-producer", "loudness": "sound-mixer",
           "blur": "privacy-blurrer", "black": "capture-operator", "freeze": "capture-operator",
-          "captions": "caption-writer", "length": "storyboarder", "safe_start": "sync-editor"}
+          "captions": "caption-writer", "length": "storyboarder", "safe_start": "sync-editor",
+          "dead_air": "sync-editor"}
 LUFS_TOL, PREVIEW_TOL = 1.0, 0.5
 BLACK_D, FREEZE_D = 0.2, 3.0
+DEAD_AIR_S = 3.0
 ALLOW_SLOP_S = 0.15
 ONSET_SILENCE_S = 0.15
 FORMAT_ASPECT = {"16:9": "16x9", "9:16": "9x16", "1:1": "1x1"}
@@ -329,6 +339,21 @@ def span_result(kind, per, motion, timeline, dur):
     return {"pass": not hits, "hits": hits, "owner": OWNERS[kind], "detail": detail}
 
 
+def dead_air_result(per, motion, timeline):
+    """Audio silences >= DEAD_AIR_S outside #motion.allow.dead_air ([start_ms, end_ms] spans)."""
+    allow = ((motion or {}).get("allow") or {}).get("dead_air") or []
+    hits = []
+    for a, m in per.items():
+        for s, e in m["silence"]:
+            if e - s >= DEAD_AIR_S and not covered((s, e), allow):
+                hits.append({"aspect": a, "t_start": round(s, 2), "t_end": round(e, 2),
+                             "scene": scene_at(timeline, s)})
+    detail = "; ".join("%s %.2f-%.2f s silent (%.1f s)%s" % (h["aspect"], h["t_start"], h["t_end"],
+                                                           h["t_end"] - h["t_start"],
+                                                           " (%s)" % h["scene"] if h["scene"] else "") for h in hits)
+    return {"pass": not hits, "hits": hits, "min_s": DEAD_AIR_S, "owner": OWNERS["dead_air"], "detail": detail}
+
+
 def parse_vtt(text):
     cues = []
     for block in re.split(r"\n\s*\n", text.replace("\r\n", "\n")):
@@ -349,11 +374,16 @@ def captions_result(sdir, media, cfg, onsets_s, duration, lang_suffix=""):
     if not os.path.exists(f):
         return {"pass": False, "owner": OWNERS["captions"], "detail": "%s missing" % os.path.relpath(f, sdir)}
     with open(f, encoding="utf-8-sig") as fh:
-        cues = parse_vtt(fh.read())
+        raw = fh.read()
+    cues = parse_vtt(raw)
     mx = cfg["captions"]["max_chars"]
     bad, longest, prev_end, over_lines, off = [], 0, -1, 0, []
+    if not raw.lstrip().startswith("WEBVTT"):
+        bad.append("first line is not WEBVTT")
     for i, c in enumerate(cues, 1):
         longest = max([longest] + [len(l) for l in c["lines"]])
+        if not c["lines"]:
+            bad.append("cue %d has no text" % i)
         if len(c["lines"]) > 2:
             over_lines += 1
             bad.append("cue %d has %d lines" % (i, len(c["lines"])))
@@ -513,6 +543,155 @@ def privacy_capture(data, real=True, accepted=(), tmp_dirs=(), sdir=""):
             "weakened": weak, "undecided": undecided, "ignored_accepted": ignored, "stale_tmp": list(tmp_dirs)}
 
 
+# =========================================================================== definition of done
+DOD_STAGES = ["plan", "script", "scenes", "voice", "capture", "privacy", "post", "render", "checks", "qa",
+              "package"]
+DOD_AGENT_STAGE = {"demo-strategist": "plan", "app-scout": "plan", "storyboarder": "script",
+                   "scriptwriter": "script", "localizer": "script", "scene-automator": "scenes",
+                   "voice-producer": "voice", "capture-operator": "capture", "privacy-blurrer": "privacy",
+                   "sync-editor": "post", "motion-designer": "post", "caption-writer": "post",
+                   "sound-mixer": "post", "render-engineer": "checks", "demo-qa": "qa",
+                   "packager": "package"}   # toolsmith and demo-director have no machine DoD
+RENDER_TOL_MS = 40
+
+
+def _item(iid, ok, detail="", owner="demo-director", incomplete=False):
+    return {"id": iid, "pass": bool(ok), "detail": detail if not ok else "", "owner": owner,
+            **({"incomplete": True} if incomplete and not ok else {})}
+
+
+def _read(sdir, name):
+    try:
+        with open(os.path.join(sdir, name), encoding="utf-8-sig") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _file_item(sdir, name, owner):
+    txt = _read(sdir, name)
+    return _item(name, bool(txt and txt.strip()), "%s is missing or empty" % name, owner)
+
+
+def _key_item(data, key, sdir):
+    present = data.get(key) not in (None, {}, [])
+    stale = project.stale_inputs(data, key) if present else []
+    return _item("#" + key, present and not stale,
+                 "#%s is not written" % key if not present else "#%s is stale: %s changed" % (key, ", ".join(stale)),
+                 project.OWNERS[key])
+
+
+def dod_items(stage, path, data, cfg, args):
+    sdir = os.path.dirname(path)
+    items = []
+    real = cfg["privacy"]["data_mode"] != "seeded"
+    if stage == "plan":
+        txt = _read(sdir, "brief.md") or ""
+        for fld in ("Audience", "Key message", "CTA"):
+            m = re.search(r"^[-*]\s*%s:\s*(.+)$" % fld, txt, re.M | re.I)
+            items.append(_item("brief." + fld.lower().replace(" ", "_"), bool(m and not m.group(1).startswith("<")),
+                               "brief.md has no %s" % fld, "demo-strategist"))
+    elif stage == "script":
+        items += [_file_item(sdir, "storyboard.md", "storyboarder"), _file_item(sdir, "narration.md", "scriptwriter")]
+    elif stage == "scenes":
+        import glob
+        found = glob.glob(os.path.join(sdir, "scenes.*.py")) + glob.glob(os.path.join(sdir, "scenes.*.js"))
+        items.append(_item("scenes", bool(found), "no scenes.<platform>.* script in the project folder",
+                           "scene-automator"))
+    elif stage == "voice":
+        items.append(_key_item(data, "voice", sdir))
+        if data.get("voice"):
+            r = vo_result(sdir, data.get("voice"))
+            items.append(_item("vo", r["pass"], r["detail"], OWNERS["vo"]))
+    elif stage in ("capture", "privacy"):
+        pc = privacy_capture(data, real, cfg["privacy"].get("accepted") or [], [], sdir)
+        if pc is None:
+            items.append(_item("#events", False, "#events has no clips", "capture-operator"))
+        elif stage == "capture":
+            items.append(_item("frames_unmasked", pc["frames_unmasked"] == 0,
+                               "%d frame(s) with unmasked data" % pc["frames_unmasked"], "capture-operator"))
+            tmp = [os.path.relpath(x, sdir).replace(os.sep, "/")
+                   for x in project.split_inside(sdir, project.stale_tmp_dirs(sdir, data))[0]]
+            items.append(_item("stale_tmp", not tmp, "raw capture dirs left: %s" % ", ".join(tmp), "capture-operator"))
+            items.append(_item("capture_gate", not pc["undecided"] and not pc["ignored_accepted"],
+                               "weaker capture gate without a recorded user decision: %s"
+                               % ", ".join(pc["undecided"] or pc["ignored_accepted"]), "demo-director"))
+        else:
+            items.append(_item("needs_blur", not pc["needs_blur"],
+                               "clips without a capture mask and no #blur region: %s" % ", ".join(pc["needs_blur"]),
+                               "privacy-blurrer"))
+            un = unmaskable_problem(data)
+            items.append(_item("unmaskable", not un, un or "", "privacy-blurrer"))
+    elif stage == "post":
+        items += [_key_item(data, k, sdir) for k in ("timeline", "motion", "captions", "mix")]
+        if os.path.exists(os.path.join(sdir, "media", "final.vtt")):
+            r = captions_result(sdir, os.path.join(sdir, "media"), cfg, [], 0)
+            items.append(_item("vtt_lint", r["pass"], r["detail"], OWNERS["captions"]))
+    elif stage == "render":
+        end = None
+        try:
+            end = max(s["end"] for s in (data.get("timeline") or {}).get("scenes") or [])
+        except (KeyError, TypeError, ValueError):
+            pass
+        for a in aspects_of(cfg):
+            f = os.path.join(sdir, "media", "final-%s.mp4" % a)
+            if not os.path.exists(f):
+                items.append(_item("final-" + a, False, "media/final-%s.mp4 is missing" % a, "render-engineer"))
+            elif end is None:
+                items.append(_item("duration-" + a, False, "no #timeline to compare the duration with",
+                                   "sync-editor", incomplete=True))
+            elif not shutil.which(args.ffprobe):
+                items.append(_item("duration-" + a, False, "ffprobe not found", "render-engineer", incomplete=True))
+            else:
+                d = probe(f, args.ffprobe)["duration"] * 1000 - end
+                items.append(_item("duration-" + a, abs(d) <= RENDER_TOL_MS,
+                                   "%.0f ms from #timeline end (limit %d)" % (d, RENDER_TOL_MS), "render-engineer"))
+    elif stage == "checks":
+        c = data.get("checks") if isinstance(data.get("checks"), dict) else None
+        if c is None:
+            items.append(_item("#checks", False, "checks.py has not run", "render-engineer"))
+        else:
+            miss = [r for r in REQUIRED if r not in (c.get("results") or {})]
+            stale = project.stale_inputs(data, "checks")
+            failed = [k for k, r in (c.get("results") or {}).items() if not r.get("pass")]
+            why = (([] if c.get("pass") else ["pass is false: %s" % ", ".join(failed)])
+                   + (["missing checks: %s" % ", ".join(miss)] if miss else [])
+                   + (["stale: %s changed" % ", ".join(stale)] if stale else []))
+            items.append(_item("#checks.pass", not why, "; ".join(why), "render-engineer"))
+    elif stage == "qa":
+        txt = _read(sdir, "qa.md") or ""
+        v = re.findall(r"verdict[^\n]*?\b(PASS|FAIL)\b", txt, re.I)
+        items.append(_item("qa.md", bool(v) and v[-1].upper() == "PASS",
+                           "qa.md has no verdict" if not v else "qa.md verdict is %s" % v[-1].upper(), "demo-qa"))
+    elif stage == "package":
+        d = data.get("delivery")
+        ok = isinstance(d, dict) and d.get("title") and d.get("files")
+        items.append(_item("#delivery", bool(ok), "#delivery has no title/files", "packager"))
+        if ok:
+            files = [x.get("path", x.get("file", "")) if isinstance(x, dict) else str(x) for x in d["files"]]
+            bad = [x for x in files if re.search(r"(^|[/\\])(preview|\.secret)([/\\]|$)|\.raw\.", x)]
+            items.append(_item("delivery_files", not bad, "delivery lists raw/preview/.secret files: %s"
+                               % ", ".join(bad[:5]), "packager"))
+    return items
+
+
+def run_dod(args):
+    stage = DOD_AGENT_STAGE.get(args.stage, args.stage)
+    if stage not in DOD_STAGES:
+        raise CheckError(2, "unknown stage %r; valid: %s (or an agent name)" % (args.stage, ",".join(DOD_STAGES)))
+    path, data = load_ctx(args)
+    items = dod_items(stage, path, data, load_cfg(os.path.dirname(path)), args)
+    if args.stage in DOD_AGENT_STAGE:   # an agent is judged on its own outputs only (parallel agents)
+        items = [i for i in items if i["owner"] == args.stage]
+    failed = [i for i in items if not i["pass"]]
+    inc = [i for i in failed if i.get("incomplete")]
+    res = {"status": "pass" if not failed else "incomplete" if len(inc) == len(failed) else "fail",
+           "stage": stage, "pass": not failed, "items": items,
+           "failures": [{"id": i["id"], "owner": i["owner"],
+                         "class": "incomplete" if i.get("incomplete") else "finding"} for i in failed]}
+    return res, (0 if not failed else EXIT["incomplete"] if len(inc) == len(failed) else EXIT["finding"])
+
+
 # =========================================================================== command
 def run(args):
     path, data = load_ctx(args)
@@ -530,7 +709,7 @@ def run(args):
         raise CheckError(2, "no rendered output found: %s" % ", ".join(
             os.path.relpath(f, sdir) for f in files.values()),
             [{"id": "outputs", "owner": "render-engineer", "class": "input"}])
-    media_checks = {"loudness", "black", "freeze", "captions", "length", "sync"} & set(only)
+    media_checks = {"loudness", "black", "freeze", "dead_air", "captions", "length", "sync"} & set(only)
     if args.dry_run:
         return {"status": "ok", "dry_run": True, "aspects": rendered, "checks": only,
                 "ffmpeg_passes": len(rendered) if media_checks else 0}, 0
@@ -551,6 +730,8 @@ def run(args):
             results["loudness"] = loudness_result(meas, cfg, mix)
         elif cid in ("black", "freeze"):
             results[cid] = span_result(cid, meas, motion, timeline, dur)
+        elif cid == "dead_air":
+            results["dead_air"] = dead_air_result(meas, motion, timeline)
         elif cid == "captions":
             onsets = sorted({e for m in meas.values() for _, e in m["silence"]})
             results["captions"] = captions_result(sdir, media, cfg, onsets, dur)
@@ -570,7 +751,8 @@ def run(args):
                       "h": i["h"], "fps": i["fps"], "duration_s": round(i["duration"], 2),
                       "renderer": args.renderer or (old.get("outputs") or {}).get(a, {}).get("renderer")}
     allow = {"black": ((motion or {}).get("allow") or {}).get("black") or [],
-             "freeze": ((motion or {}).get("allow") or {}).get("freeze") or []}
+             "freeze": ((motion or {}).get("allow") or {}).get("freeze") or [],
+             "dead_air": ((motion or {}).get("allow") or {}).get("dead_air") or []}
     box = {}
 
     def build(cur):
@@ -640,6 +822,17 @@ def run(args):
     return out, code
 
 
+def build_dod_parser():
+    p = argparse.ArgumentParser(prog="checks.py dod", allow_abbrev=False,
+                                description="Definition of Done of one stage (read-only).")
+    p.add_argument("stage", help="%s, or an agent name" % "|".join(DOD_STAGES))
+    p.add_argument("--project")
+    p.add_argument("--slug")
+    p.add_argument("--json", action="store_true", help="accepted for symmetry: output is always JSON")
+    p.add_argument("--ffprobe", default="ffprobe")
+    return p
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="Render checks in code; the only writer of #checks.",
                                 allow_abbrev=False)
@@ -663,13 +856,15 @@ def main(argv=None):
             stream.reconfigure(encoding="utf-8")
         except Exception:
             pass
+    dod = bool((argv if argv is not None else sys.argv[1:])[:1] == ["dod"])
     try:
-        args = build_parser().parse_args(argv)
+        args = (build_dod_parser().parse_args((argv if argv is not None else sys.argv[1:])[1:]) if dod
+                else build_parser().parse_args(argv))
     except SystemExit as e:
         return EXIT["input"] if e.code else 0
     t0 = time.monotonic()
     try:
-        res, code = run(args)
+        res, code = run_dod(args) if dod else run(args)
     except CheckError as e:
         res = {"status": {2: "input", 3: "incomplete", 4: "missing-tool"}.get(e.code, "bug"),
                "error": e.msg, "failures": e.failures}
@@ -680,7 +875,7 @@ def main(argv=None):
     sys.stdout.write(json.dumps(res, ensure_ascii=False) + "\n")
     try:
         path = project.project_path(type("A", (), {"project": args.project, "slug": args.slug})())
-        if os.path.isdir(os.path.dirname(path)):
+        if not dod and os.path.isdir(os.path.dirname(path)):
             rbm.append_run(os.path.dirname(path), "checks.py",
                            argv if argv is not None else sys.argv[1:], res)
     except Exception:

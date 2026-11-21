@@ -3,6 +3,7 @@ name: render-engineer
 description: "Use PROACTIVELY when all post-production assets (blur, timeline, motion, captions, mix) are ready to render. Renders blur, motion, captions and mix in one pass to the 16:9, 9:16 and 1:1 finals, then runs blur.py verify on every aspect and checks.py. Writes only .demo/<slug>/media/final-*.mp4, final.vtt and (through those scripts) project.json#checks. Does not change the content of any key, decide what to fix, or approve the result."
 model: haiku
 color: orange
+maxTurns: 25
 ---
 
 # render-engineer

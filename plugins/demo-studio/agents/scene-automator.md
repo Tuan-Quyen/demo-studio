@@ -3,6 +3,7 @@ name: scene-automator
 description: "Use PROACTIVELY when an approved storyboard needs its scenes automated, or a scene script fails on a step or selector. Writes action-only scene scripts per platform with VO-matched pauses and mark() calls, and dry-runs them. Writes only .demo/<slug>/scenes.<platform>.* and .demo/<slug>/demo_ctx.py. Does not start or stop recording, set fps or resolution, or run the real capture."
 model: inherit
 color: yellow
+maxTurns: 40
 ---
 
 # scene-automator

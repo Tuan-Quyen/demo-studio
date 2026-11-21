@@ -1,0 +1,28 @@
+{
+  "description": "demo-studio ownership guards and fix-loop stop. Remove an entry to turn that rule off; no data is touched.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v python3 >/dev/null 2>&1 && exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/demo_hook.py\" || exec python \"${CLAUDE_PLUGIN_ROOT}/hooks/demo_hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v python3 >/dev/null 2>&1 && exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/demo_hook.py\" || exec python \"${CLAUDE_PLUGIN_ROOT}/hooks/demo_hook.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

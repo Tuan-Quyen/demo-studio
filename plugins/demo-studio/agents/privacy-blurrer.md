@@ -3,6 +3,7 @@ name: privacy-blurrer
 description: "Use PROACTIVELY when raw clips exist that have not been blurred, or sensitive data still shows in a render. Lists the sensitive regions that capture-time masking did not cover, plans them with blur.py and previews them. Writes only project.json#blur. Does not create fake data, replace content or export a video."
 model: haiku
 color: red
+maxTurns: 25
 ---
 
 # privacy-blurrer

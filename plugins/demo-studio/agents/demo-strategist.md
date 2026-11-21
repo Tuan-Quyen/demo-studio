@@ -3,6 +3,7 @@ name: demo-strategist
 description: "Use PROACTIVELY when a demo video has no approved brief. Fixes audience, goal, key message and call to action in brief.md, and creates demo.yaml with the video properties (length, platform, formats, voice language). Writes only .demo/<slug>/brief.md and creates .demo/<slug>/demo.yaml. Does not map the app, write scenes or narration, or approve its own brief (the user does at G1)."
 model: inherit
 color: blue
+maxTurns: 25
 ---
 
 # demo-strategist

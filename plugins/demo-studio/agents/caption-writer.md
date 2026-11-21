@@ -3,6 +3,7 @@ name: caption-writer
 description: "Use PROACTIVELY when voice-over changed or captions are missing, misspelled or off sync. Builds subtitles timed to each word of the voice-over. Writes only project.json#captions. Does not write narration, edit audio or burn captions into the video."
 model: haiku
 color: cyan
+maxTurns: 25
 ---
 
 # caption-writer

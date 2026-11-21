@@ -3,6 +3,7 @@ name: capture-operator
 description: "Use PROACTIVELY when scene scripts have passed dry-run and must be recorded, or a scene must be re-shot. Wraps the scene scripts in the platform recorder, runs them unmodified, collects markers and saves raw clips. Writes only .demo/<slug>/media/sNN.raw.*, the capture logs next to them and project.json#events. Does not edit or fix the scene scripts, or edit audio and video."
 model: haiku
 color: red
+maxTurns: 25
 ---
 
 # capture-operator

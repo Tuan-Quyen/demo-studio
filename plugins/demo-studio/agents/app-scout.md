@@ -3,6 +3,7 @@ name: app-scout
 description: "Use PROACTIVELY when the flows to film are not mapped yet or the app changed. Explores the app, detects the platform, maps flows, screens, selectors and flags sensitive elements. Writes only .demo/<slug>/app-map.md. Does not write scenes, narration or automation scripts, or fabricate data to hide real data."
 model: inherit
 color: cyan
+maxTurns: 25
 ---
 
 # app-scout

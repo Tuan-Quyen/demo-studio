@@ -3,6 +3,7 @@ name: scriptwriter
 description: "Use PROACTIVELY when a storyboard needs narration, or the narration text must change. Writes the spoken narration per scene within the `demo-storytelling` word budget. Writes only .demo/<slug>/narration.md. Does not change scenes or timing in the storyboard, generate audio or write captions."
 model: opus
 color: orange
+maxTurns: 25
 ---
 
 # scriptwriter
