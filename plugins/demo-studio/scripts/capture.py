@@ -264,6 +264,13 @@ def entry_verdict(fr, e, pill, res):
     return ("soft" if soft else "strict"), None, None
 
 
+SOFT_EDGE_MS = 25.0      # soft verdict needs an entry within ~1.5 frames; further away the element is appearing/disappearing
+
+
+def vs_nearest_dt(near, te):
+    return min((e["t"] - te for e in near), key=abs)
+
+
 def eval_group(fr, cands, te, narrow, pill, res):
     """Verdict for one selector group in one frame (S-02/S-19: the entry nearest in time decides: strict -> ok, glyph edges /
     wrong shape / state unmasked -> bad; a bad neighbour still fails the frame; strict matches that are not the nearest
@@ -292,8 +299,8 @@ def eval_group(fr, cands, te, narrow, pill, res):
     for e in sorted(cands, key=lambda e: abs(e["t"] - te)):
         if e["rects"] and abs(e["t"] - te) > narrow and entry_verdict(fr, e, pill, res)[0] == "strict":
             return "resync", None, None
-    if any(not e["rects"] for e in cands if abs(e["t"] - te) <= narrow):
-        return "empty", None, None      # the element appears/disappears inside this window: uniform pixels, nothing readable
+    if any(not e["rects"] for e in cands if abs(e["t"] - te) <= narrow) or abs(vs_nearest_dt(near, te)) > SOFT_EDGE_MS:
+        return "empty", None, None      # the element appears/disappears around this frame: uniform pixels, nothing readable
     return "soft", None, None
 
 
