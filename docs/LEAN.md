@@ -1,4 +1,4 @@
-# demo-studio 0.4: bản gọn
+# demo-studio 0.4: bản gọn (đội specialist + 5 script)
 
 Plugin này là **cấu hình một đội agent**, không phải một sản phẩm phần mềm. Mỗi agent được chỉ định việc, công cụ và cách làm, cộng thêm vài script chạy sẵn. Thay thế `docs/redesign/demo-studio-redesign.md`; bản đó giữ lại làm tham khảo nghiên cứu.
 
@@ -11,15 +11,31 @@ Plugin này là **cấu hình một đội agent**, không phải một sản ph
   2. **OCR verify cuối** trên mọi bản xuất. Phát hiện lộ dữ liệu thì không giao video.
 - Desktop/mobile: quay bằng công cụ của nền tảng (`platform-automation`), dữ liệu seeded, cuối cùng vẫn chạy OCR verify.
 
-## 6 agent
-| Agent | Việc | Gộp từ |
+## Agent: giữ đội specialist (chủ repo chốt, 2026-11-21)
+Mỗi agent phụ trách một chuyên môn và chỉ ghi file của mình. Đội vẫn như cũ. Thay đổi duy nhất: agent nào cũng gọi 5 script dưới đây, không còn tự viết code media.
+
+| Agent | Việc | Ghi |
 |---|---|---|
-| `demo-director` | Hiểu yêu cầu, hỏi user ở 3 gate, giao việc, giữ `STATE.md`, chạy `setup_tools.py` | director, toolsmith |
-| `story` | brief, `demo.yaml`, storyboard, narration (kể cả bản dịch) | strategist, storyboarder, scriptwriter, localizer |
-| `app-scout` | Khám phá app, selector, danh sách `sensitive`, chuẩn bị dữ liệu seeded | app-scout |
-| `scene-automator` | Viết scene script, quay bằng `capture.py` | scene-automator, capture-operator |
-| `editor` | TTS (`vo.py`), `edit.json` (cắt ghép, thời gian, phụ đề, hiệu ứng nhẹ), `render.py` | voice, sync, motion, captions, mix, render, packager |
-| `demo-qa` | Chạy `verify.py`, xem video, viết `qa.md` PASS/FAIL, chỉ ra agent phải sửa | demo-qa, privacy-blurrer |
+| `demo-director` | Hiểu yêu cầu, chọn luồng, hỏi user ở 3 gate, giao việc | `STATE.md` |
+| `toolsmith` | Đề xuất và cài công cụ qua `setup_tools.py` (hỏi user trước) | — |
+| `demo-strategist` | Brief, `demo.yaml` | `brief.md`, `demo.yaml` |
+| `app-scout` | Khám phá app, selector, phần tử nhạy cảm | `app-map.md` |
+| `privacy-guard` (thay `privacy-blurrer`) | Chuẩn bị dữ liệu seeded/tài khoản demo; điền `privacy.mask`, `privacy.patterns`, `privacy.seed_values`; chịu trách nhiệm khi `verify.py` báo lộ | `demo.yaml#privacy` |
+| `storyboarder` | Scene, shot, thời lượng | `storyboard.md` |
+| `scriptwriter` | Narration | `narration.md` |
+| `localizer` | Bản dịch khi ngôn ngữ giọng khác ngôn ngữ gốc | `narration.<lang>.md` |
+| `voice-producer` | TTS bằng `vo.py`, đo thời lượng | `media/sNN.vo.wav` |
+| `scene-automator` | Viết scene script (`sNN(ctx)`), chạy thử | `scenes.<platform>.py` |
+| `capture-operator` | Quay bằng `capture.py` (web) hoặc recorder của nền tảng | `media/sNN.raw.*`, `media/sNN.marks.json` |
+| `sync-editor` | Cắt ghép, khớp thời gian với VO | `edit.json` |
+| `motion-designer` | Zoom, title card, end card | `motion.json` |
+| `caption-writer` | Phụ đề | `captions.json` |
+| `sound-mixer` | Nhạc nền, mức âm | `mix.json` |
+| `render-engineer` | Chạy `render.py` | `media/final-*.mp4`, `final.vtt` |
+| `demo-qa` | Chạy `verify.py`, xem video, kết luận PASS/FAIL và agent phải sửa | `qa.md` |
+| `packager` | Thumbnail, chapter, mô tả | `media/thumb.png`, `delivery.md` |
+
+`render.py` đọc `edit.json` và gộp thêm `motion.json` (title_card, end_card, zooms), `captions.json` (captions) và `mix.json` (music) nếu có.
 
 ## 5 script (`scripts/`)
 | Script | Lệnh |
@@ -36,7 +52,7 @@ Mọi lệnh ffmpeg/OCR dùng một helper chung `_run()` (trong `scripts/common
 `STATE.md`, `demo.yaml`, `brief.md`, `storyboard.md`, `narration.md`, `app-map.md`, `scenes.<platform>.*`, `edit.json`, `media/`, `qa.md`. **Bỏ `project.json`**; project cũ chạy lại từ storyboard.
 
 ## Luồng
-G1 (brief + `demo.yaml`, chọn `seeded`/`real`) → app-scout → story (storyboard + narration) → **G2** → editor (voice) → scene-automator (quay) → editor (edit + render) → demo-qa (verify + xem) → **G3** → giao video.
+demo-strategist → **G1** (brief + `demo.yaml`, chọn `seeded`/`real`) → app-scout → (privacy-guard ∥ storyboarder) → scriptwriter → (localizer) → **G2** → voice-producer → scene-automator → capture-operator → sync-editor → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa → **G3** → packager.
 
 ## Lệnh (5)
 `new`, `run` (mọi yêu cầu khác, rỗng thì tiếp tục từ chỗ dừng), `fix`, `review`, `tools`.

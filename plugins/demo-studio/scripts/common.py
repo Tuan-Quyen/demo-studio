@@ -59,6 +59,8 @@ def _scalar(t):
         return t[1:-1]
     if t[:1] == "[" and t[-1:] == "]":
         return [_scalar(x) for x in re.findall(r"""(?:"[^"]*"|'[^']*'|[^,])+""", t[1:-1]) if x.strip()]
+    if t == "{}":
+        return {}
     if t in ("", "~", "null"):
         return None
     if t in ("true", "false"):
