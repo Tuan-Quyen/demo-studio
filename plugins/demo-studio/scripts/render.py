@@ -137,7 +137,7 @@ def main(argv=None):
     ap.add_argument("--timeout", type=int, default=900, help="per ffmpeg run, seconds")
     ap.add_argument("--burn-in", action="store_true")
     a = ap.parse_args(argv)
-    proj = Path(a.root) / a.slug
+    proj = (Path(a.root) / a.slug).resolve()
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
         out({"ok": False, "error": "ffmpeg not found (run setup_tools.py --install capture)"}, 2)

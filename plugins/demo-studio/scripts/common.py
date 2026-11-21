@@ -133,12 +133,20 @@ def load_config(path):
     if not isinstance(raw, dict):
         raise ValueError("demo.yaml must be a map")
     g = lambda p, d=None: _dig(raw, p, d)  # noqa: E731
+    top = {"platform", "length_s", "language", "formats", "voice", "captions", "music", "privacy", "tools", "targets"}
+    if set(raw) - top:
+        raise ValueError("unknown demo.yaml key(s): %s" % ", ".join(sorted(set(raw) - top)))
+    pkeys = {"data_mode", "real_confirmation", "mask", "patterns", "seed_values"}
+    if set(g("privacy", {})) - pkeys:
+        raise ValueError("unknown privacy key(s): %s" % ", ".join(sorted(set(g("privacy", {})) - pkeys)))
     mode = g("privacy.data_mode", "seeded")
     if mode not in ("seeded", "real"):
         raise ValueError("privacy.data_mode must be seeded or real")
+    if mode == "real" and not g("privacy.real_confirmation"):
+        raise ValueError("privacy.real_confirmation is required when data_mode is real")
     cfg = {
-        "platform": g("platform", "web"), "length_s": g("length_s", 60), "formats": g("formats", ["16x9"]),
-        "language": g("language", "en"), "voice": g("voice", {}), "captions": g("captions", {}),
+        "platform": g("platform", "web"), "length_s": g("length_s", 60), "formats": [str(f).replace(":", "x") for f in g("formats", ["16x9"])] if isinstance(g("formats", ["16x9"]), list) else g("formats"),
+        "language": g("language", "en"), "voice": g("voice", {}), "captions": g("captions", {}), "music": {"file": g("music.file"), "gain_db": g("music.gain_db", -20)},
         "targets": {"lufs": g("targets.lufs", -16), "true_peak": g("targets.true_peak", -1.5)},
         "ocr": g("tools.ocr", "qa-ocr"),
         "privacy": {"data_mode": mode, "mask": g("privacy.mask", []), "patterns": g("privacy.patterns", []),
