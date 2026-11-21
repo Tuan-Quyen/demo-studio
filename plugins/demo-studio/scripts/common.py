@@ -53,12 +53,15 @@ def out(obj, code=0):
 
 
 # ---- demo.yaml: a small YAML subset (nested maps, "- " lists, [a, b] lists, scalars, # comments)
-def _scalar(t):
+def _scalar(t, item=False):
+    """item=True: a list element, where "[...]" is text (e.g. a CSS selector `[data-secret]`), not a nested list."""
     t = t.strip()
+    if item and t[:1] == "[":
+        return t
     if t[:1] in "\"'" and t[-1:] == t[:1] and len(t) > 1:
         return t[1:-1]
     if t[:1] == "[" and t[-1:] == "]":
-        return [_scalar(x) for x in re.findall(r"""(?:"[^"]*"|'[^']*'|[^,])+""", t[1:-1]) if x.strip()]
+        return [_scalar(x, True) for x in re.findall(r"""(?:"[^"]*"|'[^']*'|[^,])+""", t[1:-1]) if x.strip()]
     if t == "{}":
         return {}
     if t in ("", "~", "null"):
@@ -97,7 +100,7 @@ def parse_yaml(text):
         if lines[pos[0]][1].startswith("- "):
             items = []
             while pos[0] < len(lines) and lines[pos[0]][0] == indent and lines[pos[0]][1].startswith("- "):
-                items.append(_scalar(lines[pos[0]][1][2:]))
+                items.append(_scalar(lines[pos[0]][1][2:], True))
                 pos[0] += 1
             return items
         m = {}
@@ -138,7 +141,7 @@ def load_config(path):
     top = {"platform", "length_s", "language", "formats", "voice", "captions", "music", "privacy", "tools", "targets"}
     if set(raw) - top:
         raise ValueError("unknown demo.yaml key(s): %s" % ", ".join(sorted(set(raw) - top)))
-    pkeys = {"data_mode", "real_confirmation", "mask", "patterns", "seed_values"}
+    pkeys = {"data_mode", "real_confirmation", "mask", "patterns", "seed_values", "allow_domains"}
     if set(g("privacy", {})) - pkeys:
         raise ValueError("unknown privacy key(s): %s" % ", ".join(sorted(set(g("privacy", {})) - pkeys)))
     mode = g("privacy.data_mode", "seeded")
@@ -152,14 +155,15 @@ def load_config(path):
         "targets": {"lufs": g("targets.lufs", -16), "true_peak": g("targets.true_peak", -1.5)},
         "ocr": g("tools.ocr", "qa-ocr"),
         "privacy": {"data_mode": mode, "mask": g("privacy.mask", []), "patterns": g("privacy.patterns", []),
-                    "seed_values": g("privacy.seed_values", [])},
+                    "seed_values": g("privacy.seed_values", []),
+                    "allow_domains": g("privacy.allow_domains", ["example.com", "example.org", "example.net"])},
     }
     if not isinstance(cfg["length_s"], (int, float)) or cfg["length_s"] <= 0:
         raise ValueError("length_s must be a positive number")
     for k in ("formats",):
         if not isinstance(cfg[k], list):
             raise ValueError("%s must be a list" % k)
-    for k in ("mask", "patterns", "seed_values"):
+    for k in ("mask", "patterns", "seed_values", "allow_domains"):
         if not isinstance(cfg["privacy"][k], list):
             raise ValueError("privacy.%s must be a list" % k)
     for rx in cfg["privacy"]["patterns"]:

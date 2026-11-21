@@ -9,3 +9,5 @@ Run from this folder:
 Open http://localhost:5173
 
 Key selectors: `hero-cta`, `chip-<slug>`, `card-v1..v8`, `modal`, `modal-close`, `section-*`. Sensitive fields carry `data-sensitive="true"`.
+
+Note: `.demo/ai-video-trends-v2` is a legacy 0.3 project kept for reference only (not loadable by 0.4).

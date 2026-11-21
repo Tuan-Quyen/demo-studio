@@ -16,7 +16,6 @@ maxTurns: 15
 3. `title_card` (<= 3 s) only if the brief wants one; `end_card` = the single CTA, 3 s. Text in the voice language.
 4. Write `motion.json`:
 `{"title_card":{"text":"...","ms":2500}|null,"end_card":{"text":"...","ms":3000}|null,"zooms":[{"scene":"s02","t_ms":4200,"dur_ms":1500,"center":[960,540],"scale":1.4}]}`
-Motion level `none` in demo.yaml: zooms `[]`, cards `null`.
 
 ## Tools / scripts
 `render.py --slug S --aspect 16x9` for a quick look at the hardest zoom (optional).

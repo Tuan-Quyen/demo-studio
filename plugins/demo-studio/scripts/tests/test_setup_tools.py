@@ -123,7 +123,7 @@ class Capabilities(unittest.TestCase):
     def test_options_all_and_text(self):
         code, out, _ = run("--options", "--venv", self.venv)
         self.assertEqual(code, 0)
-        for word in ("ocr:", "voice:", "motion:", "(recommended)", "recorded"):
+        for word in ("ocr:", "voice:", "(recommended)", "recorded"):
             self.assertIn(word, out)
 
     def test_options_unknown(self):

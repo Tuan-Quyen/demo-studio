@@ -23,7 +23,8 @@ music:
 privacy:
   data_mode: seeded   # seeded = demo account / invented data (default) | real (only if the user chose it at G1)
   real_confirmation: null   # director: the user's words + date when data_mode is real
-  mask: []            # CSS selectors hidden during web recording, e.g. [".user-email", "[data-secret]"]
+  mask: []            # CSS selectors hidden during web recording, quoted strings, e.g. [".user-email", "[data-secret]"]
+  allow_domains: ["example.com", "example.org", "example.net"]   # email domains verify.py accepts; seeded emails must use these
   patterns: []        # regexes verify.py must not find on screen, e.g. ["sk-[A-Za-z0-9]{8,}"]
   seed_values: []     # known real literals to look for (real mode only); never commit real values
 

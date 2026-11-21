@@ -7,7 +7,7 @@ Non-interactive: never prompts. The agent asks the user first (using ``--plan``)
 then runs ``--install``.
 
     setup_tools.py --list
-    setup_tools.py --options [ocr|voice|motion] [--json]
+    setup_tools.py --options [ocr|voice] [--json]
     setup_tools.py --plan capture,qa-ocr [--json]
     setup_tools.py --install capture,qa-ocr [--dry-run] [--json] [--venv PATH]
     setup_tools.py --check [capture,qa-ocr] [--json]
@@ -15,7 +15,7 @@ then runs ``--install``.
     setup_tools.py --stage <name> [--platform web|desktop|android|ios] [--choose cap=value,...] [--with f,...] [--json]
     setup_tools.py --stages [--json]
 
---options lists, per capability (a job several features can do: ocr, voice, motion), the alternatives
+--options lists, per capability (a job several features can do: ocr, voice), the alternatives
 with tool, effect, size, needs, installed/missing/blocked and which one is recommended, plus the
 demo.yaml setting that records the user's choice. The plugin never picks silently: the director shows
 this table and the user chooses.
@@ -56,7 +56,6 @@ if sys.version_info < (3, 10):
 
 REQ_DIR = Path(__file__).resolve().parent / "requirements"
 MIN_NODE_MAJOR = 18
-REMOTION_PKGS = ["remotion", "@remotion/cli", "@remotion/captions"]
 APPIUM_CORE_MB = 250  # shared Appium npm install (counted once per plan)
 APPIUM_DRIVER_PKGS = {  # driver id -> npm package (node_modules detection)
     "uiautomator2": "appium-uiautomator2-driver",
@@ -212,8 +211,6 @@ CATALOG: dict[str, dict] = {
         "agents": ["sound-mixer"],
     },
     "motion-basic": {
-        "capability": "motion",
-        "tool": "ffmpeg filters",
         "effect": "Zoom/pan, overlays and fades via ffmpeg filters (no extra packages)",
         "reqs": None,
         "modules": ["imageio_ffmpeg"],
@@ -224,20 +221,6 @@ CATALOG: dict[str, dict] = {
         "size_mb": 0,
         "size_note": "uses ffmpeg from capture",
         "agents": ["motion-designer"],
-    },
-    "motion-cinematic": {
-        "capability": "motion",
-        "tool": "Remotion (Node)",
-        "effect": "Cinematic titles, transitions and animated captions rendered with Remotion",
-        "reqs": None,
-        "modules": [],
-        "post": ["remotion"],
-        "requires": [],
-        "env": None,
-        "node": True,
-        "size_mb": 400,
-        "size_note": "npm packages in <workspace>/remotion/",
-        "agents": ["motion-designer", "render-engineer"],
     },
     "qa-ocr": {
         "capability": "ocr",
@@ -304,13 +287,6 @@ CAPABILITIES: dict[str, dict] = {
         "values": {"voice-edge": "edge", "voice-kokoro": "kokoro", "voice-elevenlabs": "elevenlabs"},
         "none": {"value": "recorded", "effect": "you record your own WAVs; no TTS feature"},
     },
-    "motion": {
-        "title": "Motion (zoom, titles, transitions)",
-        "setting": "motion.level",
-        "default": "motion-basic",
-        "values": {"motion-basic": "basic", "motion-cinematic": "cinematic"},
-        "none": {"value": "none", "effect": "no motion effects"},
-    },
 }
 
 
@@ -338,11 +314,10 @@ STAGES: dict[str, dict] = {
     "scenes": {"step": "Scenes", "agents": ["scene-automator"], "needs_by_platform": PLATFORM_FEATURES},
     "capture": {"step": "Capture", "agents": ["capture-operator"], "needs_by_platform": PLATFORM_FEATURES},
     "sync": {"step": "Post", "agents": ["sync-editor"], "needs": ["capture"], "note": "ffmpeg comes with capture"},
-    "motion": {"step": "Post", "agents": ["motion-designer"], "choices": ["motion"]},
+    "motion": {"step": "Post", "agents": ["motion-designer"], "needs": ["capture"]},
     "captions": {"step": "Post", "agents": ["caption-writer"], "needs": ["captions"]},
     "mix": {"step": "Post", "agents": ["sound-mixer"], "needs": ["mix"]},
-    "render": {"step": "Render", "agents": ["render-engineer"], "needs": ["capture"], "choices": ["ocr"],
-               "optional": [("motion-cinematic", "motion.level is cinematic (Remotion render)")]},
+    "render": {"step": "Render", "agents": ["render-engineer"], "needs": ["capture"], "choices": ["ocr"]},
     "qa": {"step": "QA", "agents": ["demo-qa"], "choices": ["ocr"]},
     "package": {"step": "Package", "agents": ["packager"], "needs": ["package"]},
 }
@@ -358,7 +333,6 @@ class Ctx:
         self.toolkit = self.demo_dir / "toolkit.json"
         self.venv = Path(venv).expanduser().resolve() if venv else (self.demo_dir / ".venv")
         self.workspace = Path(workspace).expanduser().resolve() if workspace else self.cwd
-        self.remotion_dir = self.workspace / "remotion"
         self.appium_dir = self.workspace / "appium"
         self.appium_queued = False  # core npm install already scheduled in this run
         sub = "Scripts" if os.name == "nt" else "bin"
@@ -385,10 +359,6 @@ def pos(f: dict, key: str, default=None):
     if by and current_os() in by:
         return by[current_os()]
     return f.get(key, default)
-
-
-def is_remotion(f: dict) -> bool:
-    return "remotion" in f["post"]
 
 
 def fmt_size(mb: int) -> str:
@@ -582,14 +552,6 @@ def node_info() -> dict:
     return {"ok": True, "version": ver, "npm": npm, "reason": None}
 
 
-def remotion_installed(ctx: Ctx) -> str | None:
-    pj = ctx.remotion_dir / "node_modules" / "remotion" / "package.json"
-    try:
-        return json.loads(pj.read_text(encoding="utf-8")).get("version") or "unknown"
-    except (OSError, ValueError):
-        return None
-
-
 def _pkg_version(pj: Path) -> str | None:
     try:
         return json.loads(pj.read_text(encoding="utf-8")).get("version") or "unknown"
@@ -649,11 +611,6 @@ def feature_states(ctx: Ctx, keys: list[str]) -> dict[str, dict]:
         bins = missing_bins(f)
         if bins:
             return {"status": "blocked", "reason": "; ".join(bins), "hard": True, "env_block": True}
-        if is_remotion(f):
-            ver = remotion_installed(ctx)
-            if ver and k in record:
-                return {"status": "installed", "reason": f"remotion {ver}"}
-            return {"status": "missing", "reason": f"remotion not installed in {ctx.remotion_dir}"}
         if not ctx.venv_exists:
             return {"status": "missing", "reason": f"venv not found at {ctx.venv}"}
         absent = [m for m in pos(f, "modules", []) if not mods.get(m)]
@@ -720,12 +677,6 @@ def feature_commands(ctx: Ctx, key: str) -> list[dict]:
         if step == "playwright-chromium":
             cmds.append({"label": "install Chromium for Playwright",
                          "cmd": [str(ctx.vpy), "-m", "playwright", "install", "chromium"], "cwd": None})
-        elif step == "remotion":
-            npm = shutil.which("npm") or "npm"
-            if not (ctx.remotion_dir / "package.json").exists():
-                cmds.append({"label": "npm init", "cmd": [npm, "init", "-y"], "cwd": str(ctx.remotion_dir)})
-            cmds.append({"label": "npm install remotion",
-                         "cmd": [npm, "install", *REMOTION_PKGS], "cwd": str(ctx.remotion_dir)})
     drivers = pos(f, "appium") or []
     if drivers:
         npm = shutil.which("npm") or "npm"
@@ -1152,9 +1103,7 @@ def cmd_install(args, ctx: Ctx, keys: list[str]) -> int:
             results.append(entry)
             continue
         versions = pkg_versions(ctx, req_names(pos(f, "reqs")))
-        if is_remotion(f):
-            versions = {"remotion": remotion_installed(ctx)}
-        elif pos(f, "appium"):
+        if pos(f, "appium"):
             versions["appium"] = appium_core_version(ctx)
             versions.update({f"driver:{d}": appium_driver_version(ctx, d) for d in pos(f, "appium")})
         record["features"][k] = {"installed_at": now(), "versions": versions}
@@ -1178,8 +1127,6 @@ def cmd_install(args, ctx: Ctx, keys: list[str]) -> int:
 def feature_states_after_install(ctx: Ctx, key: str, record: dict) -> str | None:
     """Return an error string if the feature is not usable after its steps ran."""
     f = CATALOG[key]
-    if is_remotion(f):
-        return None if remotion_installed(ctx) else "remotion not found in node_modules after install"
     wanted = pos(f, "modules", [])
     mods = probe_modules(ctx, wanted)
     absent = [m for m in wanted if not mods.get(m)]
@@ -1212,7 +1159,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--dry-run", action="store_true", help="with --install: print commands only")
     ap.add_argument("--venv", help="venv directory (default: .demo/.venv under the current directory)")
-    ap.add_argument("--workspace", help="workspace root; Remotion goes in <workspace>/remotion (default: cwd)")
+    ap.add_argument("--workspace", help="workspace root; Appium goes in <workspace>/appium (default: cwd)")
     args = ap.parse_args(argv)
     ctx = Ctx(args.venv, args.workspace)
     try:

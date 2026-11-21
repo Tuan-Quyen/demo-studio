@@ -20,7 +20,7 @@ maxTurns: 25
 4. Recorded engine: clean each `vo-src/sNN.wav`, write `media/sNN.vo.wav`.
 
 ## Tools / scripts
-`vo.py`, TTS engine from `setup_tools.py`, `ffprobe`.
+Run every script with the toolkit interpreter (`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python`, `.demo/.venv`). `vo.py`, TTS engine from `setup_tools.py`, `ffprobe`.
 
 ## Outputs
 `media/sNN.vo.wav`.

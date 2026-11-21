@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import _run, find_ffmpeg, load_config, media_duration, out  # noqa: E402
 
 DEFAULTS = {
-    "default:email": r"[A-Za-z0-9._%+-]+@(?!example\.(?:com|org|net)\b)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}",
+    "default:email": r"[A-Za-z0-9._%+-]+@%s[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}",
     "default:api_key": r"\b(?:[spr]k_(?:live|test)_[A-Za-z0-9]{8,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|xox[bap]-[A-Za-z0-9-]{10,})",
 }
 
@@ -57,7 +57,9 @@ def make_ocr(kind):
 
 
 def build_matchers(cfg):
-    ms = {"default:email": re.compile(DEFAULTS["default:email"]), "default:api_key": re.compile(DEFAULTS["default:api_key"])}
+    allow = "|".join(re.escape(str(d)) for d in cfg["privacy"]["allow_domains"])
+    skip = "(?!(?:%s)(?![A-Za-z0-9-]))" % allow if allow else ""
+    ms = {"default:email": re.compile(DEFAULTS["default:email"] % skip), "default:api_key": re.compile(DEFAULTS["default:api_key"])}
     for i, rx in enumerate(cfg["privacy"]["patterns"]):
         ms["pattern:%d" % i] = re.compile(str(rx))
     if cfg["privacy"]["data_mode"] == "real":
@@ -85,14 +87,20 @@ def scan(ffmpeg, path, stride, ocr, matchers, deadline, np):
     p = subprocess.Popen([ffmpeg, "-nostdin", "-v", "error", "-i", str(path), "-vf", "fps=1/%g,scale=%d:%d" % (stride, w, h),
                           "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], stdin=subprocess.DEVNULL,
                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
-    kill = threading.Timer(max(1, deadline - time.monotonic()), lambda: os.killpg(p.pid, signal.SIGKILL))
+    killed = []
+
+    def stop():
+        killed.append(1)
+        os.killpg(p.pid, signal.SIGKILL)
+
+    kill = threading.Timer(max(1, deadline - time.monotonic()), stop)
     kill.start()
     seen, n, size_b = {}, 0, w * h * 3
     try:
         while time.monotonic() < deadline:
             buf = p.stdout.read(size_b)
             if len(buf) < size_b:
-                return _leaks(seen, path), n, True
+                return _leaks(seen, path), n, not killed
             text = ocr(np.frombuffer(buf, np.uint8).reshape(h, w, 3))
             for pid, rx in matchers.items():
                 if (path, pid) not in seen and rx.search(text):
@@ -140,14 +148,20 @@ def main(argv=None):
     except (ValueError, re.error) as e:
         out({"pass": False, "reason": str(e)}, 2)
     ffmpeg = find_ffmpeg()
-    files = [Path(f) for f in a.file] or sorted((proj / "media").glob("final-*.mp4"))
+    files, stale = [Path(f) for f in a.file], []
+    if not files:
+        srcs = [proj / n for n in ("edit.json", "motion.json", "captions.json", "mix.json") if (proj / n).exists()]
+        newest = max((s.stat().st_mtime for s in srcs), default=0)
+        for f in sorted((proj / "media").glob("final-*.mp4")):
+            (stale if f.stat().st_mtime < newest else files).append(f)
     if not ffmpeg or not files:
-        out({"pass": False, "reason": "ffmpeg missing" if not ffmpeg else "no final-*.mp4 found"}, 3)
+        out({"pass": False, "reason": "ffmpeg missing" if not ffmpeg else "no up-to-date final-*.mp4 found (stale: %s)" % ", ".join(f.name for f in stale)}, 3)
     ocr = make_ocr(cfg["ocr"])
     if ocr is None:
         out({"pass": False, "reason": "no OCR engine (tools.ocr=%s); run setup_tools.py --install qa-ocr" % cfg["ocr"]}, 3)
     import numpy as np
-    leaks, sampled, warnings, loud, dur, incomplete = [], 0, [], {}, {}, []
+    leaks, sampled, loud, dur, incomplete = [], 0, {}, {}, []
+    warnings = ["%s is older than the edit files: skipped, re-render" % f.name for f in stale]
     for f in files:
         lk, n, done = scan(ffmpeg, f, a.stride, ocr, matchers, deadline, np)
         leaks += lk
