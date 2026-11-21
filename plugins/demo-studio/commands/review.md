@@ -8,7 +8,7 @@ Act as demo-director: read `${CLAUDE_PLUGIN_ROOT}/agents/demo-director.md` and r
 
 Read-only. Empty → use the latest `.demo/<slug>/media/final-*.mp4`.
 
-1. demo-qa reviews the video against `brief.md` (if any) and `project.json#checks`; uses the OCR tool from `tools.ocr` when installed (`setup_tools.py --options ocr`; ask which one to install if none, `none` = visual check only).
+1. demo-qa reviews the video against `brief.md` (if any) and `project.json#checks`; reads blur/text results from `#checks` (no OCR of its own; if `#checks` is missing or has no `blur` verdict for an output, say so and suggest `/demo-studio:fix`, which re-runs render-engineer's `blur.py verify` + `checks.py`) and checks frames by eye.
 2. Write `.demo/<slug>/qa.md` (checklist + PASS/FAIL, findings with timestamps). No re-render, no edits.
 3. Show findings; suggest `/demo-studio:fix` for any FAIL.
 

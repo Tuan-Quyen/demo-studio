@@ -17,7 +17,7 @@ Load skill `run-kits` first: roster, brief template, handoff format, workspace, 
 ## Start or resume
 1. Read `.demo/STATE.md`. If missing, copy `${CLAUDE_PLUGIN_ROOT}/templates/STATE.md` to `.demo/STATE.md` and fill it.
 2. If the state shows an unfinished pipeline and the request is empty or "continue", resume at the recorded step. If the request is new and a pipeline is open, ask the user: finish it, or park it.
-3. Pick the `<slug>` (kebab-case of the product + topic); create `.demo/<slug>/` and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> init`.
+3. Pick the `<slug>` (kebab-case of the product + topic); create `.demo/<slug>/` and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> init`. **Existing project:** before any stage run `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> migrate` (a schema 1 `project.json` becomes schema 2: backup `project.json.schema1.bak`, clips marked `masked:false`, every blur region kept; schema 2 prints `migrated:false`). Tell the user the summary; after a migrate re-run `blur.py plan` → render → verify (every output), because old clips have no capture-time mask evidence.
 4. **Config check** (on resume and at the start of every pipeline, once `demo.yaml` exists): `python ${CLAUDE_PLUGIN_ROOT}/scripts/config.py --slug <slug> validate` then `diff --json`.
    - `validate` exit 2: show the errors to the user, stop until fixed.
    - `diff` lists changes: tell the user what changed. Mark the `rerun` keys (and `gates`, if any) stale in STATE.md and restart at the earliest owner in `pre` (app-scout / storyboarder / scriptwriter, with G2 again) or else the first key in `rerun`, then go downstream in order. `needs_user` true (e.g. `length_s`, `platform`) → ask before re-running. Changes that only touch `install.*` or `tools.*` re-run nothing.
@@ -44,12 +44,13 @@ Rules for the table:
 - Skip steps whose output already exists and is current (check `project.py keys`); say what you skipped.
 - Tools are handled per stage, right before the step (**Tools, just in time**). Never install for a later stage early. Never write to a key another agent owns.
 - Parallel parts run as separate agents in one message. They write different keys, so there is no clash. Order is fixed by the dependency order below: caption-writer and sound-mixer need `#timeline`, so they never run before sync-editor.
-- **Spot-check before moving on:** after capture and after render, extract one frame from a raw clip / the final yourself (`ffmpeg -ss <t> -i F -frames:v 1`), look at it (page fills the frame, right screen, nothing leaked) and check the agent's ffprobe numbers; a `wrote:` claim about media without that evidence is re-briefed once.
+- **Spot-check before moving on:** after capture and after render, extract one frame from a raw clip / the final yourself (one frame: `ffmpeg -nostdin -ss <t> -i F -frames:v 1`; a raw clip can hold secrets, look at it, never copy it into a report), look at it (page fills the frame, right screen, nothing leaked) and check the agent's ffprobe numbers; a `wrote:` claim about media without that evidence is re-briefed once.
 - Voice is produced before recording: scene-automator needs `project.json#voice` durations for its pauses.
 
 ## Gates
 Ask with AskUserQuestion: 2-4 options, the recommended one first and marked "(recommended)". Never continue past a gate without an answer. Record the answer in STATE.md.
 - **G1 brief approved**: show audience, goal, key message, CTA from `brief.md` and length, platform, formats, voice, motion from `demo.yaml` (`config.py get`). Options: approve / change X / restart brief.
+  **G1, second round (data policy, always asked):** ask `privacy.data_mode` with AskUserQuestion. `real-redacted` (recommended, the default): the app shows real data; every sensitive value is masked at capture and/or blurred, then verified on every output. `seeded`: the data on screen is invented; only after the user explicitly confirms it ask once more "is every value on screen invented, none real?" and write the user's answer with its date into `privacy.seed_confirmation` (quote, never paraphrase), then `data_mode: seeded`, then `config.py validate` (it rejects `seeded` without the confirmation). Never choose `seeded` yourself, never infer it from a demo/test account, and never auto-approve it (auto mode: `real-redacted`). Also record the user's answers for `privacy.selectors`/`regexes` (patterns only, never the values) and `raw_retention`.
 - **G2 storyboard + narration approved**: show scene count, total word budget (`demo-storytelling` formula), sensitive elements flagged by app-scout. Nothing is recorded before G2. Options: approve and record / edit script / edit storyboard.
 - **G3 final render approved**: show `qa.md` verdict, `project.json#checks` numbers, file list. Options: approve and package / fix a symptom / re-render other ratios.
 
@@ -76,7 +77,8 @@ With a symptom, diagnose the owner. With no symptom, read `qa.md` and `project.j
 | Symptom | Owner | Then re-run |
 |---|---|---|
 | audio/video out of sync | sync-editor | render → qa |
-| email, name or amount still readable | privacy-blurrer | render → qa |
+| email, name or amount still readable (`#checks.blur` `leak`, or visible in QA frames) | privacy-blurrer when the region is missing or wrong (blur.py plan → render → `blur.py verify` every aspect → checks → qa); capture-operator when the clip's `masked` is false or `privacy_capture.frames_unmasked` > 0 (re-record with `capture.py`) | blur: render → qa; capture: capture → (blur ∥ timeline) → motion → render → qa |
+| `#checks.blur` `inconclusive` (positive control failed) or `incomplete` (no verdict for an aspect / over budget) | `inconclusive`: privacy-blurrer (region or pattern); `incomplete`: render-engineer runs `blur.py verify` for the missing aspect; over budget: ask the user | render → qa |
 | wrong click, UI changed, bad scene | scene-automator | capture → (blur ∥ timeline) → motion → render → qa |
 | black frames, freeze, broken recording | capture-operator | (blur ∥ timeline) → motion → render → qa |
 | wrong translation, UI term, on-screen text language | localizer → voice-producer | timeline → (motion ∥ captions ∥ mix) → render → qa |
@@ -103,13 +105,13 @@ Key dependency order: voice → timeline, captions, mix · events → blur, time
 | localizer | `narration.md`, `storyboard.md`, `app-map.md`, `demo.yaml` (`language`, `voice.language`) | `localization.md`, `narration.<voice.language>.md`, lexicon proposals in `notes` |
 | voice-producer | `narration.<voice.language>.md` if it exists else `narration.md`, `demo.yaml` (`voice`) | `media/sNN.vo.wav`, `#voice` |
 | scene-automator | `storyboard.md`, `app-map.md`, `#voice` | `scenes.<platform>.*`, dry-run PASS |
-| capture-operator | scene scripts, platform | `media/sNN.raw.*`, `#events` |
-| privacy-blurrer | raw clips, `#events`, app-map SENSITIVE list | `#blur` |
+| capture-operator | scene scripts (web: `scenes.web.actions.sNN.json`, run by `capture.py`), platform, app-map SENSITIVE, `demo.yaml` `privacy` | `media/sNN.raw.*`, `#events` (`masked` per clip) |
+| privacy-blurrer | raw clips, `#events` (`masked`, `unmaskable`), app-map SENSITIVE list, `demo.yaml` `privacy` | `#blur` (via `blur.py plan`/`preview`) |
 | sync-editor | clips, VO, `#events`, `#voice` | `#timeline` |
 | motion-designer | `#timeline`, `#events`, storyboard camera intent, `localization.md` on-screen strings (if any) | `#motion` |
 | caption-writer | narration in `voice.language`, VO, `#timeline` | `#captions` |
 | sound-mixer | VO, `#timeline`, `demo.yaml` (`music`, `targets`) | `#mix` |
-| render-engineer | all five post keys, `demo.yaml` (`formats`, `targets`, `captions`) | `media/final-*.mp4`, `final.vtt`, `#checks` |
+| render-engineer | all five post keys, `demo.yaml` (`formats`, `targets`, `captions`) | `media/final-*.mp4`, `final.vtt`, `#checks` (written by `blur.py verify` for every aspect and `checks.py`) |
 | demo-qa | finals, `#checks`, brief, `demo.yaml`, narration | `qa.md` |
 | packager | finals, `qa.md` PASS, `localization.md` strings (if any) | `thumb.png`, `#delivery` |
 Platform: tell scene-automator and capture-operator the `platform` from `demo.yaml` so they load only that reference. In every brief name the `demo.yaml` fields the agent needs (not their values); agents read them with `config.py get`. Desktop, android and ios features may be missing from the toolkit catalog; treat their `blocked` as a missing feature and report it to the user.

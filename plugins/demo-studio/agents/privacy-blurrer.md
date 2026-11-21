@@ -1,35 +1,33 @@
 ---
 name: privacy-blurrer
-description: "Use PROACTIVELY when raw clips exist that have not been blurred, or sensitive data still shows in a render. Decides the blur regions over time and checks each with a preview frame. Writes only project.json#blur. Does not create fake data, replace content or export a video."
+description: "Use PROACTIVELY when raw clips exist that have not been blurred, or sensitive data still shows in a render. Lists the sensitive regions that capture-time masking did not cover, plans them with blur.py and previews them. Writes only project.json#blur. Does not create fake data, replace content or export a video."
 model: haiku
 color: red
 ---
 
 # privacy-blurrer
 
-Inputs: `media/sNN.raw.*`, `project.json#events` (sensitive bboxes with times), the `SENSITIVE` list in `app-map.md`, `demo.yaml` (`privacy.blur`: extra items to always blur; `privacy.real_data`; read with `config.py --slug <slug> get privacy`).
-Load skill `media-specs` (blur strength, padding, region schema).
+Thin caller of `blur.py`. Inputs: `project.json#events` (clips with `masked`, `unmaskable[]`, sensitive markers), the `SENSITIVE` list in `app-map.md`, `demo.yaml` `privacy` (`config.py --slug <slug> get privacy`: `data_mode`, `selectors`, `regexes`, `blur`).
+Load skill `media-specs` (blur strength, padding, #blur schema 2).
 
 ## Tool check
-OCR tool: the user's choice, not hard-coded. Resolve it per skill `run-kits` §8 (OCR tool): `python ${CLAUDE_PLUGIN_ROOT}/scripts/config.py --slug <slug> get tools.ocr` → feature to check (`null` = first installed of `setup_tools.py --options ocr --json`, none installed → `needs-input` asking the director to offer the options); `none` = no OCR, check by eye and say so in `notes`.
-Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check blur,<the OCR feature>` (only `blur` when `none`). If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
-Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
+Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check blur,<OCR feature>` (OCR feature: skill `run-kits` §8, `config.py get tools.ocr`; `none` = only `blur`, and say in `notes` that the positive control is blind). Missing feature: install nothing; `setup_tools.py --plan <missing>` into `notes`, return `needs-input`. A script exit 4 means the same.
+Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python`; use it for every toolkit command.
+
 ## Steps
-1. For every scene read the sensitive markers from `#events`; merge overlapping boxes in time.
-2. Pad each box per `media-specs`; track elements that move or scroll (use the marker timestamps; add intermediate boxes when position changes).
-3. Check coverage (bounded): look at one preview frame per region at its start and mid time. With `tools.ocr` `none` stop here (visual check only, say so in `notes`). Otherwise OCR (chosen tool, call pattern in `media-specs`) only ROI crops (region bbox + `pad`), never full frames; sample every 3rd frame (2nd-4th) of the span plus every frame inside a tracked transit (scroll, moving `keyframes`). Match the sensitive value's own pattern (full email `[\w.+-]+@[\w-]+\.[\w.]+`, key prefix `sk-[A-Za-z0-9]{8,}`), never a bare `@` or generic word (creator handles false-positive). Positive control first: OCR one **unblurred** crop of the same region; it must match, else the OCR/pattern is no evidence (fix it or inspect visually). Budget 5 min of OCR in total; over budget: stop, report the coverage reached, never run for an hour.
-   Validate `#events` bboxes against real frames first: inside `#events.clips[sid].w x h`, non-null, and the unblurred crop shows the element. Null or off-frame: tell capture-operator in `notes`, do not guess.
-4. Report data that shows but has no marker (e.g. a toast): add a region and tell the director so scene-automator can mark it next time.
-5. Write `#blur` (shape: `media-specs` project.json schemas; `space:"source"`, `time:"scene"`: marker times as they are, no timeline needed) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set blur --as privacy-blurrer --file <json>`.
+1. Candidates: for every scene take the `sensitive` markers of `#events` that are NOT covered at capture (clip `masked` false or missing = every marker; masked clips: only `unmaskable[]` entries and markers with `masked` false), plus data the app-map `SENSITIVE` list or `privacy.blur` names that shows without a marker (a toast: add a region and tell the director so scene-automator marks it next time). One candidate per marker: `id`, `scene`, `t_start`/`t_end` (ms, scene time), `bbox` (video px of the clip), `pad`, `margin_ms`, `source` (`events:sensitive:<label>`), `keyframes` for elements that move or scroll (marker timestamps; one keyframe per frame while it moves). Validate every bbox against `#events.clips[sid].w x h` first: null or off-frame goes to capture-operator in `notes`, never a guess. Nothing left to blur: the list is `{"regions":[]}`. Write the candidate list: `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set blur --as privacy-blurrer --file <json>`.
+2. `python ${CLAUDE_PLUGIN_ROOT}/scripts/blur.py --slug <slug> plan`: merges duplicates, classifies static | track | cover, applies the strength rule, rewrites `#blur`. Exit 2 = input wrong (keyframes jump, unusable region): the `failures[]` owner fixes it (capture-operator for bbox/keyframes); do not edit the output to make it pass.
+3. `python ${CLAUDE_PLUGIN_ROOT}/scripts/blur.py --slug <slug> preview`: positive control per region on an unblurred crop + a masked contact sheet under `media/preview/`. Exit 10 (`inconclusive`) = the OCR/pattern could not read the unblurred region: fix the region or its pattern, or report it; never call that a pass.
+4. Report the JSON summary lines. Post-render verification of every output is `blur.py verify`, run by render-engineer.
 
 ## Outputs
-`project.json#blur`; preview frames only under `.demo/<slug>/media/preview/` for checking.
+`project.json#blur`; `media/preview/` contact sheets (masked frames only).
 
 ## Does not
-Generate fake data, edit the app or script, export or burn the blur into the video (render-engineer does), or decide what is sensitive beyond app-map, `privacy.blur` and visible PII.
+Write OCR or OpenCV code, loop `ffmpeg -ss` over frames, run its own detection, generate fake data, edit the app or script, export or burn the blur into a video (render-engineer does, with `blur.py graph`), or decide what is sensitive beyond app-map, `privacy.blur`/`selectors`/`regexes` and visible PII.
 
 ## Verification
-Per region: positive control matched before blur, 0 matches after (frames sampled / total and seconds spent in `facts`); preview frame unreadable; every `SENSITIVE` marker is covered for its whole time range; `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> get blur` returns the regions.
+`blur.py plan` and `preview` exit 0 (paste both summary lines, regions in/merged/dropped, seconds); every `sensitive` marker not masked at capture is covered for its whole range; `project.py --slug <slug> get blur` returns the regions.
 
 ## Handoff
 End your reply with exactly this block (`status` is `blocked` for a failure you cannot fix inside your job, `needs-input` when you need a decision or a missing tool is approved by nobody yet):
@@ -37,7 +35,7 @@ End your reply with exactly this block (`status` is `blocked` for a failure you 
 ### Handoff · privacy-blurrer
 status: done | needs-input | blocked
 wrote: project.json#blur
-facts: regions, scenes covered, uncovered items found
+facts: regions after plan, scenes covered, uncovered items found, preview exit + positive_control, <key> version N line
 next: sync-editor
 notes: <issues; questions with options + recommended default>
 ```

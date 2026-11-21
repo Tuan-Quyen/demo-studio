@@ -11,16 +11,13 @@ Inputs: `media/final-*.mp4`, `project.json#checks`, `brief.md`, `demo.yaml` (rea
 Load skills `demo-storytelling` (does the video deliver the brief) and `media-specs` (thresholds).
 
 ## Tool check
-OCR tool: the user's choice, not hard-coded. Resolve it per skill `run-kits` §8 (OCR tool): `python ${CLAUDE_PLUGIN_ROOT}/scripts/config.py --slug <slug> get tools.ocr` → feature to check (`null` = first installed of `setup_tools.py --options ocr --json`, none installed → `needs-input` asking the director to offer the options); `none` = no OCR, check by eye and say so in `notes`.
-Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check <the OCR feature>`. If it is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
-Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
+No OCR here: text and blur are machine-checked by `blur.py verify` and `checks.py` (render-engineer) and read from `#checks`. Do not run OCR, `blur.py verify` or `checks.py` yourself, and write no OCR code.
 ## Steps
-1. Read `#checks` fresh (`project.py get checks`, `get checks --version`), never from an old `qa.md`. If `pass` is false, FAIL immediately and list the failed rows with their owners; stop. Always rewrite the `Source:` line under `Machine checks` in `qa.md` to the current `#checks vN pass=<bool>`; a checks re-run makes an older header stale.
-2. Sample frames (at least 3 per scene: start, middle, end, plus one inside each `#checks.allow` span) and view them. Check: spelling of on-screen text and captions, broken or cut-off UI, wrong state, leftover real data (emails, names, amounts, tokens, notifications, other windows), black bars, cursor jumps.
-3. Run OCR (the chosen tool; call pattern in `media-specs`) on the samples to find readable sensitive strings; compare against the `SENSITIVE` list.
-4. Dead air: a gap of more than 800 ms at a scene join with no picture change (and no speech) is a finding (owner: sync-editor for holds, voice-producer for padded VO), never "no action". Watch pacing via frames and the timeline: does each scene earn its length, does the narration match what is on screen, is the CTA present, does it match the brief's audience and message.
-5. Write `qa.md`: verdict (PASS/FAIL), list of findings each with severity (blocker / minor), time code, evidence (frame path), and the **owner agent** to fix it using the /fix routing in the director.
-6. Blockers = FAIL. Only minor findings = PASS with notes.
+1. Read `#checks` fresh (`project.py get checks`, `get checks --version`), never from an old `qa.md`. If `pass` is false, FAIL immediately and list the failed rows with their owners (`results.<id>.owner`; a blur row whose verdict is `inconclusive` or `incomplete` is a failure, not a pass); stop. Always rewrite the `Source:` line under `Machine checks` in `qa.md` to the current `#checks vN pass=<bool>`; a checks re-run makes an older header stale.
+2. Sample frames (at least 3 per scene: start, middle, end, plus one inside each `#checks.allow` span) and view them. Check: spelling of on-screen text and captions, broken or cut-off UI, wrong state, leftover real data (emails, names, amounts, tokens, notifications, other windows: compare against the app-map `SENSITIVE` list), black bars, cursor jumps. A leftover that `#checks.blur` did not flag is a blocker (owner privacy-blurrer; a pattern the verify could not know).
+3. Dead air: a gap of more than 800 ms at a scene join with no picture change (and no speech) is a finding (owner: sync-editor for holds, voice-producer for padded VO), never "no action". Watch pacing via frames and the timeline: does each scene earn its length, does the narration match what is on screen, is the CTA present, does it match the brief's audience and message.
+4. Write `qa.md`: verdict (PASS/FAIL), list of findings each with severity (blocker / minor), time code, evidence (frame path), and the **owner agent** to fix it using the /fix routing in the director.
+5. Blockers = FAIL. Only minor findings = PASS with notes.
 
 ## Outputs
 `.demo/<slug>/qa.md` only (sample frames may go under `.demo/<slug>/media/preview/`).

@@ -1,6 +1,6 @@
 ---
 name: media-specs
-description: Load when encoding, mixing, captioning, blurring or verifying a demo render (voice-producer, privacy-blurrer, caption-writer, sound-mixer, render-engineer, demo-qa). Encode specs, loudness, caption rules, file naming, the default render-check thresholds (the user's values live in demo.yaml) and measuring commands, plus the #blur #mix #captions #checks schemas.
+description: Load when encoding, mixing, captioning, blurring or verifying a demo render (voice-producer, privacy-blurrer, caption-writer, sound-mixer, render-engineer, demo-qa). Encode specs, loudness, caption rules, file naming, the default render-check thresholds (the user's values live in demo.yaml), the blur strength rule and the pointers to blur.py / checks.py (the measuring code), plus the #events #blur #mix #captions #checks schemas.
 ---
 
 # Media specs
@@ -13,9 +13,9 @@ Tunable values (loudness, true peak, drift, caption width and offset, burn-in, f
 - **fps = source fps.** Playwright `recordVideo` is capped at 25 fps, so a web raw is 25 fps and the output is 25 fps; never fake 60 by frame duplication. 60 fps output only when every raw clip is a real 60 fps recording (desktop/mobile recorders); clips with different fps: output at the lowest, resample only down. Record the real value in `#checks.outputs`.
 - H.264 High, yuv420p, AAC 48 kHz 192 kbps, `+faststart`. **CRF governs quality; there is no bitrate target** (low-motion screen content is fine far below 10 Mbps); `-maxrate` is only a safety cap:
 ```
-ffmpeg -y <inputs/filtergraph> -c:v libx264 -preset slow -crf 18 -maxrate 20M -bufsize 40M -profile:v high -pix_fmt yuv420p -r <source fps> -c:a aac -b:a 192k -ar 48000 -movflags +faststart media/final-16x9.mp4
+ffmpeg -nostdin -y <inputs/filtergraph> -c:v libx264 -preset slow -crf 18 -maxrate 20M -bufsize 40M -profile:v high -pix_fmt yuv420p -r <source fps> -c:a aac -b:a 192k -ar 48000 -movflags +faststart media/final-16x9.mp4
 ```
-- Blur first in the graph (before scale/reframe) so bbox stay in source-frame pixels.
+- Blur first in the graph (before scale/reframe) so bbox stay in source-frame pixels. The blur filter comes from `blur.py graph` (below), never hand-written. Every ffmpeg call in an agent run gets `-nostdin` (an ffmpeg that reads the terminal hangs a headless run); `run_bounded.py` adds it by itself.
 
 ## Loudness
 Target **`targets.lufs` integrated (default -14), true peak <= `targets.true_peak` dBTP (default -1)**, accept the target +-1 LUFS. Normalize the mix with two-pass `loudnorm=I=<targets.lufs>:TP=<true_peak - 0.5>:LRA=11` (default `I=-14:TP=-1.5`; the 0.5 dB leaves margin; `-ar 48000` explicitly since loudnorm upsamples). Ducking: `[music][vo]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400`, music `music.duck_db` (default -20) dB under VO when not ducked, fade-in 500 ms / fade-out 1500 ms. VO peaks <= -3 dBFS before mixing.
@@ -34,46 +34,23 @@ Thresholds are the defaults; the project's `demo.yaml` overrides them (key in th
 | id | what | threshold (demo.yaml key, default) | how measured | owner on fail |
 |---|---|---|---|---|
 | vo | each `sNN.vo.wav` clean: lead <= 200, trail <= 150, gaps <= 500 ms except declared pauses; `#voice` fields present | `vo.py check <file> [--pause-ms N...]` exit 0 (run before mixing) | voice-producer |
-| sync | rendered scene length vs timeline | drift <= `targets.max_drift_ms` (80) per scene | render-engineer knows each scene's cut points; `ffprobe` the final and compare scene durations/VO onsets with `#timeline` | sync-editor |
-| loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP | `ffmpeg -nostats -i F -af ebur128=peak=true -f null -` (read summary `I:` and `True peak`) | sound-mixer |
-| blur | readable text in blur regions | 0 | for each `#blur` region OCR ROI crops (not full frames) every 0.5 s plus first/last and every frame in a tracked transit, mapped to output coordinates and final time per Spaces and time (OCR tool from `tools.ocr`); match the sensitive value's pattern, not a bare `@`; positive control on an unblurred crop | privacy-blurrer |
-| black | black frames not intended | none (>0.2 s) outside `allow.black` | `-vf blackdetect=d=0.2:pix_th=0.10 -an -f null -` | capture-operator |
-| freeze | frozen video not intended | none (>=3 s) outside `allow.freeze` | `-vf freezedetect=n=-60dB:d=3 -an -f null -` | capture-operator |
-| captions | chars/line, lines, onset offset | <= `captions.max_chars` (42), <= 2 lines; **for EVERY cue** `|t_start - onset of its first word| <= targets.caption_offset_ms` (200) | parse `final.vtt`; measure each word onset in the final audio: 10 ms RMS window, onset = first window above -40 dBFS after a silence, merging silences < 150 ms; match cues to words by order in `narration.md`. Report the max over all cues and the count over the limit; one cue over = fail | caption-writer |
-| length | total duration vs `length_s` | +-10% (fixed) | `ffprobe -v error -show_entries format=duration -of csv=p=0 F` | storyboarder |
-Intentional black (fade through black, title cards) and deliberate holds (screen static while VO explains) are listed in `#checks.allow` (from `#motion.allow` and the storyboard) and are not failures. Black/freeze are measured on the final render and tied to the nearest scene for blame. `allow` spans must be per hold; if they cover > 30% of the duration the check is blind there: render-engineer puts the covered % in `detail`, and demo-qa samples frames inside allowed spans. Change a project's values in its `demo.yaml`; change the defaults here and in `templates/demo.yaml` together.
+| sync | rendered length vs timeline | drift <= `targets.max_drift_ms` (80) | `checks.py`: total duration vs `#timeline` end (per-scene onsets are not measurable from the file alone) | sync-editor |
+| loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP, and within 0.5 LU / 0.5 dB of `#mix.preview` | `checks.py` (ebur128 in the combined pass) | sound-mixer |
+| blur | readable protected text in the output | 0 hits, positive control true, every rendered aspect verified | `blur.py verify --video F --aspect A` per rendered aspect (writes `#checks.blur.<A>`), aggregated by `checks.py`; verdict `pass` only if verified: `inconclusive` (positive control failed) and `incomplete` (no verdict, over budget) are failures | privacy-blurrer (leak, inconclusive), render-engineer (missing) |
+| black | black frames not intended | none (>0.2 s) outside `allow.black` | `checks.py` (blackdetect d=0.2 pix_th=0.10) | capture-operator |
+| freeze | frozen video not intended | none (>=3 s) outside `allow.freeze` | `checks.py` (freezedetect n=-60dB d=3) | capture-operator |
+| captions | chars/line, lines, onset offset | <= `captions.max_chars` (42), <= 2 lines; **for EVERY cue** `|t_start - onset of its first word| <= targets.caption_offset_ms` (200) | `checks.py` lints `final.vtt` (chars/line, lines, cue length, order) and reports phrase-level onset offsets without gating; the word-level rule stays: 10 ms RMS window, onset = first window above -40 dBFS after a silence, merging silences < 150 ms, cues matched to words by order in `narration.md`; one cue over = fail | caption-writer |
+| length | total duration vs `length_s` | +-10% (fixed) | `checks.py` (ffprobe duration) | storyboarder |
+Intentional black (fade through black, title cards) and deliberate holds (screen static while VO explains) are listed in `#checks.allow` (from `#motion.allow` and the storyboard) and are not failures. Black/freeze are measured on the final render and tied to the nearest scene for blame. `allow` spans must be per hold; if they cover > 30% of the duration the check is blind there: `checks.py` puts the covered % in `detail`, and demo-qa samples frames inside allowed spans. Change a project's values in its `demo.yaml`; change the defaults here and in `templates/demo.yaml` together.
 
-Measuring snippets:
-```
-# loudness
-ffmpeg -nostats -i media/final-16x9.mp4 -vn -af ebur128=peak=true -f null - 2>&1 | tail -n 14
-# black + freeze in one pass
-ffmpeg -i media/final-16x9.mp4 -vf "blackdetect=d=0.2:pix_th=0.10,freezedetect=n=-60dB:d=3" -an -f null - 2>&1 | grep -E "black_start|freeze_start"
-# blur-region frame for OCR (mapped output px; repeat per sample time T)
-ffmpeg -y -ss T -i media/final-16x9.mp4 -frames:v 1 -vf crop=W:H:X:Y blur_check.png
-```
-OCR call (run with the toolkit interpreter, `python -I`; build the engine once, not per frame). `tools.ocr: qa-ocr` (RapidOCR 3.x, `from rapidocr import RapidOCR`; the old `rapidocr_onnxruntime` package is gone):
-```
-import cv2
-from rapidocr import RapidOCR
-ocr = RapidOCR(params={"Global.log_level": "error"})
-r = ocr(cv2.imread("blur_check.png"))          # BGR array or path
-texts = list(r.txts or ())                     # r.txts / r.boxes (4x2 px) / r.scores are None when nothing is found
-```
-`tools.ocr: qa-ocr-tesseract` (needs the `tesseract` program; other languages need their traineddata, pass `lang="vie"`):
-```
-import cv2, pytesseract
-d = pytesseract.image_to_data(cv2.imread("blur_check.png"), output_type=pytesseract.Output.DICT)
-texts = [t for t, c in zip(d["text"], d["conf"]) if t.strip() and float(c) > 30]   # d has left/top/width/height per word
-```
-Whatever the tool, run the positive control on an unblurred crop first; a tool that cannot read it is no evidence. Tesseract reads small UI text worse than RapidOCR: crop tight and upscale 2x before calling it.
-Blur filter (static region; privacy-blurrer verifies one preview frame per region):
-```
-[0:v]split[a][b];[b]crop=W:H:X:Y,boxblur=lr=min(25\,H/4):lp=3[bl];[a][bl]overlay=X:Y:enable='between(t,T0,T1)'
-# stronger, text-proof alternative: pixelate
-[b]crop=W:H:X:Y,scale=iw/16:ih/16,scale=iw*16:ih*16:flags=neighbor[bl]
-```
-Moving regions (scroll) use per-frame `keyframes` and the OpenCV path (feature `blur`). If OCR still reads text, switch to pixelate or enlarge the padding.
+## Blur and measuring: one source in code
+Do not write OCR, OpenCV or per-frame ffmpeg code (no `ffmpeg -ss` per sample, no one process per frame or region): per-sample loops are slow and hang headless runs. The scripts do one decode and are bounded (`run_bounded.py`: wall + stall timeout, group kill):
+- `blur.py plan | graph | preview | verify` (privacy-blurrer plans and previews; render-engineer renders with `graph` and runs `verify` for EVERY rendered aspect).
+- `checks.py` (render-engineer): one ffmpeg pass (ebur128 + blackdetect + freezedetect + silencedetect), blur verdict aggregation, loudness, captions lint, length, sync, vo. The only writer of `#checks` besides `blur.py verify`; `project.py set checks` is refused.
+- Measure by hand only to debug: `ffmpeg -nostdin -nostats -i F -vn -af ebur128=peak=true -f null -`.
+
+**Blur strength rule** (applied by `blur.py plan`, never overridden by hand): text height `h` = `#blur` `text_h` or the bbox height. `boxblur`: `lr >= ceil(h/4)`, `lp=1`. `pixelize` (block size): `>= ceil(h/3)`. Anything that must not be recoverable (secrets: keys, tokens, passwords; thin strips <= 8 px) is `opaque` / `drawbox t=fill`. A blur that OCR still reads is a `leak`: raise the strength or cover it, never the other way round. Pixelate is not a fallback for a failed check, only a style `plan` may choose by the rule above.
+Moving regions (scroll): `#blur` `mode:"track"` with `keyframes` held step-wise (never interpolated; a jump larger than `pad` without a split is an error); `graph` turns them into `sendcmd`.
 
 ## Voice lexicon
 Pronunciation rules, `apply-lexicon` and starter entries: skill `voice-over`.
@@ -88,17 +65,17 @@ Pronunciation rules, `apply-lexicon` and starter entries: skill `voice-over`.
 `offset_ms` = clip time of `scene_start`; `#timeline` `in`/`out`/`start`/`end` are ms (`in`/`out` on the clip, `start`/`end` on the final timeline), `speed` a factor (1.0 = unchanged). Because `#blur` is scene-relative it does not depend on `#timeline` and runs in parallel with sync-editor.
 
 ## project.json schemas
-Single source for every shape below; agents reference this section and never restate it. `schema` is always `1`.
+Single source for every shape below; agents reference this section and never restate it. `project.json` itself is `_meta.schema: 2` (`project.py migrate` upgrades schema 1); the `schema` field inside a key is as written per key below.
 
-**#events** (capture-operator; written per `platform-automation`): `{schema, platform, clips:{sid:{file,w,h,fps,scale,offset_ms,duration_ms}}, bbox_space:{unit:"px",frame:[w,h],scale,origin:[x,y]}, markers:[{t,scene,type,bbox,label}], retries}`; `t` is ms since `scene_start`.
+**#events** (capture-operator; web: written by `capture.py --slug`, else per `platform-automation`): `{schema:1, platform, clips:{sid:{file (relative to the project folder),w,h,fps,scale,offset_ms,duration_ms, masked (bool: capture-time mask verified on every frame; false for clips from before 0.3.0), mask_log, unmaskable:[{reason,bbox,t}], mask:{mode,style,frames_unmasked,frames_total,rects_checked,selectors,n_regex}}}, bbox_space:{unit:"px",frame:[w,h],scale,origin:[x,y]}, markers:[{t,scene,type,bbox,label,masked?}], retries}`; `t` is ms since `scene_start`. A clip without `masked:true` keeps every `#blur` region.
 **#voice** (voice-producer): `{engine, voice, language, scenes:[{id, file, duration_s, words, lead_ms, trail_ms, sentences:[{words,start_ms,end_ms}], words_per_s, pauses_ms:[400], lexicon_applied:[{term,spoken}]}]}` (`lead_ms`, `trail_ms`, `sentences` (scene-relative ms), `words_per_s`, `pauses_ms` (declared `[pause]` gaps, `[]` if none) are **mandatory**, measured after `vo.py join` + `trim`; a scene without them fails the `vo` check).
 **#timeline** (sync-editor): `{scenes:[{id, clip, in, out, speed, pad_end, vo:{file, start, end, speech:[onset, offset]}, start, end, drift_ms}], total_s}`; ms as in the table above. `vo.start/end` = the trimmed VO file on the final timeline, `vo.speech` = first and last spoken ms (from `lead_ms`/`trail_ms`); end cards and fades key off `speech[1]`. The sync check compares each rendered scene with `scenes[].start/end`.
 
-**#blur** (privacy-blurrer):
+**#blur** (privacy-blurrer; written by `blur.py plan`, which also reads the schema 1 shape `t_start/t_end/mode:boxblur|pixelate/strength`):
 ```json
-{"schema":1,"space":"source","time":"scene","regions":[{"id":"b1","scene":"s03","t_start":4100,"t_end":9200,"bbox":[820,300,420,60],"pad":12,"margin_ms":150,"mode":"boxblur","strength":25,"source":"events:sensitive:customer email","keyframes":null,"preview":"logs/b1.png"}]}
+{"schema":2,"space":"source","time":"scene","regions":[{"id":"r1","bbox":[820,300,420,60],"spans":[[4100,9200,"s03"]],"scene":"s03","mode":"static","style":"boxblur","pad":12,"text_h":24,"secret":false,"source":"events:sensitive:customer email","label":"customer email","pattern":null,"keyframes":null}]}
 ```
-Every `sensitive` marker in `#events` must be covered; `pad` px on all sides; `margin_ms` before/after. `mode`: `boxblur|pixelate`.
+`mode`: `static|track|cover` (class), `style`: `opaque|boxblur|pixelize` (strength rule above). `bbox` in source px of the clip; `spans` = `[t0,t1]` or `[t0,t1,scene]` ms, scene-relative; a region merged across scenes has `scene:null` and 3-element spans. `track`: `keyframes:[[t,x,y,w,h]]` held step-wise. `source`: `capture-mask|events:sensitive:<label>|manual|legacy` (migrated). Every `sensitive` marker not masked at capture must be covered; `pad` px on all sides.
 
 **#motion** (motion-designer; recipes in `motion-fx`):
 ```json
@@ -124,18 +101,20 @@ Every `sensitive` marker in `#events` must be covered; `pad` px on all sides; `m
 {"schema":1,"lang":"en","max_chars":42,"max_lines":2,"cues":[{"i":1,"scene":"s01","t_start":300,"t_end":2900,"pos":"bottom","lines":["Create an invoice","in three clicks."]}]}
 ```
 
-**#checks** (render-engineer, after render; every result carries its `owner`):
+**#checks** (written ONLY by `checks.py` and `blur.py verify` through `project.write_checks`; every result carries its `owner`):
 ```json
-{"schema":1,"outputs":{"16x9":{"file":"media/final-16x9.mp4","w":1920,"h":1080,"fps":25,"duration_s":84.2,"video_kbps":2400,"renderer":"ffmpeg"}},
+{"schema":2,"outputs":{"16x9":{"file":"media/final-16x9.mp4","w":1920,"h":1080,"fps":25,"duration_s":84.2,"renderer":"ffmpeg"}},
  "allow":{"black":[[0,300]],"freeze":[]},
+ "blur":{"16x9":{"verdict":"pass","sampled":172,"total":172,"seconds":38.4,"fullframe":{"sampled":42,"stride_s":2},"positive_control":{"r1":true},"hits":[]}},
+ "privacy_capture":{"clips":4,"masked":4,"frames_unmasked":0,"rects_checked":812},
  "results":{"sync":{"pass":true,"measured_ms_max":42,"threshold_ms":80,"owner":"sync-editor","detail":""},
             "vo":{"pass":true,"scenes_checked":4,"failures":[],"owner":"voice-producer","detail":""},
             "loudness":{"pass":true,"lufs":-14.1,"tp_db":-1.6,"owner":"sound-mixer","detail":""},
-            "blur":{"pass":true,"regions_checked":3,"text_found":0,"owner":"privacy-blurrer","detail":""},
+            "blur":{"pass":true,"verdict":"pass","verdicts":{"16x9":"pass"},"hits":0,"owner":"privacy-blurrer","detail":""},
             "black":{"pass":true,"hits":[],"owner":"capture-operator","detail":""},
             "freeze":{"pass":true,"hits":[],"owner":"capture-operator","detail":""},
-            "captions":{"pass":true,"max_chars":38,"cues":24,"cues_over_offset":0,"max_offset_ms":120,"owner":"caption-writer","detail":""},
+            "captions":{"pass":true,"max_chars":38,"cues":24,"onset_max_ms":120,"onset_gate":false,"owner":"caption-writer","detail":""},
             "length":{"pass":true,"target_s":90,"actual_s":84.2,"delta_pct":-6.4,"owner":"storyboarder","detail":""}},
  "pass":true}
 ```
-`pass` = all results pass. `allow` = `#motion.allow` plus deliberate holds from the storyboard. A failing result names the owner; the director routes the fix and reruns only dependent keys.
+`blur.<aspect>` = raw verdict of `blur.py verify` (`verdict`: `pass|leak|inconclusive|incomplete`; a failed positive control is `inconclusive`, never `pass`); `results.blur` aggregates every rendered aspect (a missing aspect = `incomplete`). `pass` = all results pass, the required results (blur, loudness, black, freeze, length) exist and `privacy_capture.frames_unmasked` is 0. `allow` = `#motion.allow`. A failing result names the owner; the director routes the fix and reruns only dependent keys. Exit codes of both scripts: 0 pass, 2 input, 3 incomplete, 4 tool missing, 10 finding, 11 leak, 70 bug.

@@ -76,7 +76,7 @@ Only `demo-director` runs pipelines; the others each do one job and write only t
 | `voice-producer` | Text-to-speech per scene; measure durations | haiku |
 | `scene-automator` | Action-only scene scripts with voice-over pauses; dry-run | inherit |
 | `capture-operator` | Run the scripts unmodified under the recorder; save raw clips | haiku |
-| `privacy-blurrer` | Decide blur regions over time (no fake data) | haiku |
+| `privacy-blurrer` | Plan blur regions that capture-time masking did not cover (`blur.py`, no fake data) | haiku |
 | `sync-editor` | Align clips with voice-over: pad, trim, speed | inherit |
 | `motion-designer` | Zoom/pan on clicks, highlights, callouts, title cards, device frames | inherit |
 | `caption-writer` | Word-timed captions | haiku |
@@ -200,10 +200,16 @@ Owner unclear: it asks you. Same defect after two attempts: it stops and reports
 
 ## Privacy
 
-- Real data in the app is **blurred, not replaced**: `privacy-blurrer` never fakes or swaps content.
-- `app-scout` flags sensitive elements up front; scene scripts report their boxes with `mark()`.
-- The render check requires zero readable text inside blur regions (OCR); an OCR tool (`tools.ocr`) is recommended whenever the app shows real data.
-- `demo-qa` also looks for leaked personal data by eye before you reach G3.
+- Real data in the app is **masked or blurred, not replaced**: nothing fakes or swaps content. At G1 the director asks `privacy.data_mode`: `real-redacted` (default) or `seeded` (invented data; only with your explicit confirmation, stored as `privacy.seed_confirmation`; never auto-approved).
+- **Web, at capture:** `capture.py` injects `privacy_mask.js`, asserts every `SENSITIVE` selector (app-map) plus `privacy.selectors` / `privacy.regexes` is masked (fail-closed: exit 11 and nothing recorded), and checks the pixels of every frame. Clips record `masked` in `#events`.
+- **After capture:** for what could not be masked (desktop, mobile, unmaskable elements, clips from before 0.3.0) `blur.py plan` / `preview` plan the regions and `blur.py graph` puts one blur filter into the single render pass. No agent writes OCR code.
+- **Every rendered output** (16:9, 9:16, 1:1) is checked by `blur.py verify` (one decode, bounded, OCR with a positive control); `checks.py` aggregates it with loudness, black, freeze, captions, length, sync into `#checks`. A failed positive control is `inconclusive`, never a pass. An OCR tool (`tools.ocr`) is needed for the verify.
+- `demo-qa` reads `#checks` (no OCR of its own) and looks for leaked personal data by eye before you reach G3.
+- Raw clips and `media/preview/` can contain secrets: `.demo/*/media/preview/`, `.demo/*/.secret/`, `.demo/*/raw/` and raw clips belong in `.gitignore` (`templates/gitignore`).
+
+### Upgrading a project to 0.3.0
+
+`python scripts/project.py --slug <slug> migrate` upgrades a schema 1 `project.json` to schema 2 (backup `project.json.schema1.bak`; every clip marked `masked:false`, every blur region kept). The director runs it before any stage on an existing project. Afterwards `blur.py plan`, a render and `blur.py verify` on every output re-establish the privacy verdict. `#checks` is now written only by `checks.py` / `blur.py verify`; `project.py set checks` is refused (exit 4).
 
 ## License
 

@@ -17,8 +17,12 @@ mask.json: {"selectors":[...], "regexes":[...], "mask_style":"solid"|"blur"|{col
 Exit codes (shared table, 4.2): 0 ok | 2 bad input | 3 over budget (incomplete) | 4 missing tool |
 11 leak (assertion failed or pixel cross-check failed) | 70 unexpected/env error (retried <= 2 first).
 Bounded: every recorder wait has a timeout, the recorder is killed as a process group on wall/stall.
-Dependency note: run_bounded.py (other ticket) is not imported; an internal group-killing runner with the
-same semantics (wall + heartbeat stall, TERM -> KILL on the group) is used so this works stand-alone.
+The recorder runs through run_bounded (wall + jsonl heartbeat stall, TERM -> KILL on the process group).
+
+With --slug: the SENSITIVE selectors / regexes / mask_style / capture_mask of demo.yaml `privacy` are added to
+the mask config, and the scene's clip + markers are merged into .demo/<S>/project.json#events through
+project.py (owner capture-operator; clip file relative to the project folder, markers tagged with the scene,
+`masked` flags). `privacy.capture_mask: false` records without the capture-time mask (post-hoc blur only).
 """
 import argparse
 import bisect
@@ -26,13 +30,14 @@ import json
 import os
 import re
 import shutil
-import signal
-import subprocess
 import sys
-import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import run_bounded as rbm  # noqa: E402
+import project  # noqa: E402
+
 RECORDER = os.path.join(HERE, "capture_recorder.js")
 
 EXIT_OK, EXIT_INPUT, EXIT_BUDGET, EXIT_TOOL, EXIT_LEAK, EXIT_BUG = 0, 2, 3, 4, 11, 70
@@ -55,70 +60,6 @@ class Fail(Exception):
         self.code, self.msg, self.extra = code, msg, extra
 
 
-# ------------------------------------------------------------------ bounded subprocess
-def run_group(cmd, wall_s, stall_s=None, on_stderr=None, capture_stdout=True):
-    """Run cmd in its own process group. Kill the group on wall timeout or heartbeat stall.
-    Returns (rc, stdout_bytes, reason) with reason in (None, 'wall', 'stall')."""
-    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         start_new_session=True)
-    state = {"last": time.monotonic(), "reason": None}
-
-    def _kill(reason):
-        state["reason"] = reason
-        try:
-            os.killpg(p.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-        for _ in range(20):
-            time.sleep(0.1)
-            try:
-                os.killpg(p.pid, 0)
-            except ProcessLookupError:
-                return
-        try:
-            os.killpg(p.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-
-    def _err():
-        for line in iter(p.stderr.readline, b""):
-            state["last"] = time.monotonic()
-            if on_stderr:
-                on_stderr(line)
-
-    te = threading.Thread(target=_err, daemon=True)
-    te.start()
-    out = []
-
-    def _out():
-        out.append(p.stdout.read())
-
-    to = threading.Thread(target=_out, daemon=True)
-    to.start()
-    t0 = time.monotonic()
-    while p.poll() is None:
-        time.sleep(0.1)
-        if time.monotonic() - t0 > wall_s:
-            _kill("wall")
-            break
-        if stall_s and time.monotonic() - state["last"] > stall_s:
-            _kill("stall")
-            break
-    p.wait()
-    to.join(5)
-    te.join(2)
-    return p.returncode, (out[0] if out else b""), state["reason"]
-
-
-def _fwd_stderr(line):
-    """Forward recorder heartbeats (JSON lines) to our stderr."""
-    try:
-        sys.stderr.write(line.decode(errors="replace"))
-        sys.stderr.flush()
-    except Exception:  # noqa: BLE001 - stderr may be captured/closed (tests, pipes)
-        pass
-
-
 def need_tools():
     missing = []
     if not shutil.which("node"):
@@ -134,11 +75,17 @@ def need_tools():
 
 
 # ------------------------------------------------------------------ video helpers
+def _probe(cmd, wall, what, tail=8000000):
+    r = rbm.run_bounded(cmd, wall=wall, label=what, tail_bytes=tail)
+    if r["status"] != "ok" or r["tool_rc"] != 0:
+        raise Fail(EXIT_BUG, "%s failed (%s)" % (what, r["status"]))
+    return r["stdout_tail"]
+
+
 def ffprobe_clip(path):
-    rc, out, _ = run_group(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                            "stream=width,height,r_frame_rate,avg_frame_rate:format=duration", "-of", "json", path], 30)
-    if rc != 0:
-        raise Fail(EXIT_BUG, "ffprobe failed on " + path)
+    out = _probe(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                  "stream=width,height,r_frame_rate,avg_frame_rate:format=duration", "-of", "json", path],
+                 30, "ffprobe")
     j = json.loads(out)
     s = j["streams"][0]
     num, den = (s.get("avg_frame_rate") or "25/1").split("/")
@@ -147,38 +94,26 @@ def ffprobe_clip(path):
 
 
 def frame_times(path):
-    rc, out, _ = run_group(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                            "frame=best_effort_timestamp_time", "-of", "csv=p=0", path], 60)
-    if rc != 0:
-        raise Fail(EXIT_BUG, "ffprobe frames failed")
-    return [float(x) for x in out.decode().split() if x.strip()]
+    out = _probe(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                  "frame=best_effort_timestamp_time", "-of", "csv=p=0", path], 60, "ffprobe frames")
+    return [float(x) for x in out.split() if x.strip()]
 
 
 def iter_frames(path, w, h, wall_s):
-    """Yield (index, ndarray HxWx3 uint8) decoded once, sequentially, in a killable group."""
+    """Yield (index, ndarray HxWx3 uint8) decoded once, sequentially, in a killable group (run_bounded)."""
     import numpy as np
     cmd = ["ffmpeg", "-nostdin", "-v", "error", "-i", path, "-map", "0:v:0", "-fps_mode", "passthrough",
            "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
-    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
-    timer = threading.Timer(wall_s, lambda: os.killpg(p.pid, signal.SIGKILL))
-    timer.start()
     n = w * h * 3
     i = 0
-    try:
+    with rbm.Bounded(cmd, wall_s, stderr=rbm.subprocess.DEVNULL) as b:
         while True:
-            buf = p.stdout.read(n)
+            buf = b.proc.stdout.read(n)
             if len(buf) < n:
                 break
+            b.touch()
             yield i, np.frombuffer(buf, dtype=np.uint8).reshape(h, w, 3)
             i += 1
-    finally:
-        timer.cancel()
-        try:
-            os.killpg(p.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        p.wait()
 
 
 def hex_rgb(c):
@@ -411,18 +346,40 @@ def load_json(path, what):
         raise Fail(EXIT_INPUT, "cannot read %s %s: %s" % (what, path, e))
 
 
+def slug_dir(slug):
+    """Project folder of --slug (nearest .demo/<slug> above cwd, else ./.demo/<slug>)."""
+    try:
+        return os.path.dirname(project.project_path(type("A", (), {"project": None, "slug": slug})()))
+    except project.CliError:
+        return os.path.abspath(os.path.join(".demo", slug))
+
+
+def privacy_of(slug):
+    """demo.yaml `privacy` of the project, {} when there is no demo.yaml."""
+    p = os.path.join(slug_dir(slug), "demo.yaml")
+    if not os.path.exists(p):
+        return {}
+    try:
+        import config
+        return config.load_config(p).get("privacy", {})
+    except Exception as e:  # noqa: BLE001 - config.CliError: invalid demo.yaml is bad input
+        raise Fail(EXIT_INPUT, "demo.yaml: %s" % getattr(e, "msg", e))
+
+
 def build_spec(a):
     cfg = load_json(a.config, "config") if a.config else {}
-    mask = {"enabled": not a.no_mask,
-            "selectors": list(cfg.get("selectors", [])) + (a.selector or []),
-            "regexes": list(cfg.get("regexes", [])) + (a.regex or []),
-            "mask_style": cfg.get("mask_style", "solid")}
+    priv = privacy_of(a.slug) if a.slug else {}
+    style = cfg.get("mask_style") or {"opaque": "solid"}.get(priv.get("mask_style"), priv.get("mask_style")) or "solid"
+    mask = {"enabled": not a.no_mask and priv.get("capture_mask", True),
+            "selectors": list(cfg.get("selectors", [])) + list(priv.get("selectors", [])) + (a.selector or []),
+            "regexes": list(cfg.get("regexes", [])) + list(priv.get("regexes", [])) + (a.regex or []),
+            "mask_style": style}
     for k in ("force_overlay", "force_style_element"):
         if cfg.get(k) or getattr(a, k):
             mask[k] = True
     if not isinstance(mask["mask_style"], (str, dict)):
         raise Fail(EXIT_INPUT, "mask_style must be a string or object")
-    out_dir = a.out_dir or (os.path.join(".demo", a.slug, "media") if a.slug else None)
+    out_dir = a.out_dir or (os.path.join(slug_dir(a.slug), "media") if a.slug else None)
     if not a.url or not out_dir:
         raise Fail(EXIT_INPUT, "--url and --out-dir (or --slug) are required")
     actions = load_json(a.actions, "actions") if a.actions else []
@@ -445,16 +402,6 @@ def redact_argv(argv):
     return out
 
 
-def append_run(slug, line):
-    d = os.path.join(".demo", slug)
-    if os.path.isdir(d):
-        try:
-            with open(os.path.join(d, "runs.jsonl"), "a") as f:
-                f.write(json.dumps(line) + "\n")
-        except OSError:
-            pass
-
-
 def run(a):
     t0 = time.monotonic()
     spec = build_spec(a)
@@ -469,12 +416,16 @@ def run(a):
     rec, attempt = None, 0
     while True:
         attempt += 1
-        rc, out, why = run_group(["node", RECORDER, spec_path], wall, stall_s=30,
-                                 on_stderr=_fwd_stderr)
-        lines = [x for x in out.decode(errors="replace").splitlines() if x.strip().startswith("{")]
-        rec = json.loads(lines[-1]) if lines else {"status": "error", "error": "no recorder output"}
-        if why:
-            raise Fail(EXIT_BUDGET, "recorder killed (%s)" % why, recorder=rec)
+        r = rbm.run_bounded(["node", RECORDER, spec_path], wall=wall, stall=30, label="capture:" + spec["name"],
+                            heartbeat="jsonl", tail_bytes=4000000)
+        lines = [x for x in r["stdout_tail"].splitlines() if x.strip().startswith("{")]
+        try:
+            rec = json.loads(lines[-1]) if lines else {"status": "error", "error": "no recorder output"}
+        except ValueError:
+            rec = {"status": "error", "error": "unreadable recorder output"}
+        if r["status"] in ("wall", "stall"):
+            raise Fail(EXIT_BUDGET, "recorder killed (%s)" % r["status"], recorder=rec)
+        rc = r["tool_rc"] if r["status"] == "ok" else EXIT_BUG
         if rc == 70 and attempt <= 2:
             continue
         break
@@ -501,14 +452,18 @@ def run(a):
     final = rec.get("final") or {}
     masked = bool(spec["mask"]["enabled"] and xc["frames_unmasked"] == 0 and final.get("ok", False) and kind != "blur")
     unmask = final.get("unmaskable", [])
+    base = slug_dir(a.slug) if a.slug else None
+    rel = lambda f: os.path.relpath(f, base).replace(os.sep, "/") if base and f.startswith(base + os.sep) else f  # noqa: E731
     events = {"schema": 1, "platform": "web",
-              "clips": {a.scene: {"file": video, "w": clip["w"], "h": clip["h"], "fps": clip["fps"], "scale": 1.0,
+              "clips": {a.scene: {"file": rel(video), "w": clip["w"], "h": clip["h"], "fps": clip["fps"], "scale": 1.0,
                                   "offset_ms": offset_ms, "duration_ms": clip["duration_ms"], "masked": masked,
-                                  "unmaskable": unmask, "mask_log": rec["mask_log"],
+                                  "unmaskable": unmask, "mask_log": rel(rec["mask_log"]),
                                   "mask": {"mode": final.get("mode"), "style": kind, "frames_unmasked": xc["frames_unmasked"],
+                                           "frames_total": xc["frames_total"], "frames_with_masks": xc["frames_with_masks"], "rects_checked": xc.get("rect_checks", 0),
                                            "selectors": spec["mask"]["selectors"], "n_regex": len(spec["mask"]["regexes"])}}},
               "bbox_space": {"unit": "px", "frame": [clip["w"], clip["h"]], "scale": 1.0, "origin": [0, 0]},
-              "markers": rec.get("markers", []), "retries": attempt - 1}
+              "markers": [dict(m, scene=a.scene, **({"masked": masked} if m.get("type") == "sensitive" else {}))
+                          for m in rec.get("markers", [])], "retries": attempt - 1}
     ev_path = os.path.join(spec["out_dir"], spec["name"] + ".events.json")
     with open(ev_path, "w") as f:
         json.dump(events, f, indent=1)
@@ -521,11 +476,29 @@ def run(a):
            "calibration": {"t_flashes": rec.get("t_flashes"), "t_page_epoch": rec.get("t_page_epoch"),
                            "scene_start_epoch": rec["scene_start_epoch"]},
            "failures": []}
+    if a.slug:
+        res["project_events_version"] = write_events(a.slug, events, a.scene)
     code = EXIT_OK
     if res["status"] == "leak":
         code = EXIT_LEAK
         res["failures"] = [{"id": "privacy_capture", "owner": "capture-operator", "class": "leak"}]
     return code, res
+
+
+def write_events(slug, events, scene, timeout=10.0):
+    """Merge this scene (clip + markers) into project.json#events as capture-operator; other scenes stay."""
+    try:
+        path = project.project_path(type("A", (), {"project": None, "slug": slug})())
+        if not os.path.exists(path):
+            raise Fail(EXIT_INPUT, "no project.json for slug %r: run project.py --slug %s init first" % (slug, slug))
+        old = project.read_project(path).get("events")
+        old = old if isinstance(old, dict) else {}
+        merged = dict(old, **{k: v for k, v in events.items() if k not in ("clips", "markers")})
+        merged["clips"] = dict(old.get("clips") or {}, **events["clips"])
+        merged["markers"] = [m for m in old.get("markers") or [] if m.get("scene") != scene] + events["markers"]
+        return project.store_key(path, "events", project.OWNERS["events"], merged, timeout)
+    except project.CliError as e:
+        raise Fail(EXIT_INPUT if e.code == 2 else EXIT_BUG, "project.json: %s" % e.msg)
 
 
 def _brief(a):
@@ -575,9 +548,11 @@ def main(argv=None):
     res.setdefault("elapsed_s", round(time.monotonic() - t0, 2))
     print(json.dumps(res))
     if a.slug:
-        append_run(a.slug, {"argv": redact_argv(argv), "status": res.get("status"), "exit": code, "elapsed_s": res["elapsed_s"]})
+        d = slug_dir(a.slug)
+        if os.path.isdir(d):
+            rbm.append_run(d, "capture.py", redact_argv(argv), dict(res, status=res.get("status")))
     return code
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(rbm.guard_main(main))

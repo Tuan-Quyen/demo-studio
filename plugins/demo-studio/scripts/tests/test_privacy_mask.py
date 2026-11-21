@@ -229,6 +229,29 @@ class Variants(unittest.TestCase):
         return run_capture("--url", INDEX, "--out-dir", os.path.join(self.tmp, "o"), "--config", self.cfg,
                            "--actions", self.acts, *extra)
 
+    def test_slug_writes_events_into_project_json(self):
+        import project
+        sdir = os.path.join(self.tmp, ".demo", "demo")
+        os.makedirs(sdir)
+        pj = os.path.join(sdir, "project.json")
+        project.main(["--project", pj, "init"])
+        with open(os.path.join(sdir, "demo.yaml"), "w") as f:
+            f.write("privacy:\n  regexes: [%s]\n" % ", ".join(json.dumps(r) for r in REGEXES))
+        old = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, old)
+        code, res = run_capture("--url", INDEX, "--slug", "demo", "--scene", "s01", "--actions", self.acts)
+        self.assertEqual((code, res["status"]), (0, "ok"), json.dumps(res)[:400])
+        d = project.read_project(pj)
+        clip = d["events"]["clips"]["s01"]
+        self.assertEqual(d["_meta"]["keys"]["events"]["owner"], "capture-operator")
+        self.assertEqual(clip["file"], "media/s01.raw.webm")        # relative to the project folder
+        self.assertTrue(clip["masked"])
+        self.assertEqual(clip["mask"]["frames_unmasked"], 0)
+        self.assertTrue(all(m["scene"] == "s01" for m in d["events"]["markers"]))
+        with open(os.path.join(sdir, "runs.jsonl")) as f:
+            self.assertIn("capture.py", f.read())
+
     def test_overlay_fallback_zero_leak(self):
         code, res = self._record("--force-overlay")
         self.assertEqual(res["assertion"]["final"]["mode"], "overlay")

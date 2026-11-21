@@ -21,12 +21,12 @@ Plugin files: `${CLAUDE_PLUGIN_ROOT}/…`. Commands: `/demo-studio:<name>`. Only
 | `voice-producer` | TTS or own-voice VO per scene (skill `voice-over`: engines, lexicon, pacing), measure duration | `media/sNN.vo.wav`, `#voice` | haiku |
 | `scene-automator` | action-only scene scripts, VO pauses, `mark()`, dry-run | `scenes.<platform>.*`, `demo_ctx.py` | inherit |
 | `capture-operator` | recorder wrapper, run script unmodified (prepare → start), collect markers, save raw clips, full-frame check | `media/sNN.raw.*`, `#events` | haiku |
-| `privacy-blurrer` | blur regions over time (email, name, amount, token); no fake data, no video | `#blur` | haiku |
+| `privacy-blurrer` | plans blur regions not masked at capture with `blur.py` (plan, preview); no fake data, no video, no own OCR | `#blur` | haiku |
 | `sync-editor` | align clips with VO: pad, trim, speed | `#timeline` | inherit |
 | `motion-designer` | zoom/pan on click, highlights, callouts, title cards, device frames | `#motion` | inherit |
 | `caption-writer` | word-timed VTT/SRT captions | `#captions` | haiku |
 | `sound-mixer` | music, ducking, loudness targets from `demo.yaml` (default −14 LUFS / −1 dBTP) | `#mix` | haiku |
-| `render-engineer` | single-pass render 16:9, 9:16, 1:1; measure while rendering | `media/final-*.mp4`, `final.vtt`, `#checks` | haiku |
+| `render-engineer` | single-pass render 16:9, 9:16, 1:1 (blur via `blur.py graph`), then `blur.py verify` per aspect + `checks.py` | `media/final-*.mp4`, `final.vtt`, `#checks` (via the scripts) | haiku |
 | `demo-qa` | what machines cannot measure: spelling, broken UI, pacing, leaked PII → PASS/FAIL | `qa.md` | inherit |
 | `packager` | thumbnail, chapters, title, description, manifest | `media/thumb.png`, `#delivery` | haiku |
 
@@ -118,7 +118,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/config.py --slug <slug> init | validate | g
 ```
 `get` prints JSON with defaults applied (e.g. `get targets.max_drift_ms` → `80`). `apply-lexicon` returns the TTS input with `voice.lexicon` substituted plus the `applied` list (voice-producer only; a lexicon change re-runs voice, no G2). `diff` compares with `.demo.applied.json` (the config of the last approved state; missing = first run, nothing to diff) and prints the changed fields, the `project.json` keys to re-run (own step + `project.py deps`) and any earlier agent/gate to reopen. Exit 2 on a bad file, with the line.
 
-**project.json keys → owner:** `events` capture-operator · `voice` voice-producer · `blur` privacy-blurrer · `timeline` sync-editor · `motion` motion-designer · `captions` caption-writer · `mix` sound-mixer · `checks` render-engineer · `delivery` packager.
+**project.json keys → owner:** `events` capture-operator · `voice` voice-producer · `blur` privacy-blurrer · `timeline` sync-editor · `motion` motion-designer · `captions` caption-writer · `mix` sound-mixer · `checks` render-engineer (written only by `checks.py` / `blur.py verify`; `project.py set checks` is refused) · `delivery` packager.
 
 ```
 python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> get <key>
@@ -136,14 +136,14 @@ Locked and owner-checked, so parallel agents do not overwrite each other. Never 
 
 **Dependency order:** voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. A `length_s` change re-runs storyboarder (G2) → timeline → motion, captions, mix → checks → delivery; voice only if narration changes.
 
-**Render checks (`#checks`; thresholds from `demo.yaml` `targets`/`captions`, defaults in skill `media-specs`):** sync drift ≤`targets.max_drift_ms` (80) per scene → sync-editor · `targets.lufs` (−14) ±1 LUFS, ≤`targets.true_peak` (−1) dBTP → sound-mixer · 0 readable text in blur regions (OCR) → privacy-blurrer · no unintended black/freeze → capture-operator · captions ≤`captions.max_chars` (42) chars/line, ≤`targets.caption_offset_ms` (200) off → caption-writer · total length ±10% of `length_s` → storyboarder.
+**Render checks (`#checks`; thresholds from `demo.yaml` `targets`/`captions`, defaults in skill `media-specs`):** sync drift ≤`targets.max_drift_ms` (80) per scene → sync-editor · `targets.lufs` (−14) ±1 LUFS, ≤`targets.true_peak` (−1) dBTP → sound-mixer · blur verdict `pass` for every rendered aspect (`blur.py verify`; leak / inconclusive → privacy-blurrer, missing → render-engineer) → privacy-blurrer · no unintended black/freeze → capture-operator · captions ≤`captions.max_chars` (42) chars/line, ≤`targets.caption_offset_ms` (200) off → caption-writer · total length ±10% of `length_s` → storyboarder.
 
 ## 7. /fix routing
 
 | Symptom | Owner | Then re-run |
 |---|---|---|
 | Audio/video out of sync | sync-editor | render → qa |
-| Email, name, amount still visible | privacy-blurrer | render → qa |
+| Email, name, amount still visible | privacy-blurrer (region missing/wrong) or capture-operator (clip `masked` false / `frames_unmasked` > 0) | blur: render → qa; capture: as below |
 | Wrong click, UI changed, scene broken | scene-automator | capture → (blur ∥ timeline) → motion → render → qa |
 | Black frame, freeze, bad recording | capture-operator | (blur ∥ timeline) → motion → render → qa |
 | Wrong translation, UI term, on-screen text language | localizer → voice-producer | timeline → (motion ∥ captions ∥ mix) → render → qa |
@@ -181,7 +181,7 @@ Features not yet in `--list` are not installed by the script; report `blocked` r
 | `voice` | `voice.engine` | `edge` (`voice-edge`) · `kokoro` · `elevenlabs` · `recorded` (no feature) |
 | `motion` | `motion.level` | `basic` (`motion-basic`) · `cinematic` · `none` |
 
-Resolving **OCR tool** (demo-qa, render-engineer, privacy-blurrer, `/review`): `config.py get tools.ocr` → that feature is the one to `--check`. `null` = not chosen: use the first installed option of `--options ocr --json`; none installed → handoff `needs-input` and the director asks (options table, recommended first). `none` = no OCR: the agent checks frames by eye and says so in `notes` (render-engineer: blur row detail `ocr skipped (tools.ocr none)`). Call patterns per tool: `media-specs` (Render checks). A new alternative = a `CATALOG` entry with `capability`, its `CAPABILITIES` value and the matching enum in `config.py`.
+Resolving **OCR tool** (render-engineer for `blur.py verify`, privacy-blurrer for `blur.py preview`; demo-qa and `/review` read `#checks` and run no OCR): `config.py get tools.ocr` → that feature is the one to `--check`. `null` = not chosen: use the first installed option of `--options ocr --json`; none installed → handoff `needs-input` and the director asks (options table, recommended first). `none` = no OCR: the agent checks frames by eye and says so in `notes` (`blur.py verify` cannot read text then: the aspect is `inconclusive`). The engine runs inside `blur.py` (`--ocr rapidocr|python:<module>:<factory>`); agents never write OCR code. A new alternative = a `CATALOG` entry with `capability`, its `CAPABILITIES` value and the matching enum in `config.py`.
 
 **Just-in-time flow (nothing is installed at the start of a pipeline).** The stage map lives in `setup_tools.py` (`--stages`); the pipelines name each step's stage.
 1. Right before a step the director runs `--stage <name> --platform <p> --json`. `ready` → run the step.
