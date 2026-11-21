@@ -77,5 +77,15 @@ def kdown(ctx):                                 # S-08: Keyboard.down / insert_t
     p.wait_for_timeout(500)
 
 
+def canvases(ctx):                              # S-23: unmaskable surfaces inserted at different phases of the 250 ms poll
+    p = ctx.target
+    p.wait_for_timeout(600)
+    for i in range(4):
+        p.wait_for_timeout(97)
+        p.evaluate("(i) => { const c = document.createElement('canvas'); c.id = 'c' + i; c.style.cssText = 'display:block;width:80px;height:30px'; document.body.appendChild(c); }", i)
+        ctx.mark("key", None, "inserted c%d" % i)
+    p.wait_for_timeout(600)
+
+
 SCENES = {"s01": short, "s02": typed, "s03": typed_unfocused, "s04": boom, "s05": hang, "s06": setval, "s07": dialog,
-          "s08": split, "s09": lpress, "s10": handle, "s11": setclear, "s12": kdown}
+          "s08": split, "s09": lpress, "s10": handle, "s11": setclear, "s12": kdown, "s13": canvases}

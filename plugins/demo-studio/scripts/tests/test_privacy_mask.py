@@ -411,6 +411,22 @@ class Round2(unittest.TestCase):
         self.assertFalse([e for e in log if e["kind"] in ("masked", "oracle") and e.get("skip")], "ancestor hit taken for an occluder")
         self.assertGreater(res["cross_check"]["rect_checks"], 50)
 
+    def test_s23_unmaskable_is_detected_within_the_mutation_throttle(self):
+        """canvases inserted at different poll phases are all logged within ~60 ms + 2 frames, not up to 250 ms."""
+        code, res = run_capture("run", "--url", fx("typed.html"), "--scene", "s13", "--scene-script", EXTRA, "--out-dir", self.out,
+                                "--regex", REGEXES[0])
+        self.assertEqual(code, 11, json.dumps(res)[:300])       # canvases are unmaskable: needs-input
+        sync = json.load(open(res["sync"]))
+        log = capture.load_log(res["mask_log"])
+        marks = [m for m in sync["markers"] if m["type"] == "key"]
+        self.assertEqual(len(marks), 4)
+        lags = []
+        for i, m in enumerate(marks):
+            t_ins = sync["scene_start_epoch"] + m["t"]
+            first = min(e["t"] for e in log if e["kind"] == "unmaskable" and e["selector"] == "canvas#c%d" % i)
+            lags.append(first - t_ins)
+        self.assertLess(max(lags), 120, lags)
+
     def test_s25_events_write_failure_rolls_back(self):
         import project
         sdir = os.path.join(self.tmp, ".demo", "demo")
