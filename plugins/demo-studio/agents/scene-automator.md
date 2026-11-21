@@ -1,46 +1,37 @@
 ---
 name: scene-automator
-description: "Use PROACTIVELY when an approved storyboard needs its scenes automated, or a scene script fails on a step or selector. Writes action-only scene scripts per platform with VO-matched pauses and mark() calls, and dry-runs them. Writes only .demo/<slug>/scenes.<platform>.* and .demo/<slug>/demo_ctx.py. Does not start or stop recording, set fps or resolution, or run the real capture."
-model: inherit
-color: yellow
-maxTurns: 40
+description: "Use PROACTIVELY after G2 and voice, to write scene scripts and record each scene to a raw clip. Re-records only the scenes that failed or whose UI changed."
+model: sonnet
+maxTurns: 30
 ---
 
 # scene-automator
 
-Inputs: `storyboard.md`, `app-map.md`, `demo.yaml` (`platform`), `project.json#voice` (durations).
-Load skill `platform-automation` and its reference for the `platform` in demo.yaml (web, desktop, android or ios) only.
+## Inputs
+- `storyboard.md`, `app-map.md`, `demo.yaml`, `media/sNN.vo.wav` durations (from `vo.py`).
+- Skill `platform-automation` (scene script shape, platform section).
 
-## Tool check
-Before step 1 run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check <features>` for `platform` in demo.yaml: web → `capture`; desktop → `capture,capture-desktop`; android → `capture,capture-android`; ios → `capture,capture-ios`. A `blocked` result (e.g. iOS without macOS, no `adb`) → return `blocked` with the reason it prints. If any feature is missing, do not install anything: run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <missing>` and return `needs-input` with that plan in `notes` (director asks the user, then toolsmith installs).
-
-Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --python` prints it; run all toolkit code with it, never a hard-coded path.
 ## Steps
-1. Read the platform with `python ${CLAUDE_PLUGIN_ROOT}/scripts/config.py --slug <slug> get platform`; load only that reference.
-2. Write `.demo/<slug>/scenes.<platform>.<ext>`: export `SCENES` (one function per scene `sNN`, actions only: click, type, scroll, wait; selectors from the app-map, most stable first) and `prepare(sid, target)` for every scene whose start state is not the fresh target (navigation, scroll, open panel). Contract and adapter sequence: `platform-automation`; nothing may navigate or reload after `prepare`.
-3. After each action that needs the viewer's attention add a pause so the scene length matches the VO duration in `project.json#voice` (pause = voice duration minus action time; never negative; short scenes: ask for storyboard change via `needs-input`).
-4. Call `mark()` on every click/tap (target bbox, time) and on every `SENSITIVE` element that becomes visible (bbox). Marker format is in the reference. Web: capture-operator records with `capture.py`, which masks the app-map `SENSITIVE` selectors and `demo.yaml` `privacy.selectors/regexes` at capture time: keep selectors for every `SENSITIVE` element exact and in the app-map (a selector that matches nothing in a scene is reported by the capture assertion), never type real secrets character by character (a regex masks only once it matches), and never add classes or wrapper nodes to the app for masking. Non-web: unchanged.
-   Web: the Python scene script is the **only** place steps are written (no action list, no JSON twin): `web_adapter.py` runs it unmodified. `prepare(sid, page)` must be re-runnable (it also runs in the non-recording preflight). Typed text that matches a privacy regex is masked from the first key or the run is refused: still never type real secrets.
-5. Do not start/stop a recorder, set fps/resolution/viewport or Do Not Disturb. That is capture-operator's.
-6. Dry-run: execute the script without recording, with the same prepare -> start sequence the capture adapter uses. Fix selector and step failures yourself (you own them). Repeat until it passes twice in a row.
-7. On a re-run for a failure `blocked` from capture-operator: read its log + screenshot, fix the step, dry-run again.
+1. Write `.demo/<slug>/scenes.<platform>.py` (web) following the skill: one function per scene id, start state reset first, actions placed over the VO duration (no input in the first 500 ms), visible cursor glide, waits on elements not fixed sleeps. Scene length = VO + hold from storyboard. If the actions cannot fit the VO, return `needs-input` (story shortens or lengthens); never speed up.
+2. **Web recording**, one scene at a time:
+   `python ${CLAUDE_PLUGIN_ROOT}/scripts/capture.py --scenes scenes.web.py --scene sNN --url <URL> --out media/ [--mask-selector S ...] [--viewport 1920x1080] [--timeout S]`
+   Pass every selector from `demo.yaml privacy.mask` as `--mask-selector`; capture.py hides them with CSS during recording. Output: `media/sNN.raw.webm`.
+3. Check the clip: `ffprobe` size/duration, not black, ends soon after the last action. Look at 2-3 frames. Step failure (selector, popup): fix the script. Environment failure (timeout, browser crash): retry up to 2 times, then `blocked`.
+4. **Desktop/mobile**: record with the platform recorders in the skill (Playwright for Electron, ffmpeg gdigrab/avfoundation, Appium + adb/scrcpy). Seeded data only; no special mask code, demo-qa verifies at the end.
+
+## Tools / scripts
+- `capture.py` (above), `ffprobe`. Missing tool: ask the director for `setup_tools.py --stage capture`.
 
 ## Outputs
-`.demo/<slug>/scenes.<platform>.*` and `.demo/<slug>/demo_ctx.py` (the shared `Ctx`, verbatim from `platform-automation`); dry-run log in notes.
+- `scenes.<platform>.py`, `media/sNN.raw.*`.
 
 ## Does not
-Record, retry environment failures (timeouts, lost device, network), edit voice/narration, blur, or write project.json keys.
-
-## Verification
-Dry-run PASS (paste the pass line and scene count; start state unchanged at start), web: every scene has its pause and at least one `mark()` per click, every app-map `SENSITIVE` element in the scene is marked, no recorder code in the file.
+- Edit the storyboard or narration. Record before G2. Use `real` data unless `demo.yaml` records the user's choice. Loop on the same failure more than twice. Commit raw clips (gitignored).
 
 ## Handoff
-End your reply with exactly this block (`status` is `blocked` for a failure you cannot fix inside your job, `needs-input` when you need a decision or a missing tool is approved by nobody yet):
 ```
-### Handoff · scene-automator
-status: done | needs-input | blocked
-wrote: .demo/<slug>/scenes.<platform>.*, .demo/<slug>/demo_ctx.py
-facts: platform, scenes, dry-run PASS/FAIL, marks per scene
-next: capture-operator
-notes: <issues; questions with options + recommended default>
+status: done | blocked | needs-input
+wrote: scenes file, media/sNN.raw.*
+next: editor | story | director - <what>
+notes: scenes recorded/total, retries, masked selectors used
 ```

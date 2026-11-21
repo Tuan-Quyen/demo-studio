@@ -1,0 +1,9 @@
+{"fps":25,"size":[1920,1080],
+ "scenes":[
+  {"id":"s01","clip":"media/s01.raw.webm","in_ms":0,"out_ms":8000,"speed":1.0,"vo":"media/s01.vo.wav","vo_offset_ms":300},
+  {"id":"s02","clip":"media/s02.raw.webm","in_ms":200,"out_ms":12000,"speed":1.0,"vo":"media/s02.vo.wav","vo_offset_ms":300}],
+ "captions":[{"start_ms":300,"end_ms":2900,"text":"Create an invoice in two clicks."}],
+ "title_card":{"text":"Acme Invoices","ms":2500},
+ "end_card":{"text":"Start free at example.com","ms":3000},
+ "music":null,
+ "zooms":[{"scene":"s02","t_ms":4200,"dur_ms":1500,"center":[960,540],"scale":1.4}]}

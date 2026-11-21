@@ -1,20 +1,16 @@
-# App map: <app name>
+# App map: <app>
 
-entry: <URL, installed app path, APK/IPA or build id>
-login: <how to reach a signed-in state, test account notes; never store passwords here>
+- target: <URL or app path>
+- Platform: <from demo.yaml>
+- Data: seeded <how the demo account/data is created and reset> (real only if demo.yaml says so)
 
 ## Flows
-| Flow | Steps (screen → action) | Selector / accessibility id | Notes |
-|---|---|---|---|
-| <flow> | <screen → action> | <selector> | <note or none> |
+| Flow | Start state | Steps (selector) | End state | Risks |
+|---|---|---|---|---|
+| <name> | <state> | <step: role/test-id/label> | <state> | <popups, slow loads> |
 
-## Screens
-- <screen>: <purpose, key elements>
-
-## Sensitive elements (must be marked and blurred)
-| Screen | Element | Selector | Kind (email, name, amount, token, other) |
-|---|---|---|---|
-| <screen> | <element> | <selector> | <kind> |
-
-## Risks
-- <popups, notifications, flaky areas, slow loads, or none>
+## Sensitive elements
+(also listed in demo.yaml `privacy.mask` / `patterns`)
+| Where | Selector | What it shows |
+|---|---|---|
+| <screen> | <css> | <email, token, name...> |

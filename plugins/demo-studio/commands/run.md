@@ -1,17 +1,18 @@
 ---
-description: "Any demo-video request: the director picks the pipeline (empty = resume)"
+description: "Any demo-video request; the director picks the path (empty = resume)"
 argument-hint: "[request]"
 disable-model-invocation: true
 ---
 
-Act as demo-director: read `${CLAUDE_PLUGIN_ROOT}/agents/demo-director.md` and run the right pipeline for: $ARGUMENTS
+Act as demo-director: read `${CLAUDE_PLUGIN_ROOT}/agents/demo-director.md` and handle: $ARGUMENTS
 
-Empty `$ARGUMENTS` → read `.demo/STATE.md`, run `config.py --slug <slug> validate` then `diff` (changed `demo.yaml` fields invalidate the keys and gates `diff` lists), show where the work stands, resume at the recorded step (or the earliest invalidated one). Otherwise classify the request:
+- Empty: read `.demo/STATE.md`, say where the work stands, resume at the recorded step.
+- New video: follow `/demo-studio:new`.
+- Otherwise classify and run only what is needed:
+  - wording, voice or language: story -> editor -> demo-qa
+  - UI changed or bad take: app-scout (if needed) -> scene-automator (those scenes) -> editor -> demo-qa
+  - cut, extra aspect, captions, zoom: editor -> demo-qa
+  - problem in a finished video: `/demo-studio:fix`; inspect only: `/demo-studio:review`
+- State the chosen path in one line. Unclear: ask one question with options and a recommended default.
 
-- new video from scratch → `new` · only brief/storyboard/narration → `script` · approved script to render → `shoot`
-- UI changed in a scene → `rerecord` · wording, voice or language → `revoice` · extra aspect ratio or shorter cut → `cut`
-- edited `demo.yaml` or something wrong in a finished video → `fix` (director runs `config.py diff`) · inspect an existing video → `review` · tools → `tools` · progress → `status`
-
-State the chosen pipeline in one line, then follow that command's steps (see `${CLAUDE_PLUGIN_ROOT}/skills/run-kits/SKILL.md` §2). Unclear → ask one question with options and a recommended default. Gates: per chosen pipeline.
-
-Rules: slug, STATE.md, briefs and handoffs follow the director file and the `run-kits` skill. Tools just in time: right before a step, if `setup_tools.py --stage <name>` is not ready, the director briefs toolsmith `suggest` for that stage, asks the user, then toolsmith `install` (director file, **Tools, just in time**); install nothing for later stages. Never record, render or install without the gate or approval named above. Do not commit or push.
+Gates G1/G2/G3 apply whenever the path includes them. Install tools only after asking. Do not commit or push.

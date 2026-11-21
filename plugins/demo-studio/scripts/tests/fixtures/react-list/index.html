@@ -1,40 +1,8 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Invoices (fixture)</title>
-<style>
-  body { margin: 0; font: 20px/1.4 Arial, sans-serif; background: #fff; color: #111; }
-  header { position: sticky; top: 0; z-index: 10; height: 64px; background: #1b2a49; color: #fff;
-           display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
-  .pill { background: #fff; color: #111; padding: 6px 14px; border-radius: 16px; font-size: 20px; }
-  main { padding: 16px 24px 600px; }
-  #root .row { display: flex; gap: 24px; padding: 14px 0; border-bottom: 1px solid #ddd; }
-  #root .row b { width: 220px; }
-  .keybox { font: 22px monospace; }
-  .field { margin: 16px 0; display: flex; gap: 12px; align-items: center; }
-  .field input { font-size: 20px; padding: 6px 10px; width: 420px; border: 1px solid #888; }
-  #inner { height: 150px; width: 640px; overflow: auto; border: 2px solid #345; margin: 16px 0; }
-  #inner div { padding: 8px 10px; border-bottom: 1px solid #eee; }
-  .toast { position: fixed; right: 24px; bottom: 24px; background: #fff7d6; border: 1px solid #c9a400; padding: 14px 18px; }
-  svg text { font: 22px Arial; }
-</style>
-</head>
-<body>
-<header><strong>Acme invoices</strong><span class="pill" id="hdr-email" data-sensitive>ada.lovelace@example.com</span></header>
-<main>
-  <h2>Customers</h2>
-  <div id="root"></div>
-  <div class="field"><label for="secret">Signing secret</label>
-    <input id="secret" data-sensitive value="hunter2-TOP-SECRET-VALUE"></div>
-  <div class="field"><label for="note">Note</label>
-    <input id="note" placeholder="Type a note" autocomplete="off"></div>
-  <div class="field"><label for="hint">Hint</label>
-    <input id="hint" placeholder="reply to billing@corp.example" autocomplete="off"></div>
-  <div id="inner"></div>
-  <svg width="520" height="50"><text id="svg-key" x="4" y="32" data-sensitive>sk_live_SVGSECRET0001</text></svg>
-  <p id="synced">synced 0</p>
-</main>
-<script src="app.js"></script>
-</body>
-</html>
+<html><head><meta charset="utf-8"><title>Fixture</title>
+<style>body{margin:0;font:28px Arial;background:#fff;color:#111}
+header{height:80px;background:#1b2a49;color:#fff;display:flex;align-items:center;padding:0 24px}
+.pill{background:#fff;color:#111;padding:6px 14px}
+main{padding:24px}input{font-size:24px;width:480px}</style></head>
+<body><header><strong>Acme</strong><span class="pill" id="hdr-email">ada.lovelace@example.com</span></header>
+<main><p>Customers</p><input id="secret" value="hunter2-TOP-SECRET"></main></body></html>
