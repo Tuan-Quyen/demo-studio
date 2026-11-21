@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hybrid app fixture</title>
+<style>body{margin:0;font:16px Arial;background:#fff} header{padding:12px;background:#e8eefc}
+.row{padding:10px 12px;border-bottom:1px solid #ddd} #list{height:520px;overflow:auto}</style></head>
+<body>
+<header><span data-sensitive id="who">ada.lovelace@example.com</span></header>
+<div class="row">Plain row with bob@corp.example inside.</div>
+<div class="row"><input id="secret" data-sensitive value="hunter2-TOP-SECRET" size="20"></div>
+<div id="list"></div>
+<script>
+const l = document.getElementById('list');
+for (let i = 0; i < 40; i++) { const d = document.createElement('div'); d.className = 'row';
+  d.textContent = 'Customer ' + i + ' user' + i + '@mail.example'; l.appendChild(d); }
+</script></body></html>
