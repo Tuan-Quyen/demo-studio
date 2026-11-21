@@ -127,8 +127,18 @@
       rects.push([Math.round(x0 * 10) / 10, Math.round(y0 * 10) / 10, Math.round((x1 - x0) * 10) / 10, Math.round((y1 - y0) * 10) / 10]);
     }
   }
+  // Measured AFTER the frame was painted (a message task queued from the rAF callback runs after the rendering step), so
+  // the rects are exactly the painted layout, whatever the app's own rAF callbacks did that frame; stamped with that
+  // frame's timestamp. (Timing deliberately differs from the mask loop, which measures before paint.)
+  let lastTs = 0, doneTs = -1;
+  const chan = typeof MessageChannel === 'function' ? new MessageChannel() : null;
+  if (chan) chan.port1.onmessage = () => { if (lastTs !== doneTs) { const ts = lastTs; doneTs = ts; measure(ts); } };
   function frame(ts) {
-    requestAnimationFrame(frame);   // armed first: one callback per frame (timing deliberately differs from the mask loop)
+    requestAnimationFrame(frame);   // armed first: one callback per frame
+    lastTs = ts;
+    if (chan) chan.port2.postMessage(0); else { doneTs = ts; measure(ts); }
+  }
+  function measure(ts) {
     try {
       for (const f of forms) { if (!f.isConnected) { forms.delete(f); cache.delete(f); } else addEl(f); }
       const t = performance.timeOrigin + ts, rects = [], skip = [], c2 = new Map();

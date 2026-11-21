@@ -115,7 +115,8 @@ class EvalRules(unittest.TestCase):
         self.assertEqual(self.ev([self.entry(0, self.PLAIN), self.entry(200, self.B)]), "resync")
 
     def test_s02_soft_is_counted(self):
-        self.assertEqual(self.ev([self.entry(0, self.PLAIN)]), "soft")
+        self.assertEqual(self.ev([self.entry(d, self.PLAIN) for d in (-80, -40, 0, 40, 80)]), "soft")
+        self.assertEqual(self.ev([self.entry(d, self.PLAIN) for d in (-80, -40, 0, 10)]), "empty")    # the run ends around here
 
     def test_s06_state_unmasked_never_graced(self):
         self.assertEqual(self.ev([self.entry(0, self.B, state="unmasked")]), "bad")

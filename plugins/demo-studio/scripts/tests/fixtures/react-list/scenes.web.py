@@ -3,7 +3,7 @@
 
 SMOOTH = """({to, ms}) => new Promise((res) => {
   const from = window.scrollY, t0 = performance.now();
-  const f = (n) => { const k = Math.min(1, (n - t0) / ms); window.scrollTo(0, from + (to - from) * k); k < 1 ? requestAnimationFrame(f) : res(); };
+  const f = (n) => { const k = Math.min(1, (n - t0) / ms), e = (1 - Math.cos(Math.PI * k)) / 2; window.scrollTo(0, from + (to - from) * e); k < 1 ? requestAnimationFrame(f) : res(); };
   requestAnimationFrame(f); })"""
 SMOOTH_EL = """({selector, to, ms}) => new Promise((res) => {
   const el = document.querySelector(selector), from = el.scrollTop, t0 = performance.now();
@@ -18,11 +18,11 @@ def s01(ctx):
     b = page.locator("#hdr-email").bounding_box()
     ctx.sensitive([b["x"], b["y"], b["width"], b["height"]], "header email")
     page.wait_for_timeout(500)
-    page.evaluate(SMOOTH, {"to": 500, "ms": 1000})
+    page.evaluate(SMOOTH, {"to": 500, "ms": 1600})
     page.evaluate(SMOOTH_EL, {"selector": "#inner", "to": 300, "ms": 800})
     page.wait_for_timeout(1500)
     page.evaluate(SET_NOTE)
-    page.evaluate(SMOOTH, {"to": 0, "ms": 600})
+    page.evaluate(SMOOTH, {"to": 0, "ms": 1600})
     page.wait_for_timeout(300)
 
 

@@ -264,11 +264,14 @@ def entry_verdict(fr, e, pill, res):
     return ("soft" if soft else "strict"), None, None
 
 
-SOFT_EDGE_MS = 25.0      # soft verdict needs an entry within ~1.5 frames; further away the element is appearing/disappearing
+NEAR_MS = 26.0          # an entry this close in time counts as the frame's own (1.5 rAF)
 
 
-def vs_nearest_dt(near, te):
-    return min((e["t"] - te for e in near), key=abs)
+def _boundary(cands, te, narrow):
+    """A run of log entries starts or ends inside this frame's window (no entry in the outer ~2 frames of one side):
+    the element appears/disappears around this frame, so uniform non-pill pixels carry no information."""
+    w = [e["t"] for e in cands if abs(e["t"] - te) <= narrow]
+    return not w or not any(t >= te + narrow - 35 for t in w) or not any(t <= te - narrow + 35 for t in w)
 
 
 def eval_group(fr, cands, te, narrow, pill, res):
@@ -284,22 +287,22 @@ def eval_group(fr, cands, te, narrow, pill, res):
     near = [e for e in cands if abs(e["t"] - te) <= narrow and e["rects"]]
     if not near:
         return "empty", None, None
-    vs = [entry_verdict(fr, e, pill, res) for e in sorted(near, key=lambda e: abs(e["t"] - te))]   # nearest first
-    if vs[0][0] == "strict":
+    near.sort(key=lambda e: abs(e["t"] - te))                            # nearest first
+    vs = [entry_verdict(fr, e, pill, res) for e in near]
+    inner = [v for e, v in zip(near, vs) if abs(e["t"] - te) <= NEAR_MS] or vs[:1]   # "nearest" = within ~1.5 rAF (video pts are quantised to 40 ms)
+    if any(v[0] == "strict" for v in inner):
         return "strict", None, None
-    if vs[0][0] == "bad":      # S-19: the entry nearest in time decides; a stale/lagging match elsewhere cannot rescue it
-        return "bad", vs[0][1], vs[0][2]
-    bad = next((v for v in vs if v[0] == "bad"), None)
-    if bad:
+    bad = next((v for v in inner if v[0] == "bad"), None) or next((v for v in vs if v[0] == "bad"), None)
+    if bad:      # S-19: nothing but a strict NEAREST entry rescues a frame whose nearest entry shows glyph edges
         return "bad", bad[1], bad[2]
     if any(v[0] == "strict" for v in vs):
-        return "resync", None, None      # nearest entry is soft/skipped, a neighbour matches strictly: counted
+        return "resync", None, None      # the nearest entries are soft/skipped, a neighbour matches strictly: counted
     if all(v[0] == "skipped" for v in vs):
         return "skipped", None, None
     for e in sorted(cands, key=lambda e: abs(e["t"] - te)):
         if e["rects"] and abs(e["t"] - te) > narrow and entry_verdict(fr, e, pill, res)[0] == "strict":
             return "resync", None, None
-    if any(not e["rects"] for e in cands if abs(e["t"] - te) <= narrow) or abs(vs_nearest_dt(near, te)) > SOFT_EDGE_MS:
+    if any(not e["rects"] for e in cands if abs(e["t"] - te) <= narrow) or _boundary(cands, te, narrow):
         return "empty", None, None      # the element appears/disappears around this frame: uniform pixels, nothing readable
     return "soft", None, None
 
