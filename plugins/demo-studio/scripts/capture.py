@@ -264,6 +264,7 @@ def entry_verdict(fr, e, pill, res):
     return ("soft" if soft else "strict"), None, None
 
 
+BOUNDARY_OUTER_MS = 35.0  # outer slice of the window (about 2 rAF) that must hold an entry on each side, else a run starts/ends here
 EDGE_MS = 100.0         # soft frames this close to the start/end of an element's run carry no information (it appears/disappears)
 NEAR_MS = 37.0          # an entry this close counts as the frame's own: video pts are quantised to 40 ms (+-20) plus one rAF (16.7)
 
@@ -272,7 +273,7 @@ def _boundary(cands, te, narrow):
     """A run of log entries starts or ends inside this frame's window (no entry in the outer ~2 frames of one side):
     the element appears/disappears around this frame, so uniform non-pill pixels carry no information."""
     w = [e["t"] for e in cands if abs(e["t"] - te) <= narrow]
-    return not w or not any(t >= te + narrow - 35 for t in w) or not any(t <= te - narrow + 35 for t in w)
+    return not w or not any(t >= te + narrow - BOUNDARY_OUTER_MS for t in w) or not any(t <= te - narrow + BOUNDARY_OUTER_MS for t in w)
 
 
 def run_edges(es):
@@ -290,12 +291,12 @@ def run_edges(es):
 
 
 def eval_group(fr, cands, te, narrow, pill, res, edges=None):
-    """Verdict for one selector group in one frame (S-02/S-19: the entry nearest in time decides: strict -> ok, glyph edges /
-    wrong shape / state unmasked -> bad; a bad neighbour still fails the frame; strict matches that are not the nearest
-    entry are `resync`, counted). Returns (verdict, why, rect):
-      empty   - the log says nothing is on screen near this frame
-      strict  - mask colour (+ sentinel for boxes) at every rect of some entry within `narrow` ms
-      bad     - glyph edges / wrong shape / state unmasked at the nearest entry (or any entry) within `narrow` ms
+    """Verdict for one selector group in one frame (S-02/S-19). "Nearest" = entries within NEAR_MS of the frame; entries
+    further out (up to `narrow`) can only produce resync. Returns (verdict, why, rect):
+      empty   - the log says nothing is on screen near this frame (also soft frames within EDGE_MS of a run edge)
+      strict  - mask colour (+ sentinel for boxes) at every rect of some entry within NEAR_MS
+      bad     - glyph edges / wrong shape / state unmasked at an entry within NEAR_MS and no strict one there (a bad entry
+                further out, within `narrow`, does not fail the frame by itself)
       soft    - rects uniform but not mask-coloured (counted, fails above --max-soft)
       resync  - the nearest entry is not strict but another one (or one further away) matches strictly (counted)
     Nothing excuses `bad`: not lead-in, not an element appearing (no edge grace)."""

@@ -175,12 +175,48 @@ class PassProbes(unittest.TestCase):
         self.assertLessEqual(r["frames_carried"], 3 * 5)
 
     def test_s18_carry_run_is_capped(self):
-        fr = [self.text_frame(0)] + [self.text_frame(0)] * 8
-        log = self.entries(9)
+        """a stale run longer than CARRY_MAX: the first CARRY_MAX frames are carried from the anchor, the rest fail."""
+        r2 = [40, 60, 120, 30]
+        f = np.full((self.H, self.W, 3), 255, np.uint8)
+        f[30:60, 40:160] = PILL                     # strict at R (the anchor state) ...
+        f[60:90, 40:160:4] = 0                      # ... glyph-like content at R2, unchanged in every later frame
+        extra = 10                                  # longer than the documented cap of 6
+        log = self.entries(1 + extra)
         for e in log[1:]:
-            e["rects"] = [[0, 0, 30, 20]]        # nothing the gate can match: every frame needs the carry
-        r = self.run_pass(fr, log)
-        self.assertLessEqual(r["frames_carried"], capture.CARRY_MAX)
+            e["rects"] = [r2]                       # the log says the key is at R2: bad nearest entry every frame
+        r = self.run_pass([f] * (1 + extra), log)
+        self.assertEqual(r["frames_carried"], 6)
+        self.assertEqual(r["frames_unmasked"], extra - 6)
+
+    def test_near_ms_is_the_nearest_window(self):
+        fr = self.text_frame(0)
+        res = capture._new_res("solid")
+        bad_rect = [40, 70, 120, 20]
+        fr = fr.copy()
+        fr[70:90, 40:160:4] = 0
+        near = [{"t": 0.0, "kind": "masked", "selector": "s", "rects": [bad_rect], "state": "masked"},
+                {"t": capture.NEAR_MS - 2, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"}]
+        far = [near[0], dict(near[1], t=capture.NEAR_MS + 2)]
+        self.assertEqual(capture.eval_group(fr, near, 0.0, 90, PILL, res)[0], "strict")
+        self.assertEqual(capture.eval_group(fr, far, 0.0, 90, PILL, res)[0], "bad")
+
+    def ent(self, t):
+        return {"t": t, "kind": "masked", "selector": "s", "rects": [self.R], "state": "masked"}
+
+    def test_edge_ms_soft_near_a_run_edge_is_not_counted(self):
+        plain = np.full((self.H, self.W, 3), 255, np.uint8)
+        cands = [self.ent(d) for d in range(-80, 81, 17)]          # dense both sides: no _boundary
+        res = capture._new_res("solid")
+        self.assertEqual(capture.eval_group(plain, cands, 0.0, 90, PILL, res, [95.0])[0], "empty")   # documented: 100 ms
+        self.assertEqual(capture.eval_group(plain, cands, 0.0, 90, PILL, res, [105.0])[0], "soft")
+
+    def test_boundary_slice_is_named(self):
+        plain = np.full((self.H, self.W, 3), 255, np.uint8)
+        res = capture._new_res("solid")
+        dense = [self.ent(d) for d in range(-90, 91, 15)]
+        ends_early = [e for e in dense if e["t"] <= 90 - capture.BOUNDARY_OUTER_MS - 2]       # nothing in the outer slice
+        self.assertEqual(capture.eval_group(plain, dense, 0.0, 90, PILL, res)[0], "soft")
+        self.assertEqual(capture.eval_group(plain, ends_early, 0.0, 90, PILL, res)[0], "empty")
 
     def test_s20_soft_through_the_end_never_strict(self):
         fr = [np.full((self.H, self.W, 3), 255, np.uint8)] * 40
@@ -269,6 +305,22 @@ class GateSynthetic(unittest.TestCase):
         code, res = self.gate(clip, log, sync)
         self.assertEqual(code, 11)
         self.assertIn("viewport_ne_clip_size", res["gate_fail"])
+
+    def test_unm_pad_is_applied_by_gate(self):
+        """UNM_PAD_MS reaches the gate output (not passed in by the test)."""
+        clip, log, sync = write_case(self.d)
+        times = capture.probe_clip(clip)["times"]
+        raw0, raw1 = times[10] * 1000.0, times[14] * 1000.0
+        with open(log, "a") as f:
+            for t in (raw0, raw1):
+                f.write(json.dumps({"t": E0 + t, "kind": "unmaskable", "surface": "canvas", "selector": "canvas#c", "reason": "r",
+                                    "rect": [10, 10, 50, 40]}) + "\n")
+        code, res = self.gate(clip, log, sync)
+        self.assertEqual(code, 11)
+        u = res["unmaskable"][0]
+        self.assertGreaterEqual(capture.UNM_PAD_MS, 250)
+        self.assertEqual(u["t_start"], max(round(raw0 - capture.UNM_PAD_MS), 0))
+        self.assertEqual(u["t_end"], min(round(raw1 + capture.UNM_PAD_MS), res["clip"]["duration_ms"]))
 
     def test_s20_no_strict_evidence_fails_gate(self):
         clip, log, sync = write_case(self.d, log_kind="plain")
