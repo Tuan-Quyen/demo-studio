@@ -15,3 +15,6 @@ Source reports: `.team/reports/p0-web/review.md`, `.team/reports/p0-web/security
 | — | design | Blur strength rule `ceil(h/4)` validated on one font only | False positives | Re-measure on real apps |
 
 Mitigation while open: web capture fails closed on every confirmed repro; `blur.py verify` + `checks.py` still OCR every output once.
+
+## Flaky test
+- `test_privacy_mask.py::Recording::test_zero_frames_leak_and_zero_tolerance_used` fails ~1 in 5 runs (1 fail, then 4/4 pass, 2026-11-21). The gate fails closed (it reports unmasked frames); no leak passes. Likely cause: Chromium screencast freeze during the fixture scroll. Candidate fix in `s19-s26-partial.patch`: slower scroll (`to 300, ms 6000`) in `tests/fixtures/react-list/scenes.web.py`.
