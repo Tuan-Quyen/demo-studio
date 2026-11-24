@@ -147,6 +147,26 @@ class IOS(unittest.TestCase):
         d.key("home")
         self.assertEqual(r.calls[-1][:3], ["axe", "button", "home"])
 
+    def _stop_with(self, rc, stderr):
+        booted = json.dumps({"devices": {"iOS-18": [{"udid": "ABC", "state": "Booted"}]}})
+
+        def run(cmd, timeout=30, binary=False):
+            if "terminate" in cmd:
+                return subprocess.CompletedProcess(cmd, rc, "", stderr)
+            return subprocess.CompletedProcess(cmd, 0, booted, "")
+        return md.IOSDriver(None, run)
+
+    def test_stop_tolerates_app_not_running(self):
+        # simctl exits nonzero when there is nothing to terminate (fresh boot); prepare() calls stop() before launch().
+        d = self._stop_with(3, "An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=3):\n"
+                               "Simulator device failed to terminate com.example.app.\nfound nothing to terminate")
+        d.stop("com.example.app")
+
+    def test_stop_keeps_other_errors(self):
+        d = self._stop_with(149, "Invalid device: ABC")
+        with self.assertRaises(md.EnvError):
+            d.stop("com.example.app")
+
     def test_no_booted_simulator(self):
         d = md.IOSDriver(None, FakeRunner({"simctl list": json.dumps({"devices": {}})}))
         with self.assertRaises(md.EnvError):
