@@ -19,7 +19,7 @@ Plugin files: `${CLAUDE_PLUGIN_ROOT}/…`. Commands: `/demo-studio:<name>`. Only
 | `scriptwriter` | per-scene narration in `language` within the `demo-storytelling` word budget | `narration.md` | opus |
 | `localizer` | only when `language` ≠ `voice.language`: translate narration, UI-term glossary, lexicon proposals, on-screen strings | `localization.md`, `narration.<voice.language>.md` | inherit |
 | `voice-producer` | TTS or own-voice VO per scene (skill `voice-over`: engines, lexicon, pacing), measure duration | `media/sNN.vo.wav`, `#voice` | haiku |
-| `scene-automator` | action-only scene scripts, VO pauses, `mark()`, dry-run | `scenes.<platform>.*`, `demo_ctx.py` | inherit |
+| `scene-automator` | action-only scene scripts, VO pauses, `mark()`, dry-run | `scenes.<platform>.*`, `demo_ctx.py`, `mobile_driver.py` (copy, android/ios) | inherit |
 | `capture-operator` | recorder wrapper, run script unmodified (prepare → start), collect markers, save raw clips, full-frame check | `media/sNN.raw.*`, `#events` | haiku |
 | `privacy-blurrer` | blur regions over time (email, name, amount, token); no fake data, no video | `#blur` | haiku |
 | `sync-editor` | align clips with VO: pad, trim, speed | `#timeline` | inherit |
@@ -157,12 +157,12 @@ Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same de
 
 ## 8. Toolkit
 
-`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--options [capability]` (alternatives per job, see below) · `--stage [name]` / `--stages` (read-only: what a pipeline stage needs, alternatives, suggested `--plan`; `--platform`, `--choose cap=value`, `--with feature`, `--json`) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/` (`.venv`, `remotion/`, `appium/`), records `.demo/toolkit.json`. It never prompts.
+`python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py` — `--list` (catalog) · `--check [features]` (installed / missing / blocked) · `--plan <features>` (what, how many MB) · `--install <features>` (only after approval) · `--options [capability]` (alternatives per job, see below) · `--stage [name]` / `--stages` (read-only: what a pipeline stage needs, alternatives, suggested `--plan`; `--platform`, `--choose cap=value`, `--with feature`, `--json`) · `--python` (prints the toolkit interpreter path; never hard-code `.demo/.venv/...`). Installs into `.demo/` (`.venv`, `remotion/`, `appium/` for macOS desktop only), records `.demo/toolkit.json`. It never prompts.
 
 | Feature | Gives |
 |---|---|
 | `capture` | web recording (Playwright Chromium) + bundled ffmpeg; needed for every platform |
-| `capture-desktop` / `capture-android` / `capture-ios` | desktop (pywinauto / Appium Mac2), Android (Appium, scrcpy), iOS (macOS + Xcode only; else `blocked`) |
+| `capture-desktop` / `capture-android` / `capture-ios` | desktop (pywinauto / Appium Mac2), Android (`adb` + `scripts/mobile_driver.py`, scrcpy; nothing downloaded), iOS (Simulator via AXe + simctl; macOS + Xcode only, else `blocked`) |
 | `voice-edge` (default) / `voice-kokoro` / `voice-elevenlabs` | free online TTS / offline, heavy (torch) / paid, needs `ELEVENLABS_API_KEY` |
 | `captions` | word-level timing (faster-whisper) |
 | `mix` | ducking and loudness normalisation |

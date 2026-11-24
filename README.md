@@ -19,8 +19,8 @@ This repo is a plugin marketplace (`demo-record-teams`) that ships one plugin: `
 |---|---|
 | Python 3.10+ | always (toolkit and `project.py` are stdlib-only scripts) |
 | ffmpeg | comes with the `capture` toolkit feature (bundled via imageio-ffmpeg); no system install needed |
-| Node.js >= 18 | for the Remotion render engine (`remotion`, the default for every video; without Node the ffmpeg fallback renders basic motion), Android/iOS Appium, and macOS desktop capture |
-| macOS + Xcode | only for iOS (`capture-ios`); on other systems it reports `blocked` |
+| Node.js >= 18 | for the Remotion render engine (`remotion`, the default for every video; without Node the ffmpeg fallback renders basic motion), and macOS desktop capture (Appium Mac2) |
+| macOS + Xcode + [AXe](https://github.com/cameroncooke/AXe) | only for iOS (`capture-ios`, Simulator only); on other systems it reports `blocked` |
 | `adb` on PATH | only for Android |
 | `ELEVENLABS_API_KEY` | only for the paid `voice-elevenlabs` option |
 
@@ -154,7 +154,7 @@ python scripts/project.py --slug <slug> check-blur   # blur covers every sensiti
 
 ## Toolkit
 
-Nothing is installed up front. Right before a stage runs, the director checks what that stage needs; if something is missing, toolsmith suggests the options for **that stage only** and **you are asked first** with the size and effect (and a recommended default). Later stages are asked later. Declined features fall back (Remotion to the ffmpeg renderer with basic motion, word captions to sentence captions). Installs go into `.demo/` (`.venv`, `remotion/`, `appium/`) and are recorded in `.demo/toolkit.json`. Your choice is saved in `demo.yaml` (`install.approved` / `install.declined`), so you are not asked twice.
+Nothing is installed up front. Right before a stage runs, the director checks what that stage needs; if something is missing, toolsmith suggests the options for **that stage only** and **you are asked first** with the size and effect (and a recommended default). Later stages are asked later. Declined features fall back (Remotion to the ffmpeg renderer with basic motion, word captions to sentence captions). Installs go into `.demo/` (`.venv`, `remotion/`, `appium/` for macOS desktop) and are recorded in `.demo/toolkit.json`. Your choice is saved in `demo.yaml` (`install.approved` / `install.declined`), so you are not asked twice.
 
 Where several tools can do the same job you choose, and the recommended one is listed first: `scripts/setup_tools.py --options [voice|render]` shows the alternatives with size, requirements and status. The choice is stored in `demo.yaml` (`voice.engine`; the render engine as `remotion` in `install.approved` / `install.declined`).
 
@@ -166,8 +166,8 @@ python scripts/setup_tools.py --list | --options [job] | --stage [name] | --stag
 |---|---|---|
 | `capture` | Web recording (Playwright Chromium) + bundled ffmpeg | ~250 MB |
 | `capture-desktop` | Desktop window: pywinauto (Windows) / Appium Mac2 (macOS) | ~15 MB |
-| `capture-android` | Android via Appium UiAutomator2, scrcpy or adb | ~280 MB |
-| `capture-ios` | iOS Simulator/device via Appium XCUITest (macOS only) | ~300 MB |
+| `capture-android` | Android emulator/phone driven by `adb` (`mobile_driver.py`), recorded with scrcpy or adb | 0 MB (needs `adb`) |
+| `capture-ios` | iOS Simulator driven by AXe + simctl (`mobile_driver.py`, macOS only; unverified) | 0 MB (needs Xcode, `axe`) |
 | `voice-edge` | Microsoft Edge neural voices; online, free | ~5 MB |
 | `voice-kokoro` | Kokoro TTS; fully offline, pulls PyTorch | ~2 GB |
 | `voice-elevenlabs` | ElevenLabs voices; paid API | ~5 MB |

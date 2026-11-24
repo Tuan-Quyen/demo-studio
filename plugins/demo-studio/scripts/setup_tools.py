@@ -36,8 +36,9 @@ Feature ``remotion`` (the default render engine) copies the plugin's ``remotion/
 <workspace>/remotion/ and runs ``npm install`` there; the plugin itself never holds node_modules.
 The copy is stamped with a hash of the source (``.sync.json``): after a plugin update ``--check``
 reports it out of date and ``--install remotion`` re-syncs it.
-Appium-based features (capture-desktop on macOS, capture-android, capture-ios) share one
-Appium install in <workspace>/appium/ (APPIUM_HOME). Env DEMO_STUDIO_OS=win|mac|linux
+Appium is used only by capture-desktop on macOS (Mac2 driver), installed in <workspace>/appium/
+(APPIUM_HOME). capture-android / capture-ios install nothing: they need adb, or xcrun + axe, on
+PATH and are driven by scripts/mobile_driver.py. Env DEMO_STUDIO_OS=win|mac|linux
 overrides OS detection (testing only).
 
 Exit codes: 0 ok, 3 --python: venv not found, 1 a requested feature is missing / blocked / failed, 2 usage error
@@ -66,8 +67,6 @@ REMOTION_SRC = Path(__file__).resolve().parent.parent / "remotion"  # plugin sou
 REMOTION_SKIP = {"node_modules", "package-lock.json", "out", ".sync.json"}
 APPIUM_CORE_MB = 250  # shared Appium npm install (counted once per plan)
 APPIUM_DRIVER_PKGS = {  # driver id -> npm package (node_modules detection)
-    "uiautomator2": "appium-uiautomator2-driver",
-    "xcuitest": "appium-xcuitest-driver",
     "mac2": "appium-mac2-driver",
 }
 
@@ -122,35 +121,36 @@ CATALOG: dict[str, dict] = {
         "agents": ["scene-automator", "capture-operator"],
     },
     "capture-android": {
-        "effect": "Record an Android app on a device/emulator (Appium UiAutomator2, scrcpy or adb screenrecord)",
-        "reqs": "capture-android.txt",
-        "modules": ["appium"],
+        "effect": "Drive and record an Android app on an emulator/device (adb + scripts/mobile_driver.py, "
+                  "scrcpy or adb screenrecord); no Appium",
+        "reqs": None,
+        "modules": [],
         "post": [],
         "requires": ["capture"],
         "env": None,
-        "node": True,
-        "appium": ["uiautomator2"],
+        "node": False,
         "bins": {"adb": "adb not found on PATH (install Android platform-tools)"},
         "opt_bins": {"scrcpy": "scrcpy not found; recording falls back to adb screenrecord"},
-        "size_mb": 280,
-        "size_note": "Appium + uiautomator2 driver; shares Appium with other mobile/desktop features",
-        "agents": ["scene-automator", "capture-operator"],
+        "size_mb": 0,
+        "size_note": "uses adb (and scrcpy) from PATH; nothing downloaded",
+        "agents": ["app-scout", "scene-automator", "capture-operator"],
     },
     "capture-ios": {
-        "effect": "Record an iOS app in the Simulator/device (Appium XCUITest)",
-        "reqs": "capture-ios.txt",
-        "modules": ["appium"],
+        "effect": "Drive and record an iOS app in the Simulator (AXe + simctl via scripts/mobile_driver.py); "
+                  "no Appium, no real devices",
+        "reqs": None,
+        "modules": [],
         "post": [],
         "requires": ["capture"],
         "env": None,
-        "node": True,
-        "appium": ["xcuitest"],
+        "node": False,
         "os": ["mac"],
-        "os_reason": "requires macOS + Xcode",
-        "bins": {"xcrun": "xcrun not found (install Xcode and its command line tools)"},
-        "size_mb": 300,
-        "size_note": "Appium + xcuitest driver; Xcode installed separately",
-        "agents": ["scene-automator", "capture-operator"],
+        "os_reason": "requires macOS + Xcode (iOS Simulator)",
+        "bins": {"xcrun": "xcrun not found (install Xcode and its command line tools)",
+                 "axe": "axe not found on PATH (brew install cameroncooke/axe/axe)"},
+        "size_mb": 0,
+        "size_note": "uses Xcode simctl and AXe from PATH; nothing downloaded",
+        "agents": ["app-scout", "scene-automator", "capture-operator"],
     },
     "voice-edge": {
         "capability": "voice",
@@ -313,8 +313,9 @@ PLATFORM_FEATURES = {
     "ios": ["capture", "capture-ios"],
 }
 STAGES: dict[str, dict] = {
-    "scout": {"step": "Map", "agents": ["app-scout"], "needs": ["capture"],
-              "note": "web exploration uses the browser from capture"},
+    "scout": {"step": "Map", "agents": ["app-scout"],
+              "needs_by_platform": {**PLATFORM_FEATURES, "desktop": ["capture"]},
+              "note": "web: the browser from capture; android/ios: mobile_driver.py on the device"},
     "voice": {"step": "Voice", "agents": ["voice-producer"], "choices": ["voice"],
               "optional": [("captions", "voice.lexicon is set (round-trip check)"),
                            ("capture", "voice.engine is recorded (ffmpeg only)")]},
@@ -793,7 +794,8 @@ def build_plan(ctx: Ctx, keys: list[str]) -> dict:
         st = states[k]
         action = "skip" if st["status"] == "installed" else "blocked" if st["status"] == "blocked" else "install"
         # a blocked-by-dependency item is still installable once its dep is installed in this run
-        if st["status"] == "blocked" and CATALOG[k]["requires"] and not CATALOG[k]["node"]:
+        # (hard blocks: OS, Node, a binary missing from PATH - installing the dep does not lift them)
+        if st["status"] == "blocked" and CATALOG[k]["requires"] and not st.get("hard"):
             if any(states[d]["status"] != "installed" and d in order for d in CATALOG[k]["requires"]):
                 action = "install"
         size = pos(CATALOG[k], "size_mb", 0) if action == "install" else 0

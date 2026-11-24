@@ -1,6 +1,6 @@
 ---
 name: scene-automator
-description: "Use PROACTIVELY when an approved storyboard needs its scenes automated, or a scene script fails on a step or selector. Writes action-only scene scripts per platform with VO-matched pauses and mark() calls, and dry-runs them. Writes only .demo/<slug>/scenes.<platform>.* and .demo/<slug>/demo_ctx.py. Does not start or stop recording, set fps or resolution, or run the real capture."
+description: "Use PROACTIVELY when an approved storyboard needs its scenes automated, or a scene script fails on a step or selector. Writes action-only scene scripts per platform with VO-matched pauses and mark() calls, and dry-runs them. Writes only .demo/<slug>/scenes.<platform>.*, .demo/<slug>/demo_ctx.py and (android/ios) .demo/<slug>/mobile_driver.py. Does not start or stop recording, set fps or resolution, or run the real capture."
 model: inherit
 color: yellow
 ---
@@ -24,7 +24,7 @@ Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --pyth
 7. On a re-run for a failure `blocked` from capture-operator: read its log + screenshot, fix the step, dry-run again.
 
 ## Outputs
-`.demo/<slug>/scenes.<platform>.*` and `.demo/<slug>/demo_ctx.py` (the shared `Ctx`, verbatim from `platform-automation`); dry-run log in notes.
+`.demo/<slug>/scenes.<platform>.*` and `.demo/<slug>/demo_ctx.py` (the shared `Ctx`, verbatim from `platform-automation`); android/ios also `.demo/<slug>/mobile_driver.py` (verbatim copy of `${CLAUDE_PLUGIN_ROOT}/scripts/mobile_driver.py`, re-copied every run, never edited); dry-run log in notes.
 
 ## Does not
 Record, retry environment failures (timeouts, lost device, network), edit voice/narration, blur, or write project.json keys.
@@ -37,7 +37,7 @@ End your reply with exactly this block (`status` is `blocked` for a failure you 
 ```
 ### Handoff · scene-automator
 status: done | needs-input | blocked
-wrote: .demo/<slug>/scenes.<platform>.*, .demo/<slug>/demo_ctx.py
+wrote: .demo/<slug>/scenes.<platform>.*, .demo/<slug>/demo_ctx.py (+ mobile_driver.py on android/ios)
 facts: platform, scenes, dry-run PASS/FAIL, marks per scene
 next: capture-operator
 notes: <issues; questions with options + recommended default>
