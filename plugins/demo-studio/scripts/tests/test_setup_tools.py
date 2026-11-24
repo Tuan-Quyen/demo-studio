@@ -182,6 +182,47 @@ class Capabilities(unittest.TestCase):
         self.assertNotIn("ocr", setup_tools.CAPABILITIES)
 
 
+class MobileFeatures(unittest.TestCase):
+    """Android/iOS use adb / AXe via mobile_driver.py: no Appium, nothing to pip-install."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.venv = os.path.join(self._tmp.name, "nov")
+        self._os = os.environ.get("DEMO_STUDIO_OS")
+        self.addCleanup(self.restore_os)
+
+    def restore_os(self):
+        if self._os is None:
+            os.environ.pop("DEMO_STUDIO_OS", None)
+        else:
+            os.environ["DEMO_STUDIO_OS"] = self._os
+
+    def plan(self, os_name):
+        os.environ["DEMO_STUDIO_OS"] = os_name
+        code, out, _ = run("--plan", "capture-android,capture-ios", "--json", "--venv", self.venv,
+                           "--workspace", self._tmp.name)
+        return {f["key"]: f for f in json.loads(out)["features"]}
+
+    def test_no_appium_or_pip(self):
+        for k in ("capture-android", "capture-ios"):
+            f = setup_tools.CATALOG[k]
+            self.assertIsNone(f["reqs"], k)
+            self.assertEqual(f["modules"], [], k)
+            self.assertFalse(f.get("appium") or f["node"], k)
+            self.assertIn("app-scout", f["agents"], k)
+        self.assertIn("axe", setup_tools.CATALOG["capture-ios"]["bins"])
+
+    def test_ios_blocked_off_mac_even_when_capture_is_pending(self):
+        feats = self.plan("win")
+        self.assertEqual(feats["capture-ios"]["action"], "blocked")
+        self.assertEqual(feats["capture"]["action"], "install")
+
+    def test_driver_ships_and_is_stdlib(self):
+        src = (setup_tools.REQ_DIR.parent / "mobile_driver.py").read_text(encoding="utf-8")
+        self.assertNotIn("appium", src.split('"""', 2)[2].lower())
+
+
 class Stages(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -248,6 +289,10 @@ class Stages(unittest.TestCase):
         _, rep, _ = self.stage("scenes", "--platform", "android")
         self.assertEqual([r["feature"] for r in rep["required"]], ["capture", "capture-android"])
         self.assertFalse(rep["platform_assumed"])
+        _, rep, _ = self.stage("scout", "--platform", "ios")
+        self.assertEqual([r["feature"] for r in rep["required"]], ["capture", "capture-ios"])
+        _, rep, _ = self.stage("scout", "--platform", "desktop")
+        self.assertEqual([r["feature"] for r in rep["required"]], ["capture"])
 
     def test_installed_is_ready(self):
         real = setup_tools.feature_states
