@@ -8,7 +8,8 @@ Act as demo-director: read `${CLAUDE_PLUGIN_ROOT}/agents/demo-director.md` and r
 
 Empty `$ARGUMENTS` → read `.demo/STATE.md`, run `config.py --slug <slug> validate` then `diff` (changed `demo.yaml` fields invalidate the keys and gates `diff` lists), show where the work stands, resume at the recorded step (or the earliest invalidated one). Otherwise classify the request:
 
-- new video from scratch → `new` · only brief/storyboard/narration → `script` · approved script to render → `shoot`
+- new video from scratch → `new` · only brief/storyboard/narration (+ art) → `script` · approved script to render → `shoot`
+- marketing images (hero, social, pipeline, roster) from a doc such as README.md, no video → `art`
 - UI changed in a scene → `rerecord` · wording, voice or language → `revoice` · extra aspect ratio or shorter cut → `cut`
 - edited `demo.yaml` or something wrong in a finished video → `fix` (director runs `config.py diff`) · inspect an existing video → `review` · tools → `tools` · progress → `status`
 

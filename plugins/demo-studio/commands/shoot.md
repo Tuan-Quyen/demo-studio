@@ -9,7 +9,7 @@ Act as demo-director: read `${CLAUDE_PLUGIN_ROOT}/agents/demo-director.md` and r
 Needs G2 approved (`storyboard.md` + `narration.md`). Missing or unapproved → say so and point to `/demo-studio:script`; stop.
 
 1. voice-producer (stage `voice`) → `.vo.wav` + `#voice`; scene-automator (`scenes`) → scenes + dry-run PASS; capture-operator (`capture`) → raw clips + `#events`.
-2. privacy-blurrer (`blur`) → `#blur` ∥ sync-editor (`sync`) → `#timeline`; then motion-designer (`motion`) → `#motion` ∥ caption-writer (`captions`) → `#captions` ∥ sound-mixer (`mix`) → `#mix`.
+2. privacy (`blur`) → `#blur` ∥ sync-editor (`sync`) → `#timeline`; then motion-designer (`motion`) → `#motion` ∥ caption-writer (`captions`) → `#captions` ∥ sound-mixer (`mix`) → `#mix`.
 3. render-engineer (`render`) → finals + `#checks` (failures go to the key owner); demo-qa (`qa`) → `qa.md`.
 4. **G3: show finals + verdict, wait for approval.** Then packager (`package`).
 

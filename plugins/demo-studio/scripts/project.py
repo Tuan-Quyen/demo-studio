@@ -40,9 +40,11 @@ import time
 from datetime import datetime, timezone
 
 OWNERS = {
+    "art": "art-designer",
+    "privacy": "privacy",
     "events": "capture-operator",
     "voice": "voice-producer",
-    "blur": "privacy-blurrer",
+    "blur": "privacy",
     "timeline": "sync-editor",
     "motion": "motion-designer",
     "captions": "caption-writer",
@@ -53,6 +55,8 @@ OWNERS = {
 
 # key -> keys that must be re-run when it changes (direct dependents)
 DOWNSTREAM = {
+    "art": ["privacy", "motion", "delivery"],
+    "privacy": [],
     "voice": ["timeline", "captions", "mix"],
     "events": ["blur", "timeline"],
     "timeline": ["motion", "captions", "mix"],
@@ -64,7 +68,7 @@ DOWNSTREAM = {
     "delivery": [],
 }
 # a valid run order of all keys (every key comes after the keys it depends on)
-RUN_ORDER = ["voice", "events", "timeline", "blur", "motion", "captions", "mix",
+RUN_ORDER = ["art", "privacy", "voice", "events", "timeline", "blur", "motion", "captions", "mix",
              "checks", "delivery"]
 
 STALE_LOCK_SECONDS = 30.0
@@ -437,7 +441,7 @@ def check_blur(data):
     if not isinstance(events, dict) or not isinstance(events.get("clips"), dict):
         raise CliError(2, "#events with clips is required (owner capture-operator)")
     if not isinstance(blur, dict):
-        raise CliError(2, "#blur is required (owner privacy-blurrer)")
+        raise CliError(2, "#blur is required (owner privacy)")
     clips = events["clips"]
     regions = blur.get("regions") or []
     tracks, ends = sensitive_tracks(events)
@@ -512,9 +516,9 @@ def check_blur(data):
                         w = weak.setdefault(rid, {"region": rid, "strength": r.get("strength", 25),
                                                   "mode": r.get("mode", "boxblur"), "needed": 0})
                         w["needed"] = max(w["needed"], round(need, 1))
-    gap_list = [dict({k: v for k, v in g.items() if k != "_i"}, owner="privacy-blurrer")
+    gap_list = [dict({k: v for k, v in g.items() if k != "_i"}, owner="privacy")
                 for spans in gaps.values() for g in spans]
-    weak_list = [dict(w, owner="privacy-blurrer") for w in weak.values()]
+    weak_list = [dict(w, owner="privacy") for w in weak.values()]
     return {"pass": not (invalid or gap_list or weak_list), "tracks": len(tracks),
             "regions": len(regions), "frames_checked": samples, "fps": fps_out,
             "gaps": gap_list, "invalid": invalid, "weak": weak_list}

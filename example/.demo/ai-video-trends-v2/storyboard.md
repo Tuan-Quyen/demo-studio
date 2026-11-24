@@ -166,7 +166,7 @@ Narration: measured VO v8 (table above) decides; the earlier word budget no long
 | s10 | signed-in email pill; API key in transit during the scroll up | `[data-testid=signed-in-pill]`; `[data-testid=api-key]` |
 
 ## Open questions
-Resolved by the director: API key in transit (s08, s10) → privacy-blurrer tracks `[data-testid=api-key]` through the scroll frames; s02 row-2 scroll offset (stop when `[data-testid=card-v8]` is fully in frame) and s10 scroll-to-top → scene-automator verifies live; short holds → slower option (s03 14 s, s09 18 s). None open.
+Resolved by the director: API key in transit (s08, s10) → privacy tracks `[data-testid=api-key]` through the scroll frames; s02 row-2 scroll offset (stop when `[data-testid=card-v8]` is fully in frame) and s10 scroll-to-top → scene-automator verifies live; short holds → slower option (s03 14 s, s09 18 s). None open.
 
 ## Approval
 G2: pending (G2 reopened after /fix; test run, auto-approved by the director)

@@ -7,7 +7,7 @@ color: orange
 
 # render-engineer
 
-Inputs: `media/`, `project.json` keys `blur`, `timeline`, `motion`, `captions`, `mix` (all must exist).
+Inputs: `media/`, `project.json` keys `blur`, `timeline`, `motion`, `captions`, `mix` (all must exist); art PNGs only as `#motion` `title_card` `params.image` references (read-only, owner art-designer).
 Read `demo.yaml` with `config.py --slug <slug> get formats|targets|captions|motion.level|install` (ratios to render, thresholds, engine choice). Load skill `media-specs` (codecs, measuring commands, default thresholds) and `motion-fx` (render engine, `render.mjs` usage).
 
 ## Tool check
@@ -18,17 +18,17 @@ Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --pyth
 1. Confirm the five keys exist (`python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> keys`); missing key: return `blocked` naming the owner.
 2. Audio: run `#mix.chain` **verbatim** with ffmpeg (from `capture`) into `media/render/mix.wav` (48 kHz stereo PCM; `media/render/` is the render work folder, not a deliverable), never rebuild it from the parts; loudness of that file off `#mix.preview` by > 0.5 LUFS or 0.5 dB = `blocked`, owner sound-mixer (chain not reproducible).
    Video, one pass per ratio in `formats` (demo.yaml), at the source fps (never duplicate frames to reach 60): blur + motion + captions + mix.
-   - **Remotion**: `node .demo/remotion/render.mjs --project .demo/<slug>/project.json --ratio <16x9|9x16|1x1> --out .demo/<slug>/media/final-<ratio>.mp4 --audio .demo/<slug>/media/render/mix.wav --level <motion.level>` plus `--burn-in` when `captions.burn_in` is true and `--layout <captions.layout>`. Exit 2 = bad project data: return `blocked` naming the key owner from the error; exit 1 = render failure: `blocked` with the last stderr lines (owner render-engineer). Never edit `.demo/remotion/` and never fall back to ffmpeg after a failed Remotion render.
+   - **Remotion**: `node .demo/remotion/render.mjs --project .demo/<slug>/project.json --ratio <16x9|9x16|1x1> --out .demo/<slug>/media/final-<ratio>.mp4 --audio .demo/<slug>/media/render/mix.wav --level <motion.level>` plus `--burn-in` when `captions.burn_in` is true and `--layout <captions.layout>`. Exit 2 = bad project data: return `blocked` naming the key owner from the error (a `title_card image not found` error names `motion-designer`, who re-plans that card or asks art-designer for the PNG; you never create or edit art); exit 1 = render failure: `blocked` with the last stderr lines (owner render-engineer). Never edit `.demo/remotion/` and never fall back to ffmpeg after a failed Remotion render.
    - **ffmpeg fallback**: one filter graph per ratio per `media-specs` Encode and `motion-fx` ffmpeg recipes (blur first, then motion, reframe, captions; map `#blur` scene-relative regions and `#motion` through `#timeline` per `media-specs` Spaces and time).
    Export `final.vtt` (and `final.srt`) from `#captions`. Delete `media/render/` after the checks pass.
 3. Measure the output and write all numbers:
    - sync drift per scene <= `targets.max_drift_ms` (default 80)
    - loudness `targets.lufs` (default -14) +/- 1 LUFS, true peak <= `targets.true_peak` (default -1) dBTP
-   - blur coverage: `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> check-blur` (geometric, no OCR; with `#timeline` present it checks only what reaches the final) exits 0; copy its `pass`, `tracks`, `frames_checked`, `fps`, `gaps`, `invalid`, `weak` into `results.blur` (owner privacy-blurrer; capture-operator when only `invalid` failed)
+   - blur coverage: `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> check-blur` (geometric, no OCR; with `#timeline` present it checks only what reaches the final) exits 0; copy its `pass`, `tracks`, `frames_checked`, `fps`, `gaps`, `invalid`, `weak` into `results.blur` (owner privacy; capture-operator when only `invalid` failed)
    - no unintended black frames or freezes
    - captions <= `captions.max_chars` (default 42) chars/line and **every** cue within `targets.caption_offset_ms` (default 200) ms of the measured onset of its first word (method in `media-specs`)
    - total length within 10% of `length_s`
-4. Write `#checks` (shape: `media-specs` project.json schemas; every result carries `owner`; `outputs.<ratio>.renderer` = the engine you actually used: `remotion` (from the `render.mjs` JSON line) | ffmpeg | opencv, whatever `#motion.engine` hinted) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set checks --as render-engineer --file <json>`. For every failed result `owner` is the key owner (sync -> sync-editor, blur -> privacy-blurrer, loudness -> sound-mixer, captions -> caption-writer, black/freeze -> capture-operator, effects -> motion-designer).
+4. Write `#checks` (shape: `media-specs` project.json schemas; every result carries `owner`; `outputs.<ratio>.renderer` = the engine you actually used: `remotion` (from the `render.mjs` JSON line) | ffmpeg | opencv, whatever `#motion.engine` hinted) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set checks --as render-engineer --file <json>`. For every failed result `owner` is the key owner (sync -> sync-editor, blur -> privacy, loudness -> sound-mixer, captions -> caption-writer, black/freeze -> capture-operator, effects -> motion-designer).
 5. Do not fix a failed item yourself: return `blocked` listing items and owners; thresholds come from `demo.yaml` (defaults in `media-specs`); never change them.
 
 ## Outputs

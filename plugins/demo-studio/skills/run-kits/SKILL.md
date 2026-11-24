@@ -11,46 +11,52 @@ Plugin files: `${CLAUDE_PLUGIN_ROOT}/…`. Commands: `/demo-studio:<name>`. Only
 
 | Agent | One job | Writes | Model |
 |---|---|---|---|
-| `demo-director` | classify request, pick pipeline, delegate, keep resume point, record the user's decisions | `.demo/STATE.md`, user decisions in `demo.yaml` | opus |
+| `demo-director` | classify request, pick pipeline, delegate, keep resume point, record the user's decisions; after gate GA only, place approved art in the repo | `.demo/STATE.md`, user decisions in `demo.yaml`, repo files after GA | opus |
 | `toolsmith` | `suggest` (read-only): what a stage needs, options, plan · `install`: only the approved features | `.demo/.venv`, `toolkit.json` | haiku |
 | `demo-strategist` | audience, goal, message, CTA (prose) and the initial video properties | `brief.md`, `demo.yaml` (create) | inherit |
 | `app-scout` | explore app, check it matches `platform` in `demo.yaml`, map flows/selectors, flag sensitive elements | `app-map.md` | inherit |
 | `storyboarder` | scenes and shots: on-screen action, camera intent, duration | `storyboard.md` | opus |
 | `scriptwriter` | per-scene narration in `language` within the `demo-storytelling` word budget | `narration.md` | opus |
 | `localizer` | only when `language` ≠ `voice.language`: translate narration, UI-term glossary, lexicon proposals, on-screen strings | `localization.md`, `narration.<voice.language>.md` | inherit |
+| `art-designer` | marketing images from `brief.md` + `localization.md` (video) or a source doc (standalone): static SVG + PNG (skill `key-art`); proposes the repo placement | `art/<id>.svg` + `.png`, `art/readme-snippet.md` (standalone), `#art` | inherit |
 | `voice-producer` | TTS or own-voice VO per scene (skill `voice-over`: engines, lexicon, pacing), measure duration | `media/sNN.vo.wav`, `#voice` | haiku |
 | `scene-automator` | action-only scene scripts, VO pauses, `mark()`, dry-run | `scenes.<platform>.*`, `demo_ctx.py`, `mobile_driver.py` (copy, android/ios) | inherit |
 | `capture-operator` | recorder wrapper, run script unmodified (prepare → start), collect markers, save raw clips, full-frame check | `media/sNN.raw.*`, `#events` | haiku |
-| `privacy-blurrer` | blur regions over time (email, name, amount, token); no fake data, no video | `#blur` | haiku |
+| `privacy` | recordings: blur regions over time (email, name, amount, token); art: audit only, never blurs or edits it; no fake data, no video | `#blur`, `#privacy` | haiku |
 | `sync-editor` | align clips with VO: pad, trim, speed | `#timeline` | inherit |
 | `motion-designer` | zoom/pan on click, highlights, callouts, title cards, device frames | `#motion` | inherit |
 | `caption-writer` | word-timed VTT/SRT captions | `#captions` | haiku |
 | `sound-mixer` | music, ducking, loudness targets from `demo.yaml` (default −14 LUFS / −1 dBTP) | `#mix` | haiku |
 | `render-engineer` | single-pass render 16:9, 9:16, 1:1; measure while rendering | `media/final-*.mp4`, `final.vtt`, `#checks` | haiku |
-| `demo-qa` | what machines cannot measure: spelling, broken UI, pacing, leaked PII → PASS/FAIL | `qa.md` | inherit |
+| `demo-qa` | what machines cannot measure: spelling, broken UI, pacing, leaked PII → PASS/FAIL; art mode checks the art set | `qa.md` (video, G3), `qa-art.md` (art) | inherit |
 | `packager` | thumbnail, chapters, title, description, manifest | `media/thumb.png`, `#delivery` | haiku |
 
-`#key` = `project.json#key`. Only the owner writes its file/key; everyone reads. `demo.yaml` is owned by the user (see §6).
+19 agents. `#key` = `project.json#key`. Only the owner writes its file/key; everyone reads. `demo.yaml` is owned by the user (see §6).
 
 ## 2. Commands → pipeline → gates
 
-`→` sequential, `∥` parallel. Gates: **G1** brief approved · **G2** storyboard + narration approved (before any recording) · **G3** final render approved after QA.
+`→` sequential, `∥` parallel. Gates: **G1** brief approved · **G2** storyboard + narration (+ art in `new`/`script`) approved (before any recording) · **G3** final render approved after QA · **GA** art set approved (standalone `art` only).
 
 | Command | For | Pipeline | Gates |
 |---|---|---|---|
 | `run` | any request; empty = resume | director classifies, then runs one below | per pipeline |
-| `new` | video from scratch | strategist → scout → storyboarder → scriptwriter → (localizer) → voice-producer → scene-automator → capture-operator → (blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa → packager | G1, G2, G3 |
-| `script` | pre-production only | strategist → scout → storyboarder → scriptwriter → (localizer) | G1, G2 |
-| `shoot` | approved script → render | voice-producer → scene-automator → capture-operator → (blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa | G3 (needs G2) |
-| `rerecord` | UI changed in a scene | scene-automator → capture-operator → (blurrer ∥ sync-editor) → motion-designer → render-engineer → demo-qa | G3 |
-| `revoice` | new text, voice or language | scriptwriter → (localizer) → voice-producer → sync-editor → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa | G2 (text), G3 |
+| `new` | video from scratch | strategist → scout → storyboarder → scriptwriter → (localizer) → **[art]** → voice-producer → scene-automator → capture-operator → (privacy ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa → packager | G1, G2, G3 |
+| `script` | pre-production only | strategist → scout → storyboarder → scriptwriter → (localizer) → **[art]** | G1, G2 |
+| `art` | marketing images from a source doc (e.g. README.md), no video | **[art]**, then the director places the files in the repo | GA |
+| `shoot` | approved script → render | voice-producer → scene-automator → capture-operator → (privacy ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa | G3 (needs G2) |
+| `rerecord` | UI changed in a scene | scene-automator → capture-operator → (privacy ∥ sync-editor) → motion-designer → render-engineer → demo-qa | G3 |
+| `revoice` | new text, voice or language | scriptwriter → (localizer) → ([art] when `localization.md` or the language changed, via `config.py diff`; style asked only if `#art.style` is missing) → voice-producer → sync-editor → (motion-designer ∥ caption-writer ∥ sound-mixer) → render-engineer → demo-qa | G2 (text), G3 |
 | `cut` | new aspect ratio or shorter cut | (sync-editor if scenes are dropped) → (motion-designer ∥ caption-writer) → render-engineer → demo-qa | G3 |
 | `fix` | symptom text; empty = read `qa.md` + `#checks` | director diagnoses → owner → dependent keys → render → qa | G3 |
 | `tools` | view/install toolkit | `--list`/`--options`/`--stages` → toolsmith `suggest` → ask → toolsmith `install` | install approval |
 | `review` | inspect existing video, no edits | demo-qa | — |
 | `status` | where are we | read `STATE.md` only | — |
 
-Order is the dependency order of §6: caption-writer and sound-mixer need `#timeline`, so they never run before sync-editor. (localizer) runs only when `language` is set and differs from `voice.language`. Loops: render check failure → owner of that key. QA FAIL → owner of the finding, re-render, QA. Same finding 3 rounds → ask the user. VO is produced **before** scenes so pauses fit real durations.
+**[art] = art sub-pipeline** (one unit, run to the end before the next step starts): **step 0 style question (director only; once per run, right before the stage check, never at G1; in `revoice` only when art re-runs and `#art.style` is missing; the answer is in STATE.md before art-designer is briefed; rules in the director file and `key-art/references/styles.md`)** → art-designer → privacy (audit, `#privacy.art`) → demo-qa (art mode, `qa-art.md`) → FAIL: the finding's owner (`art-designer`, or `privacy` for an audit gap) fixes, then privacy and demo-qa run again; same finding 3 rounds → ask the user. PASS → the gate. In `new`/`script` the gate is **G2**: one question shows the art previews (PNG, or SVG when the PNG is missing, each labelled `<file> · <w>x<h>`) + the `qa-art.md` verdict + storyboard + narration (both languages when localized) + glossary; options: approve and record / edit script / edit storyboard / edit art; G2 never opens before art PASS, there is no separate GA, and nothing after G2 starts earlier. In `art` (standalone) the gate is **GA**: options approve and place / edit art / keep in `.demo/` only. Standalone workspace: slug `<source-stem>-art`, `.demo/<slug>/{art/, project.json, qa-art.md}` only (no `brief.md`, `demo.yaml`, `.demo.applied.json`; the director never calls `config.py`; the render-engine and install answers are kept in STATE.md). A missing or empty source doc → `needs-input`, nothing generated. Stage `art` (§8) is checked right before art-designer; declined remotion → SVG-only art (`png: null`, `missing_png`), the handoff is `needs-input` and the gate offers the install.
+
+**Placement (director, only after GA "approve and place"):** for each `from`/`to` in `#art.repo.files` (`from` inside `.demo/<slug>/art/`; `to` relative, no `..`, no drive or leading `/`, inside the repo root, not under `.git/`, `.demo/` or `.claude/`; otherwise skipped and reported), if the target exists ask overwrite or rename; copy; insert `art/readme-snippet.md` into the source doc; Glob every relative link in the snippet (all must resolve); report the changed repo files; never commit. Before GA nothing is copied, and a re-run that changes art leaves the repo files untouched until GA again. A `brief.md` edit reopens G1 and re-runs the art sub-pipeline before G2.
+
+Order is the dependency order of §6: caption-writer and sound-mixer need `#timeline`, so they never run before sync-editor. (localizer) runs only when `language` is set and differs from `voice.language`. Loops: render check failure → owner of that key. QA FAIL → owner of the finding, re-render, QA. Same finding 3 rounds → ask the user (art: `qa-art.md` / `#privacy` findings, as above). VO is produced **before** scenes so pauses fit real durations.
 
 ## 3. scene-automator ↔ capture-operator boundary
 
@@ -101,7 +107,8 @@ notes: <issues; questions with options + recommended default>
 ```
 .demo/STATE.md  .venv/  toolkit.json
 .demo/<slug>/
-  brief.md  demo.yaml  app-map.md  storyboard.md  narration.md  qa.md
+  brief.md  demo.yaml  app-map.md  storyboard.md  narration.md  qa.md  qa-art.md
+  art/  <id>.svg  <id>.png  readme-snippet.md (standalone)
   scenes.<platform>.*
   project.json  .demo.applied.json
   media/  sNN.raw.*  sNN.vo.wav  final-16x9.mp4  final-9x16.mp4  final-1x1.mp4  final.vtt  thumb.png
@@ -109,7 +116,7 @@ notes: <issues; questions with options + recommended default>
 
 Only two kinds of video file: raw clips and finals. Blur, motion, captions and mix are instructions in `project.json`, not intermediate videos. Templates in `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
-**Files → owner:** `brief.md` demo-strategist (prose; user approves at G1) · `demo.yaml` **the user** (demo-strategist creates it at G1; demo-director records the user's decisions in it: motion level, voice, tool choices, install choices; every other agent reads only) · `.demo.applied.json` snapshot written by `config.py apply` (director: after G1 as baseline, after every G3) · `app-map.md` app-scout · `storyboard.md` storyboarder · `narration.md` scriptwriter (in `language`) · `localization.md`, `narration.<voice.language>.md` localizer (only when `language` ≠ `voice.language`; voice-producer reads the latter when it exists) · `qa.md` demo-qa.
+**Files → owner:** `brief.md` demo-strategist (prose; user approves at G1) · `demo.yaml` **the user** (demo-strategist creates it at G1; demo-director records the user's decisions in it: motion level, voice, tool choices, install choices; every other agent reads only) · `.demo.applied.json` snapshot written by `config.py apply` (director: after G1 as baseline, after every G3) · `app-map.md` app-scout · `storyboard.md` storyboarder · `narration.md` scriptwriter (in `language`) · `localization.md`, `narration.<voice.language>.md` localizer (only when `language` ≠ `voice.language`; voice-producer reads the latter when it exists) · `qa.md` demo-qa (video, G3) · `qa-art.md` demo-qa (art mode) · `art/` art-designer only (nobody else writes there; the director copies from it into the repo after GA).
 
 **`demo.yaml`** controls the video's properties: `platform`, `length_s`, `formats`, `voice {engine, name, language, lexicon}`, `motion {level}`, `music {style, duck_db}`, `captions {burn_in, layout, max_chars}`, `targets {lufs, true_peak, max_drift_ms, caption_offset_ms}`, `privacy {blur, real_data}`, `install {approved, declined}`. Template with allowed values and defaults: `${CLAUDE_PLUGIN_ROOT}/templates/demo.yaml`. A value lives only there; agents read it, never copy it.
 
@@ -118,7 +125,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/config.py --slug <slug> init | validate | g
 ```
 `get` prints JSON with defaults applied (e.g. `get targets.max_drift_ms` → `80`). `apply-lexicon` returns the TTS input with `voice.lexicon` substituted plus the `applied` list (voice-producer only; a lexicon change re-runs voice, no G2). `diff` compares with `.demo.applied.json` (the config of the last approved state; missing = first run, nothing to diff) and prints the changed fields, the `project.json` keys to re-run (own step + `project.py deps`) and any earlier agent/gate to reopen. Exit 2 on a bad file, with the line.
 
-**project.json keys → owner:** `events` capture-operator · `voice` voice-producer · `blur` privacy-blurrer · `timeline` sync-editor · `motion` motion-designer · `captions` caption-writer · `mix` sound-mixer · `checks` render-engineer · `delivery` packager.
+**project.json keys → owner:** `art` art-designer · `events` capture-operator · `voice` voice-producer · `blur` privacy · `privacy` privacy (art audit results, separate from `blur`) · `timeline` sync-editor · `motion` motion-designer · `captions` caption-writer · `mix` sound-mixer · `checks` render-engineer · `delivery` packager.
 
 ```
 python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> get <key>
@@ -134,16 +141,16 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/vo.py check IN [--lead-max 200 --trail-max 
 
 Locked and owner-checked, so parallel agents do not overwrite each other. Never edit `project.json` by hand. A key's value has no version field (`schema` is the format version, not the data version): read the version with `get <key> --version` (0 = never set) or `keys`. `--slug` finds the nearest `.demo/<slug>` above cwd and refuses to run from inside `.demo/` without one.
 
-**Dependency order:** voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. A `length_s` change re-runs storyboarder (G2) → timeline → motion, captions, mix → checks → delivery; voice only if narration changes.
+**Dependency order:** art → privacy, motion, delivery · voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. A `length_s` change re-runs storyboarder (G2) → timeline → motion, captions, mix → checks → delivery; voice only if narration changes.
 
-**Render checks (`#checks`; thresholds from `demo.yaml` `targets`/`captions`, defaults in skill `media-specs`):** sync drift ≤`targets.max_drift_ms` (80) per scene → sync-editor · `targets.lufs` (−14) ±1 LUFS, ≤`targets.true_peak` (−1) dBTP → sound-mixer · every `sensitive` marker covered by `#blur` (`project.py check-blur`, geometric, no OCR) → privacy-blurrer · no unintended black/freeze → capture-operator · captions ≤`captions.max_chars` (42) chars/line, ≤`targets.caption_offset_ms` (200) off → caption-writer · total length ±10% of `length_s` → storyboarder.
+**Render checks (`#checks`; thresholds from `demo.yaml` `targets`/`captions`, defaults in skill `media-specs`):** sync drift ≤`targets.max_drift_ms` (80) per scene → sync-editor · `targets.lufs` (−14) ±1 LUFS, ≤`targets.true_peak` (−1) dBTP → sound-mixer · every `sensitive` marker covered by `#blur` (`project.py check-blur`, geometric, no OCR) → privacy · no unintended black/freeze → capture-operator · captions ≤`captions.max_chars` (42) chars/line, ≤`targets.caption_offset_ms` (200) off → caption-writer · total length ±10% of `length_s` → storyboarder.
 
 ## 7. /fix routing
 
 | Symptom | Owner | Then re-run |
 |---|---|---|
 | Audio/video out of sync | sync-editor | render → qa |
-| Email, name, amount still visible | privacy-blurrer | render → qa |
+| Email, name, amount still visible (video) | privacy | render → qa |
 | Wrong click, UI changed, scene broken | scene-automator | capture → (blur ∥ timeline) → motion → render → qa |
 | Black frame, freeze, bad recording | capture-operator | (blur ∥ timeline) → motion → render → qa |
 | Wrong translation, UI term, on-screen text language | localizer → voice-producer | timeline → (motion ∥ captions ∥ mix) → render → qa |
@@ -151,7 +158,12 @@ Locked and owner-checked, so parallel agents do not overwrite each other. Never 
 | Caption wrong or off | caption-writer | render → qa |
 | Music too loud, voice too quiet, LUFS off | sound-mixer | render → qa |
 | Zoom in wrong place, missing callout | motion-designer | render → qa |
+| Wrong key art, title/end/thumbnail art | art-designer | privacy → demo-qa (art) → art approval → motion → render → qa → G3 → packager |
+| Wrong look or style of key art (user wants a different style) | director: style question again (re-pick, list shown with current choice marked; not a finding, 3-round cap restarts), then art-designer redoes all items | privacy → demo-qa (art) → art approval → motion → render → qa → G3 → packager |
+| Private data visible in key art | art-designer (the `#privacy.art` finding) | privacy → demo-qa (art) → art approval → motion → render → qa → G3 → packager |
 | Changed `demo.yaml` (user edited it) | director runs `config.py validate` + `diff` | from the earliest owner `diff` lists, then downstream keys → render → qa |
+
+**Art approval** (the key-art rows, after the video passed G2): the director shows the new art previews and the `qa-art.md` verdict in one question (approve / edit art / keep previous art); it is not G2, and G3 still follows the render.
 
 Owner unclear → ask the user, do not guess. One STATE.md line per fix. Same defect after 2 attempts → stop and report. `/rerecord` and `/revoice` are shortcuts when the cause is known.
 
@@ -180,6 +192,8 @@ Features not yet in `--list` are not installed by the script; report `blocked` r
 | `render` | `install.approved` / `install.declined` (`remotion`) | `remotion` (recommended) · `ffmpeg` (`motion-basic`, motion none/basic only) |
 
 Blur coverage needs no tool choice: `project.py check-blur` (stdlib, geometric) is the only check, no OCR. A new alternative = a `CATALOG` entry with `capability` and its `CAPABILITIES` value.
+
+Stage `art` (needs the render choice, `remotion` for PNG) sits after `scout` in `--stages` but runs after (localizer) in the pipelines; its agent is art-designer.
 
 **Just-in-time flow (nothing is installed at the start of a pipeline).** The stage map lives in `setup_tools.py` (`--stages`); the pipelines name each step's stage. The render engine is the one choice made at G1 (motion-designer plans for it, `motion-fx`); Remotion itself is still installed just in time, before the motion stage.
 1. Right before a step the director runs `--stage <name> --platform <p> --json` (with `--choose render=<remotion|ffmpeg>` for `motion` / `render`). `ready` → run the step.

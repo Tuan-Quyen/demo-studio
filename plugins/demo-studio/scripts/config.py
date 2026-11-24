@@ -24,12 +24,13 @@ diff mapping (field -> pre agents; first project.json keys; downstream follows p
   length_s                 pre storyboarder (G2); timeline + downstream (motion, captions, mix, checks, delivery);
                            NOT voice/events; needs_user. scriptwriter only if the new word budget is
                            below the current narration word count; voice only if narration changes
-  formats                  motion, captions (+ checks, delivery)
+  formats                  art, motion, captions (+ privacy, checks, delivery); art-designer redoes only the
+                           changed ratios (result "art_formats": {added, removed})
   language                 source language (null = voice.language). pre scriptwriter, localizer (G2);
-                           voice + downstream; needs_user. No-op if the effective source language
+                           art + voice + downstream; needs_user. No-op if the effective source language
                            (language or voice.language) is unchanged
   voice.language           pre localizer if language is set and differs from the new voice.language,
-                           else scriptwriter (G2); voice + downstream; needs_user
+                           else scriptwriter (G2); art + voice + downstream; needs_user
   voice.lexicon.<term>     voice + downstream; no pre, no G2; diff lists terms added/changed/removed
   voice.engine / .name     voice + downstream (the only non-language fields that re-run voice)
   motion.*                 motion (+ checks, delivery)
@@ -43,6 +44,8 @@ diff mapping (field -> pre agents; first project.json keys; downstream follows p
   privacy.*                blur (+ checks, delivery)
   install.*                nothing, except "remotion" entering or leaving install.declined: that switches
                            the render engine (Remotion <-> ffmpeg fallback) -> motion (+ checks, delivery)
+  Art re-runs only from formats, the localization rule (language, voice.language) and platform; length_s,
+  voice.engine/name/lexicon, captions.*, music.*, motion.*, targets.* and privacy.* never re-run art.
   Only platform re-runs events; only voice.* (and platform) re-run voice.
 
 Parser: one built-in strict parser (stdlib only, so validation never depends on what is installed) for a documented subset:
@@ -619,7 +622,8 @@ FIELD_MAP = [
                   "note": "length changed: storyboarder re-plans scene timing (reopens G2); "
                           "scriptwriter re-runs only if the new word budget is below the current "
                           "narration word count; voice re-runs only if narration changes"}),
-    ("formats", {"keys": ["motion", "captions"]}),
+    ("formats", {"keys": ["art", "motion", "captions"],
+                 "note": "formats changed: art-designer redoes only the changed ratios (art_formats)"}),
     ("language", {"dynamic": "localization"}),
     ("voice.language", {"dynamic": "localization"}),
     ("voice.lexicon.*", {"keys": ["voice"],
@@ -687,6 +691,9 @@ def compute_diff(old, new):
         if a == b:
             continue
         res["changed"].append({"path": path, "old": a, "new": b})
+        if path == "formats":
+            res["art_formats"] = {"added": [f for f in (b or []) if f not in (a or [])],
+                                  "removed": [f for f in (a or []) if f not in (b or [])]}
         rule = lookup_rule(path)
         if rule.get("dynamic") == "localization":
             lpre = localization_pre(path, old, new)
@@ -697,7 +704,8 @@ def compute_diff(old, new):
                 if note not in res["notes"]:
                     res["notes"].append(note)
                 continue
-            rule = {"pre": lpre, "gates": ["G2"], "keys": ["voice"], "needs_user": True}
+            rule = {"pre": lpre, "gates": ["G2"], "keys": ["art", "voice"],
+                    "needs_user": True}
         elif rule.get("dynamic") == "engine":
             eo, en = render_engine(old), render_engine(new)
             if eo == en:
@@ -856,6 +864,9 @@ def render_diff(res):
     if res["pre"]:
         out.append("re-run first: %s (reopens %s)" % (", ".join(res["pre"]),
                                                        ", ".join(res["gates"]) or "no gate"))
+    af = res.get("art_formats")
+    if af:
+        out.append("art ratios: +%s -%s" % (",".join(af["added"]) or "none", ",".join(af["removed"]) or "none"))
     if res["rerun"]:
         out.append("re-run project.json keys (in order): " + ", ".join(
             "%s (%s)" % (r["key"], r["owner"]) for r in res["rerun"]))

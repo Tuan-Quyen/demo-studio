@@ -34,7 +34,7 @@ class ProjectPathTests(unittest.TestCase):
     def test_set_from_root_prints_version_and_path(self):
         code, out, _ = run(["--slug", "vid", "init"], self.root)
         self.assertEqual(code, 0)
-        code, out, _ = run(["--slug", "vid", "set", "blur", "--as", "privacy-blurrer",
+        code, out, _ = run(["--slug", "vid", "set", "blur", "--as", "privacy",
                             "--json", '{"regions": []}'], self.root)
         self.assertEqual(code, 0)
         self.assertTrue(out.startswith("blur version 1 ("), out)
@@ -42,7 +42,7 @@ class ProjectPathTests(unittest.TestCase):
 
     def test_run_from_inside_demo_dir_uses_same_file(self):
         run(["--slug", "vid", "init"], self.root)
-        code, out, _ = run(["--slug", "vid", "set", "blur", "--as", "privacy-blurrer",
+        code, out, _ = run(["--slug", "vid", "set", "blur", "--as", "privacy",
                             "--json", "{}"], os.path.join(self.root, ".demo"))
         self.assertEqual(code, 0, out)
         self.assertFalse(os.path.exists(os.path.join(self.root, ".demo", ".demo")))
@@ -64,6 +64,30 @@ class ProjectPathTests(unittest.TestCase):
         code, _, err = run(["--project", bad, "init"], self.root)
         self.assertEqual(code, 2)
         self.assertIn("nested", err)
+
+    def test_art_privacy_keys(self):
+        run(["--slug", "vid", "init"], self.root)
+        code, out, _ = run(["deps", "art"], self.root)
+        self.assertEqual((code, out.split()), (0, ["privacy", "motion", "checks", "delivery"]))
+        code, out, _ = run(["deps", "privacy"], self.root)
+        self.assertEqual((code, out.split()), (0, []))
+        code, out, _ = run(["deps", "art", "--json"], self.root)
+        self.assertEqual([r["owner"] for r in json.loads(out)["rerun"]],
+                         ["privacy", "motion-designer", "render-engineer", "packager"])
+        for key, owner in (("art", "art-designer"), ("privacy", "privacy")):
+            code, out, _ = run(["owner", key], self.root)
+            self.assertEqual(out.strip(), owner)
+            code, _, _ = run(["--slug", "vid", "set", key, "--as", "packager", "--json", "{}"], self.root)
+            self.assertEqual(code, 4)
+            code, out, _ = run(["--slug", "vid", "set", key, "--as", owner, "--json", "{}"], self.root)
+            self.assertEqual(code, 0)
+            self.assertTrue(out.startswith("%s version 1 (" % key), out)
+        self.assertEqual(project.RUN_ORDER[:2], ["art", "privacy"])
+        self.assertEqual(sorted(project.RUN_ORDER), sorted(project.OWNERS))
+        pos = {k: i for i, k in enumerate(project.RUN_ORDER)}
+        for k, deps in project.DOWNSTREAM.items():
+            for d in deps:
+                self.assertLess(pos[k], pos[d])
 
     def test_owner_mismatch_and_get_version_unset(self):
         run(["--slug", "vid", "init"], self.root)
@@ -107,7 +131,7 @@ class CheckBlurTests(unittest.TestCase):
                                      [_reg(100, 2000, [100, 100, 200, 40])]))
         self.assertFalse(r["pass"])
         [g] = r["gaps"]
-        self.assertEqual((g["t_from"], g["t_to"], g["owner"]), (2040, 4000, "privacy-blurrer"))
+        self.assertEqual((g["t_from"], g["t_to"], g["owner"]), (2040, 4000, "privacy"))
         self.assertEqual(g["frames"], 50)  # 25 fps clip: 2040, 2080, ... 4000
 
     def test_transit_needs_the_hull_not_only_the_endpoints(self):
@@ -178,7 +202,7 @@ class CheckBlurTests(unittest.TestCase):
             json.dump(data, f)
         code, _, err = run(["--project", pj, "check-blur"], tmp.name)
         self.assertEqual(code, 2)
-        self.assertIn("privacy-blurrer", err)
+        self.assertIn("privacy", err)
 
 
 if __name__ == "__main__":

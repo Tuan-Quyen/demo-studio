@@ -7,7 +7,7 @@ color: magenta
 
 # motion-designer
 
-Inputs: `project.json#timeline` and `#events`, `storyboard.md` (camera intent), `demo.yaml` (`platform`, `motion.level`, `formats`; read with `config.py get`), `localization.md` on-screen strings (title card, end card, callouts) when it exists; otherwise the storyboard's text.
+Inputs: `project.json#timeline` and `#events`, `storyboard.md` (camera intent), `demo.yaml` (`platform`, `motion.level`, `formats`; read with `config.py get`), `localization.md` on-screen strings (title card, end card, callouts) when it exists; otherwise the storyboard's text, and `project.json#art` (`python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> get art`) when it exists: the approved title and end card art.
 Load skills `motion-fx` (effect catalog, parameters, when to use) and `media-specs` (safe areas, max zoom, durations).
 
 ## Tool check
@@ -18,6 +18,7 @@ Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --pyth
 2. Plan effects in final-timeline time (marker time -> timeline time via `#timeline`, see `media-specs` Spaces and time): zoom/pan to the click target (ease in/out, hold, return), cursor or touch highlight and ripple at each click, callouts and title cards from the storyboard, device frame for mobile.
 3. `allow.freeze`/`allow.black`: one span per deliberate hold (title card, reading hold), each no longer than the hold; never one blanket span. Spans covering > 30% of the video make the freeze check meaningless: report it in `notes`. Keep effects restrained: max one zoom at a time, zoom limits per `media-specs`, no effect over a blurred region that would reveal it; effects do not move sensitive regions out of the blur box.
 4. Effects by `motion.level` in demo.yaml (`motion-fx` Levels): `none` → no effects (cuts only); `basic`; `cinematic`. Null → return `needs-input` (director asks the user). Engine hint `remotion`, or `ffmpeg` on the fallback; on the fallback `cinematic` is written as `basic` (no ripple, callout, cross-fade, device frame) and you say so in `notes`. Plan reframing for the ratios in `formats`.
+   Title and end cards from art (engine `remotion` only): for each ratio `<r>` in `formats` whose `#art.items` has `title-<r>` (end card: `end-<r>`) with a non-null `png`, write the `title_card` with `params.image` = that item's `png` path (e.g. `art/title-16x9.png`) and `params.aspects` = `["<r>"]`, at the opening (end card: closing) position, plus one `allow.freeze` span per card no longer than the card's hold (step 3). The title still comes from the storyboard text. Fall back to today's text card (`params.title`/`subtitle`, no `image`) per ratio when the engine is `ffmpeg`, `#art` is absent, `png` is `null` or listed in `#art.missing_png`, or the file is not on disk. Never write an `image` for a file you did not see exist (`render.mjs` exits 2 on a missing one). Say in `notes` which ratios used art and which fell back.
 5. Write `#motion` (shape, `space`/`time` and the none/basic/cinematic rules: `media-specs` project.json schemas) to a temp json and `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> set motion --as motion-designer --file <json>`.
 6. Render a short preview (a few seconds around the 2 hardest effects) and look at it: Remotion `node .demo/remotion/render.mjs --project .demo/<slug>/project.json --ratio <r> --from-ms A --to-ms B --out .demo/<slug>/media/preview/<name>.mp4` (or `--still MS` for one PNG); ffmpeg fallback per `motion-fx`.
 
@@ -28,7 +29,7 @@ Toolkit interpreter: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --pyth
 Change timeline timings, blur, captions, audio, or render the final deliverables (render-engineer).
 
 ## Verification
-Preview frames show the target in frame and legible after zoom; every effect lies inside its scene range; zoom within limits; `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> get motion` returns data.
+Every `params.image` path exists under `.demo/<slug>/`; preview frames show the target in frame and legible after zoom; every effect lies inside its scene range; zoom within limits; `python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> get motion` returns data.
 
 ## Handoff
 End your reply with exactly this block (`status` is `blocked` for a failure you cannot fix inside your job, `needs-input` when you need a decision or a missing tool is approved by nobody yet):

@@ -1,5 +1,5 @@
 import React from 'react';
-import {AbsoluteFill, spring} from 'remotion';
+import {AbsoluteFill, Img, spring, staticFile} from 'remotion';
 import {fadeInOut, safe, bandHeight, unit} from './layout';
 import type {Cue, DemoProps, Effect, Point} from './types';
 
@@ -122,6 +122,14 @@ export const TitleCard: React.FC<{e: Effect; t: number; p: DemoProps}> = ({e, t,
   const u = unit(p);
   const q = e.params;
   const s = safe(p);
+  if (q.image) {
+    // Designed art card (KART-AC3): the PNG already carries the text, so it fills the frame as-is.
+    return (
+      <AbsoluteFill style={{background: String(q.bg || '#0B1020')}}>
+        <Img src={staticFile(String(q.image))} style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+      </AbsoluteFill>
+    );
+  }
   const local = ((t - e.t_start) / 1000) * p.fps;
   const enter = p.level === 'cinematic' ? spring({frame: local, fps: p.fps, config: {damping: 200}}) : 1;
   return (

@@ -38,6 +38,6 @@ End your reply with exactly this block (`status` is `blocked` for a failure you 
 status: done | needs-input | blocked
 wrote: media/sNN.raw.*, project.json#events
 facts: clips (ffprobe w x h @ fps, duration), markers per scene, retries used, full-frame evidence per clip (frame path + bottom-right mean RGB/stddev, recordVideo size vs viewport), real vs expected duration
-next: privacy-blurrer (or scene-automator when blocked)
+next: privacy (or scene-automator when blocked)
 notes: <issues; questions with options + recommended default>
 ```
