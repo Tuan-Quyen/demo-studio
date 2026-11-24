@@ -5,6 +5,7 @@
 - Current step: <n — agent — task>
 - Gates: G1 <pending|approved> · G2 <pending|approved> · G3 <pending|approved>
 - Tools approved: <features or none>
+- Style (<slug>): <codes> + <custom> (source, confirmed, date) | none — art runs only; one line per slug
 
 ## Steps
 | # | Agent | Output | Status (todo/doing/done/blocked) | Note |

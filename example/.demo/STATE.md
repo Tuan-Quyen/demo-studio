@@ -15,7 +15,7 @@
 | 4 | voice-producer | media/sNN.vo.wav, #voice v9 | done | 80.5 s, vo.py check pass |
 | 5 | scene-automator | scenes.web.*, demo_ctx.py | done | dry-run PASS |
 | 6 | capture-operator | media/sNN.raw.*, #events v2 | done | 1280x720 full-frame |
-| 7 | privacy-blurrer ∥ sync-editor | #blur v2, #timeline v6 | done | 17 regions; 100.04 s |
+| 7 | privacy ∥ sync-editor | #blur v2, #timeline v6 | done | 17 regions; 100.04 s |
 | 8 | motion-designer ∥ caption-writer ∥ sound-mixer | #motion v8, #captions v7, #mix v6 | done | 32 effects; 23 cues; -14.7 LUFS |
 | 9 | render-engineer | final-16x9.mp4, final.vtt, #checks v10 | done | pass=true |
 | 10 | demo-qa | qa.md | done | PASS, minors M-1..M-4 accepted at G3 |

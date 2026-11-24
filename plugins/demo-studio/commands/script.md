@@ -11,7 +11,8 @@ Empty request → ask what to demo, then stop.
 1. demo-strategist → `brief.md` + `demo.yaml`. **G1: wait for approval.**
 2. app-scout → `app-map.md` (with `target:` and sensitive elements).
 3. storyboarder → `storyboard.md`; scriptwriter → `narration.md` (word budget per `demo-storytelling` vs scene durations); localizer → `localization.md` + `narration.<voice.language>.md` when `language` differs from `voice.language`.
-4. **G2: show storyboard + narration, wait for approval.** Stop. Next step is `/demo-studio:shoot`.
+4. **Art** (stage `art`, after the localizer) — the art sub-pipeline, run to the end: **style question first** (director step 0, asked here and never at G1; skipped when the request names valid codes or keywords, or `#art.style` is set); art-designer → `#art` → privacy (audit only, `#privacy.art`) → demo-qa art mode → `qa-art.md`. FAIL → the finding's owner fixes, then privacy and demo-qa again (same finding 3 rounds → ask the user).
+5. **G2 (one question, only after art PASS): show the art previews (PNG, else SVG) + the `qa-art.md` verdict + storyboard + narration (both languages if localized), wait for approval; options approve and record / edit script / edit storyboard / edit art (a different style re-asks step 0 and redoes all art; the 3-round cap restarts).** Stop. Next step is `/demo-studio:shoot`.
 
 No recording, voice or render here.
 

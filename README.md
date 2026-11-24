@@ -1,10 +1,12 @@
 # Demo Studio
 
-A [Claude Code](https://claude.com/claude-code) plugin: a team of 18 agents that plans, records, edits and packages narrated, captioned, privacy-safe demo videos for **web, desktop, Android and iOS** apps.
+<img src="docs/images/hero.png" alt="Demo Studio: a team of 19 agents. Narrated, captioned, privacy-safe demo videos for web, desktop, Android and iOS, in 16:9, 9:16 and 1:1." width="100%">
+
+A [Claude Code](https://claude.com/claude-code) plugin: a team of 19 agents that plans, records, edits and packages narrated, captioned, privacy-safe demo videos for **web, desktop, Android and iOS** apps, and makes marketing images (SVG + PNG) from a doc such as this README.
 
 You describe what to demo. The team writes the brief, storyboard and narration, records the app, blurs sensitive data, syncs the voice-over, adds motion and captions, mixes audio, renders 16:9 / 9:16 / 1:1 and checks the result. You approve at three gates.
 
-This repo is a plugin marketplace (`demo-record-teams`) that ships one plugin: `plugins/demo-studio/` (v0.1.0).
+This repo is a plugin marketplace (`demo-record-teams`) that ships one plugin: `plugins/demo-studio/` (v0.5.0).
 
 ## Install
 
@@ -22,6 +24,7 @@ This repo is a plugin marketplace (`demo-record-teams`) that ships one plugin: `
 | Node.js >= 18 | for the Remotion render engine (`remotion`, the default for every video; without Node the ffmpeg fallback renders basic motion), and macOS desktop capture (Appium Mac2) |
 | macOS + Xcode + [AXe](https://github.com/cameroncooke/AXe) | only for iOS (`capture-ios`, Simulator only); on other systems it reports `blocked` |
 | `adb` on PATH | only for Android |
+| Remotion (via Node) | only for the PNG half of key art; without it `/demo-studio:art` produces SVG-only images |
 | `ELEVENLABS_API_KEY` | only for the paid `voice-elevenlabs` option |
 
 ## Quick start
@@ -35,10 +38,13 @@ The director picks the steps and pauses at three gates:
 | Gate | You approve | Before |
 |---|---|---|
 | **G1** | the brief (audience, goal, message, CTA) and `demo.yaml` (length, platform, formats, voice, motion level) | anything is planned |
-| **G2** | storyboard + narration | any recording |
+| **G2** | storyboard + narration (+ the key art previews in `new`/`script`) | any recording |
 | **G3** | the final renders and the QA verdict | packaging |
+| **GA** | (only `/demo-studio:art`, no video) the marketing images and their QA verdict | anything is copied into your repo |
 
-Pipeline order after recording: capture → (privacy-blurrer ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render → QA. Captions and mix need the timeline, so they never run before sync-editor. Web recordings are 25 fps at the viewport size (a Playwright limit); the render upscales and keeps the source fps.
+<img src="docs/images/pipeline.png" alt="Pipeline order. Before recording: brief, gate G1, app-map, storyboard + narration (+ localize), key art (art-designer, privacy audit, demo-qa), gate G2, voice, scene scripts. After recording: capture, privacy and sync-editor in parallel, motion-designer, caption-writer and sound-mixer in parallel, render, QA, gate G3, packaging.">
+
+Pipeline order before recording: brief → app-map → storyboard + narration (+ localize) → key art (style question → art-designer → privacy audit → demo-qa) → G2 → voice → scene scripts. After recording: capture → (privacy ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render → QA. Captions and mix need the timeline, so they never run before sync-editor. Web recordings are 25 fps at the viewport size (a Playwright limit); the render upscales and keeps the source fps.
 
 Already have a script? `/demo-studio:shoot`. Lost your place? `/demo-studio:run` with no argument resumes from `.demo/STATE.md`.
 
@@ -57,12 +63,15 @@ All are `/demo-studio:<name>`.
 | `cut <ratio and/or length>` | Add an aspect-ratio variant (9:16, 1:1, 16:9) or a shorter cut. |
 | `fix [symptom]` | Fix a problem in the finished video; empty = read QA report and render checks. |
 | `review <video path or slug>` | Inspect an existing video without changing it. |
+| `art <source doc>` | Marketing images (hero, pipeline, roster, social; SVG + PNG) from a doc such as `README.md`, privacy-audited and QA-checked; asks which visual style you want first (a list with recommendations R1-R3 and each keyword marked `[yes]` for exact or `[approx]` for approximated in SVG; reply R1-R3, 1-3 codes from different groups, a description or a reference link, or say skip; skipped if you name keywords or a style is already set, and you can change it at the gate); asks (GA) before placing them in `docs/images/` and the doc. No video. |
 | `tools [features]` | Show or install the toolkit by feature; always asks first. |
 | `status` | Show where the work stands (reads `STATE.md` only). |
 
 ## Agents
 
 Only `demo-director` runs pipelines; the others each do one job and write only their own files.
+
+<img src="docs/images/roster.png" alt="A team of 19 agents in pipeline order, each with a character, its one job and what it hands on. demo-director (pick the pipeline, delegate, gate you) and toolsmith at the top. demo-strategist passes brief.md to app-scout; app-map.md to storyboarder; storyboard.md to scriptwriter; narration.md to localizer; localization.md to art-designer; gate G2; voice-producer passes sNN.vo.wav to scene-automator; scenes.&lt;platform&gt;.* to capture-operator; sNN.raw.* to privacy and sync-editor in parallel; #timeline to motion-designer, caption-writer and sound-mixer in parallel; blur, motion, captions, mix to render-engineer; final-*.mp4 to demo-qa; qa.md and gate G3 to packager. Image is 1280x1600.">
 
 | Agent | One job | Model |
 |---|---|---|
@@ -76,13 +85,14 @@ Only `demo-director` runs pipelines; the others each do one job and write only t
 | `voice-producer` | Text-to-speech per scene; measure durations | haiku |
 | `scene-automator` | Action-only scene scripts with voice-over pauses; dry-run | inherit |
 | `capture-operator` | Run the scripts unmodified under the recorder; save raw clips | haiku |
-| `privacy-blurrer` | Decide blur regions over time (no fake data) | haiku |
+| `privacy` | Decide blur regions over time (no fake data); audits key art for private data, never edits it | haiku |
 | `sync-editor` | Align clips with voice-over: pad, trim, speed | inherit |
 | `motion-designer` | Zoom/pan on clicks, highlights, callouts, title cards, device frames | inherit |
 | `caption-writer` | Word-timed captions | haiku |
 | `sound-mixer` | Music, ducking, loudness (default -14 LUFS, -1 dBTP; set in `demo.yaml`) | haiku |
 | `render-engineer` | One-pass render to 16:9, 9:16, 1:1; measure the result | haiku |
-| `demo-qa` | What machines cannot measure: spelling, broken UI, pacing, leaked personal data; PASS/FAIL | inherit |
+| `demo-qa` | What machines cannot measure: spelling, broken UI, pacing, leaked personal data; PASS/FAIL (art mode checks the art set against Q1-Q10, including Q10, which compares each image with the chosen style) | inherit |
+| `art-designer` | Marketing images from `brief.md` or a source doc (standalone `roster` is 1280x1600, taller than the rest): static SVG + PNG, text only from repo files; proposes where to place them | inherit |
 | `packager` | Thumbnail, chapters, title, description, delivery manifest | haiku |
 
 Voice-over is produced **before** scene scripts, so scene pauses fit the real audio durations.
@@ -99,6 +109,7 @@ Loaded by agents as needed; you do not call them.
 | `platform-automation` | `mark()` contract, VO-pause and dry-run rules, per-platform references (web, desktop, mobile) |
 | `motion-fx` | Motion levels none / basic / cinematic, effect recipes, safe areas, schema |
 | `media-specs` | Encode specs, loudness, caption rules, render-check thresholds, key schemas |
+| `key-art` | Visual rules for marketing images: composition, typography, color, formats, SVG craft, art check list (Q1-Q10), and `references/styles.md`: the style catalogue (96 keywords in groups A-G, 12 core recipes) behind the style question |
 
 ## Workspace
 
@@ -108,7 +119,8 @@ Everything lives in `.demo/` in your project:
 .demo/
   STATE.md  toolkit.json  .venv/
   <slug>/
-    brief.md  demo.yaml  app-map.md  storyboard.md  narration.md  qa.md
+    brief.md  demo.yaml  app-map.md  storyboard.md  narration.md  qa.md  qa-art.md
+    art/  <id>.svg  <id>.png  readme-snippet.md
     scenes.<platform>.*
     project.json  .demo.applied.json
     media/  sNN.raw.*  sNN.vo.wav  final-16x9.mp4  final-9x16.mp4
@@ -136,19 +148,22 @@ One owner per key; writes go through `scripts/project.py`, which locks the file 
 |---|---|---|---|
 | `events` | capture-operator | `captions` | caption-writer |
 | `voice` | voice-producer | `mix` | sound-mixer |
-| `blur` | privacy-blurrer | `checks` | render-engineer |
+| `blur` | privacy | `checks` | render-engineer |
 | `timeline` | sync-editor | `delivery` | packager |
-| `motion` | motion-designer | | |
+| `motion` | motion-designer | `art` | art-designer |
+| `privacy` | privacy (art audit) | | |
+
+`art` also carries the chosen `style` (1-3 catalogue codes, at most one per group, plus optional custom tweaks or a reference). art-designer writes it, but you choose it through demo-director. It is optional: a run without a style stays valid and is not re-run for it.
 
 ```
 python scripts/project.py --slug <slug> keys
 python scripts/project.py deps voice     # what to re-run if voice changes
 ```
 
-Dependency order: voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. A `length_s` change re-runs storyboarder (G2) → timeline → motion, captions, mix → checks → delivery; voice only if the narration changes. Pronunciation fixes live in `demo.yaml` `voice.lexicon` (written term → spoken spelling, applied to TTS input only; captions keep the written text); a lexicon change re-runs voice.
+Dependency order: art → privacy, motion, delivery · voice → timeline, captions, mix · events → blur, timeline · timeline → motion, captions, mix · {blur, motion, captions, mix} → checks → delivery. A `length_s` change re-runs storyboarder (G2) → timeline → motion, captions, mix → checks → delivery; voice only if the narration changes. Pronunciation fixes live in `demo.yaml` `voice.lexicon` (written term → spoken spelling, applied to TTS input only; captions keep the written text); a lexicon change re-runs voice.
 
 ```
-python scripts/project.py owner blur     # privacy-blurrer
+python scripts/project.py owner blur     # privacy
 python scripts/project.py --slug <slug> check-blur   # blur covers every sensitive marker (exit 1 = gap)
 ```
 
@@ -176,6 +191,7 @@ python scripts/setup_tools.py --list | --options [job] | --stage [name] | --stag
 | `blur` | Moving-region blur for the ffmpeg fallback renderer (Remotion blurs by itself) | ~60 MB |
 | `remotion` | Default render engine for every video: blur, motion (all levels), captions, audio in one pass | ~550 MB |
 | `motion-basic` | Fallback renderer via ffmpeg filters (motion none/basic) | ~0 MB |
+| `package` | Thumbnails, posters, covers | ~10 MB |
 
 ### Render engine (Remotion)
 
@@ -186,8 +202,9 @@ node .demo/remotion/render.mjs --project .demo/<slug>/project.json --ratio 16x9 
      [--audio .demo/<slug>/media/render/mix.wav] [--burn-in] [--layout overlay|band] [--from-ms A --to-ms B | --still MS]
 ```
 
+Key art (`/demo-studio:art`, and the `art` step of `new`/`script`) uses the same engine in raster mode to turn SVG layers into a PNG: `node .demo/remotion/render.mjs --art --size WxH --layer FILE --out FILE.png`. Without Remotion the art stays SVG-only.
+
 Remotion is free for individuals and companies of up to 3 people; larger companies need a [Remotion company license](https://www.remotion.dev/license). Without Node, or with `remotion` declined, the ffmpeg fallback renders motion none/basic.
-| `package` | Thumbnails, posters, covers | ~10 MB |
 
 ## Fixing a finished video
 
@@ -196,7 +213,9 @@ Remotion is free for individuals and companies of up to 3 people; larger compani
 | Symptom | Owner |
 |---|---|
 | Audio/video out of sync | sync-editor |
-| Email, name or amount still visible | privacy-blurrer |
+| Email, name or amount still visible | privacy |
+| Different look or style of key art | director re-asks the style, then art-designer redoes all items, privacy and demo-qa (art) |
+| Wrong key art, or private data in it | art-designer, then privacy and demo-qa (art) |
 | Wrong click, UI changed, scene broken | scene-automator |
 | Black frame, freeze, bad recording | capture-operator |
 | Wrong translation, UI term, on-screen text language | localizer, then voice-producer |
@@ -210,7 +229,7 @@ Owner unclear: it asks you. Same defect after two attempts: it stops and reports
 
 ## Privacy
 
-- Real data in the app is **blurred, not replaced**: `privacy-blurrer` never fakes or swaps content.
+- Real data in the app is **blurred, not replaced**: `privacy` never fakes or swaps content.
 - `app-scout` flags sensitive elements up front; scene scripts report their boxes with `mark()`.
 - Blur coverage is checked geometrically, not by OCR: `project.py check-blur` proves every `mark()`ed sensitive box is covered by a blur region for its whole time on screen (a moving element: the whole path between two marks). It runs in milliseconds and cannot hang.
 - `demo-qa` also looks for leaked personal data by eye before you reach G3.

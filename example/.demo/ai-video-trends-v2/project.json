@@ -14,7 +14,7 @@
       },
       "blur": {
         "version": 2,
-        "owner": "privacy-blurrer",
+        "owner": "privacy",
         "updated": "2026-11-19T05:48:40Z"
       },
       "timeline": {
@@ -2622,7 +2622,7 @@
         "pass": true,
         "regions_checked": 17,
         "text_found": 0,
-        "owner": "privacy-blurrer",
+        "owner": "privacy",
         "detail": "108 mapped samples (keyframed b11 uses its interpolated bbox) through the zoom window and picture offset, pad 12 applied on all sides; 0 readable. Positive control on the unblurred source reads the sensitive text in 14/17 regions; b15-b17 (header strip, 7 px tall) show no readable text in source either, so their 0 result is not a real test. API-key transit frames checked visually: media/preview/transit_*.png."
       },
       "black": {

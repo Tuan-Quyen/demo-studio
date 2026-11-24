@@ -234,7 +234,7 @@ class Stages(unittest.TestCase):
         return code, (json.loads(out) if out else None), err
 
     def test_map_is_consistent(self):
-        order = ["scout", "voice", "scenes", "capture", "blur", "sync", "motion", "captions", "mix", "render", "qa", "package"]
+        order = ["scout", "art", "voice", "scenes", "capture", "blur", "sync", "motion", "captions", "mix", "render", "qa", "package"]
         self.assertEqual(list(setup_tools.STAGES), order)
         for n, st in setup_tools.STAGES.items():
             feats = list(st.get("needs", [])) + [o[0] for o in st.get("optional", [])]
@@ -281,6 +281,16 @@ class Stages(unittest.TestCase):
         _, rep, _ = self.stage("render", "--choose", "render=ffmpeg", "--with", "blur")
         self.assertEqual(rep["choices"][0]["chosen"], "ffmpeg")
         self.assertIn("blur", rep["suggested_features"])
+
+    def test_art_stage_after_scout_uses_render_choice(self):
+        names = list(setup_tools.STAGES)
+        self.assertEqual(names.index("art"), names.index("scout") + 1)
+        _, rep, _ = self.stage("art", "--choose", "render=remotion")
+        self.assertEqual(rep["agents"], ["art-designer"])
+        self.assertEqual(rep["choices"][0]["chosen"], "remotion")
+        self.assertIn("remotion", rep["suggested_features"])
+        _, rep, _ = self.stage("art", "--choose", "render=ffmpeg")
+        self.assertNotIn("remotion", rep["suggested_features"])
 
     def test_platform_features(self):
         _, rep, _ = self.stage("capture")

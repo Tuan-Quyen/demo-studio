@@ -53,3 +53,13 @@ export type DemoProps = {
   effects: Effect[];
   cues: Cue[]; // empty unless captions are burned in
 };
+
+// Props of the `art` composition (render.mjs --art): layers drawn bottom to top over one canvas.
+export type ArtLayer = {src: string; kind: 'svg' | 'png'}; // src relative to the public dir (.demo/<slug>/)
+
+export type ArtProps = {
+  width: number;
+  height: number;
+  bg: string; // #RRGGBB or 'transparent'
+  layers: ArtLayer[];
+};

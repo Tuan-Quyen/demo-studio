@@ -463,7 +463,7 @@ class DiffMapping(Workspace):
         res = self.diff("", "voice:\n  language: vi\n")
         self.assertEqual(res["pre"], ["scriptwriter"])
         self.assertEqual(res["gates"], ["G2"])
-        self.assertEqual(self.keys(res)[0], "voice")
+        self.assertEqual(self.keys(res)[:3], ["art", "privacy", "voice"])
 
     def test_motion(self):
         res = self.diff("", "motion:\n  level: cinematic\n")
@@ -471,7 +471,31 @@ class DiffMapping(Workspace):
 
     def test_formats(self):
         res = self.diff("", 'formats: ["16:9", "9:16"]\n')
-        self.assertEqual(self.keys(res), ["motion", "captions", "checks", "delivery"])
+        self.assertEqual(self.keys(res), ["art", "privacy", "motion", "captions", "checks", "delivery"])
+        self.assertEqual(res["art_formats"], {"added": ["9:16"], "removed": []})
+        self.assertIn("art ratios: +9:16 -none", self.cli("diff")[1])
+
+    def test_formats_remove_ratio(self):
+        res = self.diff('formats: ["16:9", "9:16"]\n', 'formats: ["16:9"]\n')
+        self.assertEqual(res["art_formats"], {"added": [], "removed": ["9:16"]})
+        self.assertIn("art", self.keys(res))
+
+    def test_art_rules(self):
+        # AC12: these never re-run art (nor privacy, its audit)
+        for text in ("length_s: 40\n", "voice:\n  engine: kokoro\n", "voice:\n  name: Aria\n",
+                     'voice:\n  lexicon: {"API": "A P I"}\n', "captions:\n  max_chars: 30\n",
+                     "captions:\n  burn_in: true\n", "music:\n  style: calm\n", "motion:\n  level: basic\n",
+                     "targets:\n  lufs: -16\n", "targets:\n  max_drift_ms: 40\n",
+                     "privacy:\n  real_data: true\n"):
+            res = self.diff("", text)
+            self.assertNotIn("art", self.keys(res), text)
+            self.assertNotIn("art_formats", res, text)
+        # E9/E11: formats and the localization rule re-run art; platform re-runs everything
+        for before, after in (("", 'formats: ["16:9", "1:1"]\n'), ("", "language: vi\n"),
+                              ("", "voice:\n  language: vi\n"),
+                              ("language: en\n", "language: en\nvoice:\n  language: vi\n"),
+                              ("platform: web\n", "platform: ios\n")):
+            self.assertEqual(self.keys(self.diff(before, after))[0], "art", after)
 
     def test_captions(self):
         res = self.diff("", "captions:\n  max_chars: 36\n")
@@ -580,8 +604,8 @@ class DiffMapping(Workspace):
         self.assertEqual(res["pre"], ["scriptwriter", "localizer"])
         self.assertEqual(res["gates"], ["G2"])
         self.assertTrue(res["needs_user"])
-        self.assertEqual(self.keys(res), ["voice", "timeline", "motion", "captions", "mix",
-                                          "checks", "delivery"])
+        self.assertEqual(self.keys(res), ["art", "privacy", "voice", "timeline", "motion", "captions",
+                                          "mix", "checks", "delivery"])
         self.assertEqual(res["localization"], {"source": "vi", "target": "en", "needed": True})
         self.assertTrue(any(n.startswith("localization:") and "localizer translates" in n
                             for n in res["notes"]))
@@ -604,7 +628,7 @@ class DiffMapping(Workspace):
         self.assertEqual(res["pre"], ["localizer"])
         self.assertEqual(res["gates"], ["G2"])
         self.assertTrue(res["needs_user"])
-        self.assertEqual(self.keys(res)[0], "voice")
+        self.assertEqual(self.keys(res)[:3], ["art", "privacy", "voice"])
         self.assertEqual(res["localization"], {"source": "en", "target": "vi", "needed": True})
 
     def test_voice_language_without_source_language_uses_scriptwriter(self):

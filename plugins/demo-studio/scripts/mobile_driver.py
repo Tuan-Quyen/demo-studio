@@ -373,7 +373,13 @@ class IOSDriver(_Base):
 
     def stop(self, app: str) -> None:
         _check_app_id(app)
-        self._exec(["xcrun", "simctl", "terminate", self.udid(), app])
+        try:
+            self._exec(["xcrun", "simctl", "terminate", self.udid(), app])
+        except EnvError as e:
+            # Not running (fresh boot): simctl exits nonzero; stopping a stopped app is a no-op.
+            msg = str(e).lower()
+            if "found nothing to terminate" not in msg and "code=3" not in msg:
+                raise
 
     def screenshot(self, path: str) -> None:
         self._exec(["xcrun", "simctl", "io", self.udid(), "screenshot", path])

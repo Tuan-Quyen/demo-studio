@@ -1,6 +1,6 @@
 ---
 name: media-specs
-description: Load when encoding, mixing, captioning, blurring or verifying a demo render (voice-producer, privacy-blurrer, caption-writer, sound-mixer, render-engineer, demo-qa). Encode specs, loudness, caption rules, file naming, the default render-check thresholds (the user's values live in demo.yaml) and measuring commands, plus the #blur #mix #captions #checks schemas.
+description: Load when encoding, mixing, captioning, blurring, verifying a demo render or recording key art (voice-producer, privacy, caption-writer, sound-mixer, render-engineer, demo-qa, art-designer, packager). Encode specs, loudness, caption rules, file naming, the default render-check thresholds (the user's values live in demo.yaml) and measuring commands, plus the #blur #mix #captions #checks #art #privacy #delivery schemas.
 ---
 
 # Media specs
@@ -24,10 +24,10 @@ Target **`targets.lufs` integrated (default -14), true peak <= `targets.true_pea
 VTT (`media/final.vtt`) and SRT (`media/final.srt`); per language add `.<lang>` (`final.vi.vtt`). <= **`captions.max_chars` characters per line (default 42), <= 2 lines**, 1-6 s per cue, <= 17 chars/s reading speed (soft). Break at phrases, never mid-word; text = narration text (spelling and punctuation as written). Every cue start within **`targets.caption_offset_ms` (default 200)** of the measured onset of its first word (see the captions check). Cue text aligns to the written narration in `voice.language` (`narration.<voice.language>.md` if it exists, else `narration.md`), never to the spoken (lexicon) spelling. No speaker labels or sound tags unless asked. Burn-in only when `captions.burn_in` is true (default false; read from demo.yaml, not stored in `#captions`). `captions.layout`: `overlay` = text over the picture at the cue `pos`; `band` = picture scaled to fit the width and aligned top, captions in the remaining bottom band (`#blur`/`#motion` coordinates go through the same scale).
 
 ## File naming
-`<slug>` = lowercase ascii kebab-case. Scenes `sNN` (two digits). In `.demo/<slug>/media/`: `sNN.raw.webm` (non-web platforms may be `.mp4/.mov/.mkv`; `#events.clips` is authoritative), `sNN.vo.wav`, `final-16x9.mp4`, `final-9x16.mp4`, `final-1x1.mp4`, `final.vtt`, `final.srt`, `thumb.png` (1280x720 PNG). Language variant: `final-16x9.<lang>.mp4`. Render work folder `media/render/` (`mix.wav` = `#mix.chain` output) is deleted once `#checks` pass. No other intermediate videos are kept.
+`<slug>` = lowercase ascii kebab-case. Scenes `sNN` (two digits). In `.demo/<slug>/media/`: `sNN.raw.webm` (non-web platforms may be `.mp4/.mov/.mkv`; `#events.clips` is authoritative), `sNN.vo.wav`, `final-16x9.mp4`, `final-9x16.mp4`, `final-1x1.mp4`, `final.vtt`, `final.srt`, `thumb.png` (1280x720 PNG). Key art lives in `.demo/<slug>/art/` (`<id>.svg` + `<id>.png`, `readme-snippet.md`), owned by art-designer; its QA report is `.demo/<slug>/qa-art.md`. Language variant: `final-16x9.<lang>.mp4`. Render work folder `media/render/` (`mix.wav` = `#mix.chain` output) is deleted once `#checks` pass. No other intermediate videos are kept.
 
 ## Delivery limits
-Thumbnail `media/thumb.png` 1280x720 PNG (16:9, <= 2 MB). Title <= 100 characters, description <= 5000 characters. First chapter at 00:00.
+Thumbnail `media/thumb.png` 1280x720 PNG (16:9, opaque, <= 2 MB). Title <= 100 characters, description <= 5000 characters. First chapter at 00:00.
 
 ## Render checks
 Thresholds are the defaults; the project's `demo.yaml` overrides them (key in the threshold column). `#checks.results.*.threshold_*` records the value actually used.
@@ -36,7 +36,7 @@ Thresholds are the defaults; the project's `demo.yaml` overrides them (key in th
 | vo | each `sNN.vo.wav` clean: lead <= 200, trail <= 150, gaps <= 500 ms except declared pauses; `#voice` fields present | `vo.py check <file> [--pause-ms N...]` exit 0 (run before mixing) | voice-producer |
 | sync | rendered scene length vs timeline | drift <= `targets.max_drift_ms` (80) per scene | render-engineer knows each scene's cut points; `ffprobe` the final and compare scene durations/VO onsets with `#timeline` | sync-editor |
 | loudness | integrated LUFS, true peak | `targets.lufs` (-14) +-1 LUFS, <= `targets.true_peak` (-1) dBTP | `ffmpeg -nostdin -nostats -i F -af ebur128=peak=true -f null -` (read summary `I:` and `True peak`) | sound-mixer |
-| blur | every `sensitive` marker covered by `#blur` in space and time; bbox valid; strength enough | 0 gaps, 0 invalid, 0 weak | `project.py check-blur` (geometric, no OCR, milliseconds): checks every frame that reaches the picture (render fps = lowest clip fps; with `#timeline` the frames of `in`..`out` mapped as the renderer does, without it every clip frame), so no rendered frame falls between samples; between two markers of a label the whole hull of both boxes must be covered (box shrunk 1 px for rounding); strength `>= max(8, 0.3 x box height)`, pixelate x1.6. Both renderers blur the source frame before zoom/reframe, so source px suffice | privacy-blurrer (`invalid`: capture-operator) |
+| blur | every `sensitive` marker covered by `#blur` in space and time; bbox valid; strength enough | 0 gaps, 0 invalid, 0 weak | `project.py check-blur` (geometric, no OCR, milliseconds): checks every frame that reaches the picture (render fps = lowest clip fps; with `#timeline` the frames of `in`..`out` mapped as the renderer does, without it every clip frame), so no rendered frame falls between samples; between two markers of a label the whole hull of both boxes must be covered (box shrunk 1 px for rounding); strength `>= max(8, 0.3 x box height)`, pixelate x1.6. Both renderers blur the source frame before zoom/reframe, so source px suffice | privacy (`invalid`: capture-operator) |
 | black | black frames not intended | none (>0.2 s) outside `allow.black` | `-vf blackdetect=d=0.2:pix_th=0.10 -an -f null -` | capture-operator |
 | freeze | frozen video not intended | none (>=3 s) outside `allow.freeze` | `-vf freezedetect=n=-60dB:d=3 -an -f null -` | capture-operator |
 | captions | chars/line, lines, onset offset | <= `captions.max_chars` (42), <= 2 lines; **for EVERY cue** `|t_start - onset of its first word| <= targets.caption_offset_ms` (200) | parse `final.vtt`; measure each word onset in the final audio: 10 ms RMS window, onset = first window above -40 dBFS after a silence, merging silences < 150 ms; match cues to words by order in `narration.md`. Report the max over all cues and the count over the limit; one cue over = fail | caption-writer |
@@ -51,7 +51,7 @@ ffmpeg -nostdin -nostats -i media/final-16x9.mp4 -vn -af ebur128=peak=true -f nu
 ffmpeg -nostdin -i media/final-16x9.mp4 -vf "blackdetect=d=0.2:pix_th=0.10,freezedetect=n=-60dB:d=3" -an -f null - 2>&1 | grep -E "black_start|freeze_start"
 # blur coverage (exit 0 pass, 1 fail; JSON with gaps / invalid / weak)
 python ${CLAUDE_PLUGIN_ROOT}/scripts/project.py --slug <slug> check-blur
-# placement frame (privacy-blurrer, one per region): raw frame at clip time t + offset_ms, region box drawn
+# placement frame (privacy, one per region): raw frame at clip time t + offset_ms, region box drawn
 ffmpeg -nostdin -y -ss T -i media/sNN.raw.webm -frames:v 1 -vf drawbox=x=X:y=Y:w=W:h=H:color=red:t=3 media/preview/b1.png
 ```
 Every ffmpeg call in a script or snippet carries `-nostdin` (with stdin open ffmpeg waits on an overwrite prompt; inside `while read` it eats the loop's input) and `-y` when it writes a file (without it a rerun silently keeps the stale file).
@@ -82,7 +82,7 @@ Single source for every shape below; agents reference this section and never res
 **#voice** (voice-producer): `{engine, voice, language, scenes:[{id, file, duration_s, words, lead_ms, trail_ms, sentences:[{words,start_ms,end_ms}], words_per_s, pauses_ms:[400], lexicon_applied:[{term,spoken}]}]}` (`lead_ms`, `trail_ms`, `sentences` (scene-relative ms), `words_per_s`, `pauses_ms` (declared `[pause]` gaps, `[]` if none) are **mandatory**, measured after `vo.py join` + `trim`; a scene without them fails the `vo` check).
 **#timeline** (sync-editor): `{scenes:[{id, clip, in, out, speed, pad_end, vo:{file, start, end, speech:[onset, offset]}, start, end, drift_ms}], total_s}`; ms as in the table above. `vo.start/end` = the trimmed VO file on the final timeline, `vo.speech` = first and last spoken ms (from `lead_ms`/`trail_ms`); end cards and fades key off `speech[1]`. The sync check compares each rendered scene with `scenes[].start/end`.
 
-**#blur** (privacy-blurrer):
+**#blur** (privacy):
 ```json
 {"schema":1,"space":"source","time":"scene","regions":[{"id":"b1","scene":"s03","t_start":4100,"t_end":9200,"bbox":[820,300,420,60],"pad":12,"margin_ms":150,"mode":"boxblur","strength":25,"source":"events:sensitive:customer email","keyframes":null,"preview":"logs/b1.png"}]}
 ```
@@ -99,7 +99,7 @@ Every `sensitive` marker in `#events` must be covered (verified by `project.py c
   {"scene":null,"type":"title_card","t_start":0,"t_end":2500,"params":{"title":"Invoice in 60 seconds","subtitle":"","bg":"#0B1020"}},
   {"scene":"s02","type":"fade","t_start":12000,"t_end":12300,"params":{"mode":"cross"}}]}
 ```
-`engine`: `remotion` (default) `|ffmpeg|opencv|null` is a hint, not a contract (render-engineer records what it actually used in `#checks.outputs.<ratio>.renderer`); `level`: `none|basic|cinematic` (copied from `motion.level`; `none` -> `engine:null`, `effects:[]`). `type` in `zoom, pan, cursor_highlight, ripple, callout, title_card, fade, device_frame, reframe`. `allow` lists intentional black/freeze spans (ms, final timeline) for the checks. Optional `params.aspects` (e.g. `["9x16"]`) limits an effect to some outputs. Every effect derives from an `#events` marker or a storyboard camera note; none over a `#blur` region; effects the level cannot do are not written.
+`engine`: `remotion` (default) `|ffmpeg|opencv|null` is a hint, not a contract (render-engineer records what it actually used in `#checks.outputs.<ratio>.renderer`); `level`: `none|basic|cinematic` (copied from `motion.level`; `none` -> `engine:null`, `effects:[]`). `type` in `zoom, pan, cursor_highlight, ripple, callout, title_card, fade, device_frame, reframe`. `title_card` takes an optional `params.image` (path relative to `.demo/<slug>/`, e.g. `art/title-16x9.png`; the file must exist or `render.mjs` exits 2; the end card is the same effect with `art/end-<r>.png`); no image or engine `ffmpeg` = today's text card. `allow` lists intentional black/freeze spans (ms, final timeline) for the checks. Optional `params.aspects` (e.g. `["9x16"]`) limits an effect to some outputs. Every effect derives from an `#events` marker or a storyboard camera note; none over a `#blur` region; effects the level cannot do are not written.
 
 **#mix** (sound-mixer):
 ```json
@@ -119,7 +119,7 @@ Every `sensitive` marker in `#events` must be covered (verified by `project.py c
  "results":{"sync":{"pass":true,"measured_ms_max":42,"threshold_ms":80,"owner":"sync-editor","detail":""},
             "vo":{"pass":true,"scenes_checked":4,"failures":[],"owner":"voice-producer","detail":""},
             "loudness":{"pass":true,"lufs":-14.1,"tp_db":-1.6,"owner":"sound-mixer","detail":""},
-            "blur":{"pass":true,"tracks":3,"frames_checked":620,"fps":25,"gaps":[],"invalid":[],"weak":[],"owner":"privacy-blurrer","detail":""},
+            "blur":{"pass":true,"tracks":3,"frames_checked":620,"fps":25,"gaps":[],"invalid":[],"weak":[],"owner":"privacy","detail":""},
             "black":{"pass":true,"hits":[],"owner":"capture-operator","detail":""},
             "freeze":{"pass":true,"hits":[],"owner":"capture-operator","detail":""},
             "captions":{"pass":true,"max_chars":38,"cues":24,"cues_over_offset":0,"max_offset_ms":120,"owner":"caption-writer","detail":""},
@@ -127,3 +127,26 @@ Every `sensitive` marker in `#events` must be covered (verified by `project.py c
  "pass":true}
 ```
 `pass` = all results pass. `allow` = `#motion.allow` plus deliberate holds from the storyboard. A failing result names the owner; the director routes the fix and reruns only dependent keys.
+
+**#art** (art-designer; key art, see skill `key-art`; paths relative to `.demo/<slug>/`):
+```json
+{"schema":1,"mode":"video|standalone","source":"brief.md|<doc path>","language":"en","engine":"remotion|none","round":1,
+ "style":null,
+ "items":[{"id":"title-16x9","role":"title_card|end_card|thumbnail|hero|social|pipeline|roster","ratio":"16x9|9x16|1x1|null",
+   "w":1920,"h":1080,"svg":"art/title-16x9.svg","png":"art/title-16x9.png|null","bytes":{"svg":0,"png":0},
+   "texts":[{"text":"...","from":"brief.md#Key message"}]}],
+ "missing_png":[{"id":"...","why":"remotion declined | node < 18 | render failed"}],
+ "repo":{"dir":"docs/images","files":[{"from":"art/hero.png","to":"docs/images/hero.png"}],"snippet":"art/readme-snippet.md"}}
+```
+Ids and sizes: video = `title-<r>` and `end-<r>` for each ratio in `formats` (16x9 1920x1080, 9x16 1080x1920, 1x1 1080x1080), plus `thumb` 1280x720, `hero` 1280x640, `social` 1200x630; standalone = `hero` 1280x640, `pipeline` 1280x720, `roster` 1280x1600 (pipeline stays 1280x720), `social` 1200x630. Files are `art/<id>.svg` + `.png`; `w`/`h` equal the SVG size and the PNG IHDR. `texts[].from` = repo file path + line or anchor of every shown string (an omitted element has no entry). `repo` is standalone only (the director places the files); `mode:"standalone"` has no `demo.yaml` (`language` from the source doc). `engine:"none"` = SVG only: every `png` null and listed in `missing_png`. `thumb`: `art/thumb.svg` is an overlay layer that may leave a transparent window; `art/thumb.png` is its preview on the style `bg` (`--bg <hex>`; `#0B1020` when `style` is null), opaque; the delivered `media/thumb.png` is the packager's. Every PNG is opaque. v1 has no raster image or logo inside art.
+
+`style` (optional; written by art-designer, chosen by the user through demo-director; `null` or missing = no style, valid, no forced re-run): `{"codes":["A14","B5"],"core":"dark-artifact","custom":["accent #FF7A00"],"source":"recommended|catalogue|custom|reference","confirmed":true,"reason":"...","note":"...","approximated":["A6 -> clipped blurred duplicate"],"adjusted":["muted #8A93B0 -> #B8C0D9 for Q3"]}`. `codes` = 1-3 catalogue codes (`key-art/references/styles.md`), at most one per group; `core` = the recipe resolved by the combination rule; `custom` = at most 3 confirmed deltas (hex, type, shape); `source` `recommended` = recommended combo, "you choose", skip or auto mode, `catalogue` = typed codes or keywords, `custom` = free text, `reference` = URL or image; `confirmed:false` only in auto mode; `note` = style attributes in words, never a URL, brand name, logo or private text; `approximated`/`adjusted` list what art-designer could not apply as written. `project.py get art` returns it; `demo.yaml` and `project.py` are unchanged.
+
+**#privacy** (privacy; audit results, separate from `#blur`; checks P1-P5 in `key-art/references/checks.md`):
+```json
+{"schema":1,"art":{"art_version":3,"pass":false,"checked":[{"id":"hero","svg":true,"png":true}],
+  "findings":[{"id":"P1","item":"social","what":"email jo@acme.io in footer text","where":"svg text + png","severity":"blocker","owner":"art-designer"}]}}
+```
+`art_version` = `project.py get art --version` when the audit ran; lower than the current version = stale audit. A finding's `id` is its check ID (P1-P5) and its `owner` is `art-designer` (`privacy` for an audit gap). Any `<image>` or `data:image/*` is a blocker. `png:false` in `checked` = PNG not checked (SVG-only run). The `recording` sub-key is a placeholder, not built in v1.
+
+**#delivery** (packager): `{title, description, chapters, thumb, files, thumb_ms}`. `thumb_ms` = ms on the final timeline of the frame rendered under `art/thumb.svg` for `media/thumb.png` (chosen inside the key-message scene, outside every `title_card` and `fade` span +-250 ms); `null` when no frame was rendered (no `art/thumb.svg` or no Remotion: the packager's plain thumbnail step).
