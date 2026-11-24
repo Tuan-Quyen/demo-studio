@@ -58,6 +58,9 @@ class ParseAndroid(unittest.TestCase):
         self.assertEqual(md.escape_input_text("a b&c"), "a%sb\\&c")
         with self.assertRaises(md.StepError):
             md.escape_input_text("Xin chào")
+        with self.assertRaises(md.StepError):  # Android would type "Hello  world"
+            md.escape_input_text("Hello %s world")
+        self.assertEqual(md.escape_input_text("50% off"), "50%%soff")
 
 
 class AndroidActions(unittest.TestCase):

@@ -195,6 +195,9 @@ def escape_input_text(text: str) -> str:
     if any(ord(c) > 126 or (ord(c) < 32) for c in text):
         raise StepError("adb input text accepts printable ASCII only; use an ASCII seed value "
                         "or put the text on the clipboard in the app's own way")
+    if "%s" in text:  # AOSP sendText turns every literal "%s" into a space; no escape exists
+        raise StepError("adb input text cannot type a literal '%s' (Android turns it into a space); "
+                        "change the seed value")
     out = []
     for c in text:
         if c == " ":
