@@ -42,7 +42,8 @@ headless Chrome hangs (observed on macOS 2026-11-25: every render timed out whil
 same files rendered at once; cause not confirmed), the browser is copied to a per-user cache
 (macOS ~/Library/Caches, Windows %LOCALAPPDATA%, Linux $XDG_CACHE_HOME or ~/.cache, then
 demo-studio/chrome-headless-shell/<remotion version>/; env DEMO_STUDIO_BROWSER_CACHE overrides),
-tested again and recorded as ``browser_executable`` in toolkit.json; render.mjs uses it. Any other
+tested again and recorded as ``browser_executable`` in toolkit.json and in <workspace>/remotion/
+.browser.json, which render.mjs reads (so it also works with --workspace). Any other
 failure fails the install with an OS hint (Linux: missing system libraries). ``--check remotion
 --smoke`` runs the test on demand; plain ``--check`` does not launch Chrome.
 Appium is used only by capture-desktop on macOS (Mac2 driver), installed in <workspace>/appium/
@@ -682,6 +683,7 @@ def ensure_render_works(ctx: Ctx) -> None:
     first = render_smoke(ctx, default)
     if first is None:
         ctx.browser_exe = None
+        write_browser_pin(ctx, None)
         return
     if "timed out" not in first:
         raise OSError(first + smoke_hint())
@@ -690,6 +692,17 @@ def ensure_render_works(ctx: Ctx) -> None:
     if second is not None:
         raise OSError(f"{first}; the copy in {browser_cache_root()} also failed: {second}{smoke_hint()}")
     ctx.browser_exe = exe
+    write_browser_pin(ctx, exe)
+
+
+def write_browser_pin(ctx: Ctx, exe: str | None) -> None:
+    """render.mjs reads the browser from <remotion_dir>/.browser.json (next to itself), so it works with
+    --workspace too, where toolkit.json lives elsewhere. None removes the pin (Remotion's default)."""
+    pin = ctx.remotion_dir / ".browser.json"
+    if exe:
+        pin.write_text(json.dumps({"browser_executable": exe, "written_at": now()}, indent=2) + "\n", encoding="utf-8")
+    elif pin.exists():
+        pin.unlink()
 
 
 def smoke_hint(os_name: str | None = None) -> str:

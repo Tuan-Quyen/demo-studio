@@ -245,20 +245,21 @@ test('placed PNG layer FILE.png@X,Y,W,H: rect inside canvas, no upscale, PNG onl
   assert.deepEqual(j.layers[1], {file: ch, kind: 'png', w: 200, h: 300, place: {x: 64, y: 100, w: 100, h: 150}});
 });
 
-test('resolveBrowserExecutable: env, then toolkit.json, else null; a missing file is an error', () => {
+test('resolveBrowserExecutable: env, then .browser.json next to render.mjs, else null; a missing file is an error', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-browser-'));
   const here = path.join(tmp, 'remotion');
   fs.mkdirSync(here);
   const exe = path.join(tmp, 'chrome');
   fs.writeFileSync(exe, 'bin');
-  assert.equal(resolveBrowserExecutable(here, {}), null);
-  fs.writeFileSync(path.join(tmp, 'toolkit.json'), JSON.stringify({features: {remotion: {}}}));
+  const pin = path.join(here, '.browser.json');
   assert.equal(resolveBrowserExecutable(here, {}), null);
   fs.writeFileSync(path.join(tmp, 'toolkit.json'), JSON.stringify({features: {remotion: {browser_executable: exe}}}));
+  assert.equal(resolveBrowserExecutable(here, {}), null); // toolkit.json is not read (it may live elsewhere)
+  fs.writeFileSync(pin, JSON.stringify({browser_executable: exe}));
   assert.equal(resolveBrowserExecutable(here, {}), exe);
   assert.equal(resolveBrowserExecutable(here, {DEMO_STUDIO_BROWSER: exe}), exe);
   assert.throws(() => resolveBrowserExecutable(here, {DEMO_STUDIO_BROWSER: path.join(tmp, 'nope')}), /not found/);
-  fs.writeFileSync(path.join(tmp, 'toolkit.json'), JSON.stringify({features: {remotion: {browser_executable: path.join(tmp, 'gone')}}}));
+  fs.writeFileSync(pin, JSON.stringify({browser_executable: path.join(tmp, 'gone')}));
   assert.throws(() => resolveBrowserExecutable(here, {}), /missing/);
   fs.rmSync(tmp, {recursive: true, force: true});
 });

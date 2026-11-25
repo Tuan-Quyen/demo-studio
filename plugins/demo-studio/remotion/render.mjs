@@ -19,8 +19,8 @@
 // FILE.png@X,Y,W,H is placed in that rect instead (aspect kept, never upscaled, inside the canvas;
 // key-art character assets). --check-only runs the checks (size, paths, SVG lint, PNG
 // IHDR) and prints JSON without loading Remotion. The output PNG size is read back from its IHDR.
-// Headless Chrome: env DEMO_STUDIO_BROWSER, else toolkit.json features.remotion.browser_executable
-// (setup_tools.py records a per-user cached copy when the downloaded Chrome hangs, any OS), else Remotion's own copy.
+// Headless Chrome: env DEMO_STUDIO_BROWSER, else .browser.json next to this file (setup_tools.py writes it
+// when the downloaded Chrome hangs and a per-user cached copy is used, any OS), else Remotion's own copy.
 // Exit codes: 0 ok, 1 render failed, 2 usage / bad project data.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -40,11 +40,11 @@ export function resolveBrowserExecutable(here = HERE, env = process.env) {
   }
   let rec;
   try {
-    rec = JSON.parse(fs.readFileSync(path.join(here, '..', 'toolkit.json'), 'utf8'));
+    rec = JSON.parse(fs.readFileSync(path.join(here, '.browser.json'), 'utf8'));
   } catch {
     return null;
   }
-  const exe = rec?.features?.remotion?.browser_executable;
+  const exe = rec?.browser_executable;
   if (!exe) return null;
   if (!fs.existsSync(exe)) {
     throw new UsageError(`headless Chrome missing at ${exe}; run setup_tools.py --install remotion`);

@@ -372,9 +372,12 @@ class BrowserFallback(unittest.TestCase):
         setup_tools.render_smoke = smoke
 
     def test_default_chrome_works_no_copy(self):
+        pin = self.ctx.remotion_dir / ".browser.json"
+        pin.write_text('{"browser_executable": "/old"}')
         self.fake_smoke([None])
         setup_tools.ensure_render_works(self.ctx)
         self.assertIsNone(self.ctx.browser_exe)
+        self.assertFalse(pin.exists())  # stale pin removed
         self.assertEqual(self.calls, [str(self.chrome / "chrome-headless-shell")])
         self.assertFalse(self.cache.exists())
 
@@ -384,6 +387,8 @@ class BrowserFallback(unittest.TestCase):
         want = self.cache / "4.0.541" / "chrome-headless-shell-mac-arm64" / "chrome-headless-shell"
         self.assertEqual(self.ctx.browser_exe, str(want))
         self.assertTrue((want.parent / "icudtl.dat").is_file())
+        pin = json.loads((self.ctx.remotion_dir / ".browser.json").read_text())
+        self.assertEqual(pin["browser_executable"], str(want))  # render.mjs reads it, any --workspace
         self.assertEqual(self.calls[1], str(want))
 
     def test_copy_reused_and_symlink_followed(self):
