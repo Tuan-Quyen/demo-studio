@@ -27,11 +27,11 @@ Heights are the character's drawn height; width follows the aspect.
 
 ## Source
 - In this order: (1) the user's own character images, one per role, when the director recorded the user's approval (`#art.assets`; placed as PNG layers, `svg-craft.md` Verify 4; P2; never on `thumb`, which falls back to a vector character); (2) otherwise drawn as vector by art-designer in the recipe treatment, under ~60 paths each, simplifications listed in `style.approximated`. Never mix the two in one set; never draw over or recolour an asset.
-- An approved asset comes either as one image per role, or as one character sheet the user generated from `art/prompts.md` (`## Sheet prompt`) and art-designer cut with `scripts/art_assets.py split` (crops in reading order = the approved role order; `#art.assets.sheet`).
+- An approved asset comes either as one image per role, or as one character sheet the user generated from the sheet prompt (`## Sheet prompt`) and art-designer cut with `scripts/art_assets.py split` (crops in reading order = the approved role order; `#art.assets.sheet`).
 - Assets keep their aspect; scale them down only (never up) to the sizes above; text never sits on an asset.
 
 ## Sheet prompt
-`art/prompts.md` (art-designer, `Mode: sheet-prompt`) holds one English prompt in a fenced block, then a short list: the roles in order, the minimum crop height, and the background rule. The user runs it in their own image tool; nothing in it is private.
+The sheet prompt (art-designer, `Mode: sheet-prompt`) is one English prompt in a fenced block in art-designer's reply, never a file; `facts` carries a short list: the roles in order, the minimum crop height, and the background rule. The user runs it in their own image tool; nothing in it is private.
 - One image, every role of the run, each exactly once; reading order (row by row, left to right) = the role list; at most 5 per row; same model, height and line weight for all (`## Model`), each with its jacket colour (hex from the recipe palette) and props.
 - Background: transparent; if the tool cannot, one solid flat `#FF00FF` (no gradient, floor, shadow or vignette). Never white, grey or black (`art_assets.py` refuses them: keying would cut the characters' own whites).
 - Separation: every character fully inside the image with a clear empty gap (at least 5% of the image width) to its neighbours and the edges; no overlap, no shared prop, no cast or ground shadow, no sparkles between them.

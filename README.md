@@ -1,6 +1,6 @@
 # Demo Studio
 
-<img src="docs/images/hero.png" alt="Demo Studio: a team of 19 agents. Narrated, captioned, privacy-safe demo videos for web, desktop, Android and iOS, in 16:9, 9:16 and 1:1." width="100%">
+<img src="docs/images/hero.png" alt="Demo Studio: a team of 19 agents. Narrated, captioned, privacy-safe demo videos for web, desktop, Android and iOS. You approve at three gates." width="100%">
 
 A [Claude Code](https://claude.com/claude-code) plugin: a team of 19 agents that plans, records, edits and packages narrated, captioned, privacy-safe demo videos for **web, desktop, Android and iOS** apps, and makes marketing images (SVG + PNG) from a doc such as this README.
 
@@ -42,7 +42,7 @@ The director picks the steps and pauses at three gates:
 | **G3** | the final renders and the QA verdict | packaging |
 | **GA** | (only `/demo-studio:art`, no video) the marketing images and their QA verdict | anything is copied into your repo |
 
-<img src="docs/images/pipeline.png" alt="Pipeline order. Before recording: brief, gate G1, app-map, storyboard + narration (+ localize), key art (art-designer, privacy audit, demo-qa), gate G2, voice, scene scripts. After recording: capture, privacy and sync-editor in parallel, motion-designer, caption-writer and sound-mixer in parallel, render, QA, gate G3, packaging.">
+<img src="docs/images/pipeline.png" alt="Pipeline order, one character per stage: brief, gate G1, app-map, storyboard + narration (+ localize), key art, gate G2, voice, scene scripts, capture, blur and timeline in parallel, motion, captions and mix in parallel, render, QA, gate G3, packaging. You approve at three gates.">
 
 Pipeline order before recording: brief → app-map → storyboard + narration (+ localize) → key art (style question → art-designer → privacy audit → demo-qa) → G2 → voice → scene scripts. After recording: capture → (privacy ∥ sync-editor) → (motion-designer ∥ caption-writer ∥ sound-mixer) → render → QA. Captions and mix need the timeline, so they never run before sync-editor. Web recordings are 25 fps at the viewport size (a Playwright limit); the render upscales and keeps the source fps.
 
@@ -71,7 +71,7 @@ All are `/demo-studio:<name>`.
 
 Only `demo-director` runs pipelines; the others each do one job and write only their own files.
 
-<img src="docs/images/roster.png" alt="A team of 19 agents in pipeline order, each with a character, its one job and what it hands on. demo-director (pick the pipeline, delegate, gate you) and toolsmith at the top. demo-strategist passes brief.md to app-scout; app-map.md to storyboarder; storyboard.md to scriptwriter; narration.md to localizer; localization.md to art-designer; gate G2; voice-producer passes sNN.vo.wav to scene-automator; scenes.&lt;platform&gt;.* to capture-operator; sNN.raw.* to privacy and sync-editor in parallel; #timeline to motion-designer, caption-writer and sound-mixer in parallel; blur, motion, captions, mix to render-engineer; final-*.mp4 to demo-qa; qa.md and gate G3 to packager. Image is 1280x1600.">
+<img src="docs/images/roster.png" alt="A team of 19 agents in pipeline order, three per row, each with its character and one job: demo-director (highlighted, the only one that runs pipelines), toolsmith, demo-strategist, app-scout, storyboarder, scriptwriter, localizer, art-designer, voice-producer, scene-automator, capture-operator, privacy, sync-editor, motion-designer, caption-writer, sound-mixer, render-engineer, demo-qa, packager. Image is 1280x1600.">
 
 | Agent | One job | Model |
 |---|---|---|
@@ -120,7 +120,7 @@ Everything lives in `.demo/` in your project:
   STATE.md  toolkit.json  .venv/
   <slug>/
     brief.md  demo.yaml  app-map.md  storyboard.md  narration.md  qa.md  qa-art.md
-    art/  <id>.svg  <id>.png  readme-snippet.md  prompts.md  assets/ (your approved character images or sheet + crops)
+    art/  <id>.svg  <id>.png  readme-snippet.md  assets/ (your approved character images or sheet + crops)
     scenes.<platform>.*
     project.json  .demo.applied.json
     media/  sNN.raw.*  sNN.vo.wav  final-16x9.mp4  final-9x16.mp4
@@ -155,7 +155,7 @@ One owner per key; writes go through `scripts/project.py`, which locks the file 
 
 Before the style question the director builds a visual picker page, `.demo/artifact_design/key_design_picker.html` (`scripts/style_picker.py`; rebuilt, never duplicated, on every ask): approximate previews of the recommended combos and the 12 core looks, plus every code by group. Click 1-3 codes (or a combo), copy the answer line and paste it into the chat. The page works offline and sends nothing.
 
-`art` also carries the chosen `style` (1-3 catalogue codes, at most one per group, plus optional custom tweaks or a reference). art-designer writes it, but you choose it through demo-director. It is optional: a run without a style stays valid and is not re-run for it. `art` also lists `assets`: your own character images, used only after you approve them at the style question (privacy checks each one). Instead of images per role you can ask for a character sheet: art-designer writes a prompt (`art/prompts.md`), you run it yourself in ChatGPT or any image tool and send back ONE image with every character (transparent or solid `#FF00FF` background, characters apart). After you approve the image and the role order, `scripts/art_assets.py split` cuts one PNG per character (exit 0 ok, 1 split failed: count or background, 2 bad input). The plugin never drives the image tool for you.
+`art` also carries the chosen `style` (1-3 catalogue codes, at most one per group, plus optional custom tweaks or a reference). art-designer writes it, but you choose it through demo-director. It is optional: a run without a style stays valid and is not re-run for it. `art` also lists `assets`: your own character images, used only after you approve them at the style question (privacy checks each one). Instead of images per role you can ask for a character sheet: the director shows you a prompt in the chat (no file), you run it yourself in ChatGPT or any image tool and send back ONE image with every character (transparent or solid `#FF00FF` background, characters apart). After you approve the image and the role order, `scripts/art_assets.py split` cuts one PNG per character (exit 0 ok, 1 split failed: count or background, 2 bad input). The plugin never drives the image tool for you.
 
 ```
 python scripts/project.py --slug <slug> keys
