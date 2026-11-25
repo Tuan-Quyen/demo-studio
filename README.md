@@ -109,7 +109,7 @@ Loaded by agents as needed; you do not call them.
 | `platform-automation` | `mark()` contract, VO-pause and dry-run rules, per-platform references (web, desktop, mobile) |
 | `motion-fx` | Motion levels none / basic / cinematic, effect recipes, safe areas, schema |
 | `media-specs` | Encode specs, loudness, caption rules, render-check thresholds, key schemas |
-| `key-art` | Visual rules for marketing images: composition, typography, color, formats, SVG craft, art check list (Q1-Q10), and `references/styles.md`: the style catalogue (96 keywords in groups A-G, 12 core recipes) behind the style question |
+| `key-art` | Visual rules for marketing images: composition, typography, color, formats, SVG craft, art check list (Q1-Q10), `references/characters.md` (every style shows the roles as chibi characters: your approved images, or vector ones drawn in the style), and `references/styles.md`: the style catalogue (97 keywords in groups A-G, 12 core recipes) behind the style question, and `assets/style-picker.html`, the template of the visual picker page |
 
 ## Workspace
 
@@ -120,7 +120,7 @@ Everything lives in `.demo/` in your project:
   STATE.md  toolkit.json  .venv/
   <slug>/
     brief.md  demo.yaml  app-map.md  storyboard.md  narration.md  qa.md  qa-art.md
-    art/  <id>.svg  <id>.png  readme-snippet.md
+    art/  <id>.svg  <id>.png  readme-snippet.md  prompts.md  assets/ (your approved character images or sheet + crops)
     scenes.<platform>.*
     project.json  .demo.applied.json
     media/  sNN.raw.*  sNN.vo.wav  final-16x9.mp4  final-9x16.mp4
@@ -153,7 +153,9 @@ One owner per key; writes go through `scripts/project.py`, which locks the file 
 | `motion` | motion-designer | `art` | art-designer |
 | `privacy` | privacy (art audit) | | |
 
-`art` also carries the chosen `style` (1-3 catalogue codes, at most one per group, plus optional custom tweaks or a reference). art-designer writes it, but you choose it through demo-director. It is optional: a run without a style stays valid and is not re-run for it.
+Before the style question the director builds a visual picker page, `.demo/artifact_design/key_design_picker.html` (`scripts/style_picker.py`; rebuilt, never duplicated, on every ask): approximate previews of the recommended combos and the 12 core looks, plus every code by group. Click 1-3 codes (or a combo), copy the answer line and paste it into the chat. The page works offline and sends nothing.
+
+`art` also carries the chosen `style` (1-3 catalogue codes, at most one per group, plus optional custom tweaks or a reference). art-designer writes it, but you choose it through demo-director. It is optional: a run without a style stays valid and is not re-run for it. `art` also lists `assets`: your own character images, used only after you approve them at the style question (privacy checks each one). Instead of images per role you can ask for a character sheet: art-designer writes a prompt (`art/prompts.md`), you run it yourself in ChatGPT or any image tool and send back ONE image with every character (transparent or solid `#FF00FF` background, characters apart). After you approve the image and the role order, `scripts/art_assets.py split` cuts one PNG per character (exit 0 ok, 1 split failed: count or background, 2 bad input). The plugin never drives the image tool for you.
 
 ```
 python scripts/project.py --slug <slug> keys
@@ -195,14 +197,14 @@ python scripts/setup_tools.py --list | --options [job] | --stage [name] | --stag
 
 ### Render engine (Remotion)
 
-Every pipeline renders through one Remotion composition that ships with the plugin in `plugins/demo-studio/remotion/` (`render.mjs` + `src/`). The plugin never holds `node_modules`: `setup_tools.py --install remotion` copies that source into the project's `.demo/remotion/` (stamped with a source hash in `.sync.json`), then runs `npm install` and downloads headless Chrome there. After a plugin update, `--check remotion` reports the copy as out of date and `--install remotion` re-syncs it. Agents only run it, never edit it:
+Every pipeline renders through one Remotion composition that ships with the plugin in `plugins/demo-studio/remotion/` (`render.mjs` + `src/`). The plugin never holds `node_modules`: `setup_tools.py --install remotion` copies that source into the project's `.demo/remotion/` (stamped with a source hash in `.sync.json`), then runs `npm install` and downloads headless Chrome there. After a plugin update, `--check remotion` reports the copy as out of date and `--install remotion` re-syncs it. The install ends with a render smoke test (one 64x64 PNG, 90 s limit). On every OS, if the downloaded Chrome hangs (seen once on macOS: every render timed out, while a plain copy of the same files rendered at once; the cause is not confirmed), the install copies Chrome to a per-user cache (macOS `~/Library/Caches`, Windows `%LOCALAPPDATA%`, Linux `$XDG_CACHE_HOME` or `~/.cache`, under `demo-studio/chrome-headless-shell/`; about 300 MB more), tests it again and records it as `browser_executable` in `.demo/toolkit.json`; `render.mjs` then uses it (env `DEMO_STUDIO_BROWSER` overrides). Any other failure stops the install with an OS hint (Linux: missing system libraries such as `libnss3`). `--check remotion --smoke` runs the test any time; plain `--check` does not launch Chrome. Agents only run it, never edit it:
 
 ```
 node .demo/remotion/render.mjs --project .demo/<slug>/project.json --ratio 16x9 --out .demo/<slug>/media/final-16x9.mp4
      [--audio .demo/<slug>/media/render/mix.wav] [--burn-in] [--layout overlay|band] [--from-ms A --to-ms B | --still MS]
 ```
 
-Key art (`/demo-studio:art`, and the `art` step of `new`/`script`) uses the same engine in raster mode to turn SVG layers into a PNG: `node .demo/remotion/render.mjs --art --size WxH --layer FILE --out FILE.png`. Without Remotion the art stays SVG-only.
+Key art (`/demo-studio:art`, and the `art` step of `new`/`script`) uses the same engine in raster mode to turn SVG layers into a PNG: `node .demo/remotion/render.mjs --art --size WxH --layer FILE --out FILE.png`. Your own character images (one per role, approved by you at the style question) are placed as PNG layers with `--layer FILE.png@X,Y,W,H`; the SVGs stay raster-free. Without Remotion the art stays SVG-only.
 
 Remotion is free for individuals and companies of up to 3 people; larger companies need a [Remotion company license](https://www.remotion.dev/license). Without Node, or with `remotion` declined, the ffmpeg fallback renders motion none/basic.
 

@@ -6,7 +6,7 @@
 //        [--audio .demo/<slug>/media/render/mix.wav] [--burn-in] [--layout overlay|band]
 //        [--level none|basic|cinematic] [--bg #0B1020] [--from-ms A --to-ms B] [--still MS]
 //        [--props-out FILE] [--props-only]
-//   node render.mjs --art --size WxH --layer FILE [--layer FILE ...] --out FILE.png
+//   node render.mjs --art --size WxH --layer FILE[@X,Y,W,H] [--layer ...] --out FILE.png
 //        [--bg #RRGGBB|transparent] [--check-only]
 //
 // Reads #timeline, #events.clips, #blur, #motion and #captions, maps every time to the final timeline
@@ -15,8 +15,12 @@
 // the normalized props and exits (no Remotion needed).
 // --art (raster mode) draws .svg/.png layers bottom to top into ONE PNG; it needs no project.json and
 // is refused together with --project/--still/--ratio. Every layer and --out must sit inside the nearest
-// .demo/<slug>/ folder of the first layer. --check-only runs the checks (size, paths, SVG lint, PNG
+// .demo/<slug>/ folder of the first layer. A layer covers the whole canvas; a PNG layer written
+// FILE.png@X,Y,W,H is placed in that rect instead (aspect kept, never upscaled, inside the canvas;
+// key-art character assets). --check-only runs the checks (size, paths, SVG lint, PNG
 // IHDR) and prints JSON without loading Remotion. The output PNG size is read back from its IHDR.
+// Headless Chrome: env DEMO_STUDIO_BROWSER, else toolkit.json features.remotion.browser_executable
+// (setup_tools.py records a per-user cached copy when the downloaded Chrome hangs, any OS), else Remotion's own copy.
 // Exit codes: 0 ok, 1 render failed, 2 usage / bad project data.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,6 +30,27 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SIZES = {'16x9': [1920, 1080], '9x16': [1080, 1920], '1x1': [1080, 1080]};
 
 class UsageError extends Error {}
+
+// The headless Chrome to use, or null for Remotion's default (node_modules/.remotion).
+export function resolveBrowserExecutable(here = HERE, env = process.env) {
+  const fromEnv = env.DEMO_STUDIO_BROWSER;
+  if (fromEnv) {
+    if (!fs.existsSync(fromEnv)) throw new UsageError(`DEMO_STUDIO_BROWSER not found: ${fromEnv}`);
+    return fromEnv;
+  }
+  let rec;
+  try {
+    rec = JSON.parse(fs.readFileSync(path.join(here, '..', 'toolkit.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+  const exe = rec?.features?.remotion?.browser_executable;
+  if (!exe) return null;
+  if (!fs.existsSync(exe)) {
+    throw new UsageError(`headless Chrome missing at ${exe}; run setup_tools.py --install remotion`);
+  }
+  return exe;
+}
 
 function parseArgs(argv) {
   const flags = new Set(['--burn-in', '--props-only', '--art', '--check-only']);
@@ -260,6 +285,9 @@ function demoSlugRoot(file) {
   }
 }
 
+// FILE.png@X,Y,W,H: a PNG layer placed in a rect (integers, px of the canvas).
+const PLACE_RE = /^(.+\.png)@(\d+),(\d+),(\d+),(\d+)$/i;
+
 // All pre-render checks; this is everything --check-only does. Throws UsageError (exit 2).
 export function checkArt(a) {
   for (const k of ['project', 'still', 'ratio']) {
@@ -284,13 +312,26 @@ export function checkArt(a) {
   if (!root) throw new UsageError('first --layer must be inside a .demo/<slug>/ folder');
   const out = path.resolve(a.out);
   if (!inside(root, out)) throw new UsageError(`--out must be inside ${root}`);
-  const layers = files.map((f) => {
+  const layers = files.map((spec) => {
+    const pm = PLACE_RE.exec(spec);
+    const f = pm ? pm[1] : spec;
     const abs = path.resolve(f);
     const ext = path.extname(abs).toLowerCase();
     if (ext !== '.svg' && ext !== '.png') throw new UsageError(`layer must be .svg or .png: ${f}`);
+    if (pm && ext !== '.png') throw new UsageError(`only a PNG layer can be placed with @X,Y,W,H: ${spec}`);
     if (!inside(root, abs)) throw new UsageError(`layer must be inside ${root}: ${f}`);
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new UsageError(`layer not found: ${f}`);
-    if (ext === '.png') return {file: f, abs, kind: 'png', ...readPngSize(abs)};
+    if (ext === '.png') {
+      const size = readPngSize(abs);
+      if (!pm) return {file: f, abs, kind: 'png', ...size};
+      const [x, y, pw, ph] = pm.slice(2).map(Number);
+      if (!pw || !ph) throw new UsageError(`placed layer needs W and H > 0: ${spec}`);
+      if (x + pw > w || y + ph > h) throw new UsageError(`placed layer ${spec} falls outside the ${w}x${h} canvas`);
+      if (pw > size.w || ph > size.h) {
+        throw new UsageError(`placed layer ${spec} would upscale ${size.w}x${size.h}; use a larger source or a smaller rect`);
+      }
+      return {file: f, abs, kind: 'png', ...size, place: {x, y, w: pw, h: ph}};
+    }
     const text = fs.readFileSync(abs, 'utf8');
     const bad = lintSvg(text);
     if (bad.length) throw new UsageError(`SVG lint failed for ${f}: ${bad.join('; ')}`);
@@ -307,7 +348,7 @@ export function checkArt(a) {
 
 async function mainArt(a) {
   const c = checkArt(a);
-  const list = c.layers.map(({file, kind, w, h}) => ({file, kind, w, h}));
+  const list = c.layers.map(({file, kind, w, h, place}) => (place ? {file, kind, w, h, place} : {file, kind, w, h}));
   if (a['check-only']) {
     process.stdout.write(JSON.stringify({ok: true, mode: 'art', w: c.w, h: c.h, layers: list}) + '\n');
     return 0;
@@ -320,12 +361,13 @@ async function mainArt(a) {
     width: c.w,
     height: c.h,
     bg: c.bg,
-    layers: c.layers.map((l) => ({src: rel(c.root, l.abs), kind: l.kind})),
+    layers: c.layers.map((l) => ({src: rel(c.root, l.abs), kind: l.kind, ...(l.place ? {place: l.place} : {})})),
   };
+  const browserExecutable = resolveBrowserExecutable();
   const serveUrl = await bundle({entryPoint: path.join(HERE, 'src', 'index.ts'), rootDir: HERE, publicDir: c.root});
-  const composition = await selectComposition({serveUrl, id: 'art', inputProps: props});
+  const composition = await selectComposition({serveUrl, id: 'art', inputProps: props, browserExecutable});
   fs.mkdirSync(path.dirname(c.out), {recursive: true});
-  await renderStill({composition, serveUrl, output: c.out, frame: 0, inputProps: props, imageFormat: 'png'});
+  await renderStill({composition, serveUrl, output: c.out, frame: 0, inputProps: props, imageFormat: 'png', browserExecutable});
   let got;
   try {
     got = readPngSize(c.out);
@@ -390,12 +432,13 @@ async function main(argv) {
     rootDir: HERE,
     publicDir: slugDir,
   });
-  const composition = await selectComposition({serveUrl, id: 'demo', inputProps: props});
+  const browserExecutable = resolveBrowserExecutable();
+  const composition = await selectComposition({serveUrl, id: 'demo', inputProps: props, browserExecutable});
   const frameOf = (ms) => Math.max(0, Math.min(composition.durationInFrames - 1, Math.round((ms / 1000) * props.fps)));
   fs.mkdirSync(path.dirname(out), {recursive: true});
 
   if (a.still !== undefined) {
-    await renderStill({composition, serveUrl, output: out, frame: frameOf(num(a.still, '--still')), inputProps: props, imageFormat: 'png'});
+    await renderStill({composition, serveUrl, output: out, frame: frameOf(num(a.still, '--still')), inputProps: props, imageFormat: 'png', browserExecutable});
   } else {
     const frameRange =
       a['from-ms'] !== undefined || a['to-ms'] !== undefined
@@ -407,6 +450,7 @@ async function main(argv) {
       serveUrl,
       outputLocation: out,
       inputProps: props,
+      browserExecutable,
       codec: 'h264',
       crf: 18,
       x264Preset: 'slow',

@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key Design Picker</title>
+<!--
+  Template for scripts/style_picker.py (key-art). The script fills DATA from references/styles.md
+  (codes, groups, recipe per code, recommended combos) and writes the page to
+  .demo/artifact_design/key_design_picker.html. RECIPES below are preview tokens of the 12 core
+  recipes; every hex in them except skin/hair/kit must appear in that recipe's row of styles.md
+  `## Core recipes` (scripts/tests/test_style_picker.py). Previews are approximate: art-designer
+  applies the full rules. Self-contained: no network, no external font or script.
+-->
+<style>
+:root{--bg:#F7F7F9;--panel:#FFFFFF;--ink:#16181D;--muted:#5B6170;--line:#DCDFE6;--acc:#3B5BDB;--acc-ink:#FFFFFF;--chip:#EEF0F4;--warn:#B42318}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111318;--panel:#1A1D24;--ink:#ECEEF2;--muted:#A3A9B6;--line:#2C313B;--acc:#7C9BFF;--acc-ink:#0B0D12;--chip:#232731;--warn:#FF8A80}}
+:root[data-theme="dark"]{--bg:#111318;--panel:#1A1D24;--ink:#ECEEF2;--muted:#A3A9B6;--line:#2C313B;--acc:#7C9BFF;--acc-ink:#0B0D12;--chip:#232731;--warn:#FF8A80}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 'Inter','Segoe UI','Helvetica Neue',Arial,sans-serif}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 160px}
+h1{font-size:26px;margin:0 0 6px}
+h2{font-size:18px;margin:32px 0 12px}
+p.lead{color:var(--muted);margin:0 0 8px;max-width:760px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.card.on{outline:2px solid var(--acc);outline-offset:-1px}
+.card svg{width:100%;height:auto;border-radius:8px;display:block}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:13px;color:var(--ink);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}
+.chip.static{cursor:default}
+.mark{font-size:11px;color:var(--muted);margin-left:4px}
+.chip[aria-pressed="true"] .mark{color:inherit}
+.muted{color:var(--muted);font-size:13px}
+button.pick{align-self:flex-start;background:var(--acc);color:var(--acc-ink);border:0;border-radius:8px;padding:6px 14px;font:inherit;cursor:pointer}
+details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:10px}
+summary{cursor:pointer;font-weight:600}
+.no{color:var(--muted);font-size:13px;margin-top:8px}
+#bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:10px 16px}
+#bar .in{max-width:1180px;margin:0 auto;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+#bar svg{width:200px;height:auto;border-radius:6px;flex:none}
+#answer{font:600 16px ui-monospace,Consolas,monospace;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);min-width:180px}
+#msg{color:var(--warn);font-size:13px;min-height:1em}
+.cur{font-size:12px;border:1px solid var(--acc);color:var(--acc);border-radius:6px;padding:1px 6px}
+@media (max-width:640px){#bar svg{display:none}}
+</style>
+</head>
+<body>
+<main>
+  <h1 id="t-title"></h1>
+  <p class="lead" id="t-lead"></p>
+  <p class="lead" id="t-how"></p>
+  <p class="muted" id="t-meta"></p>
+
+  <h2 id="t-rec"></h2>
+  <div class="grid" id="rec"></div>
+
+  <h2 id="t-looks"></h2>
+  <p class="muted" id="t-looks-sub"></p>
+  <div class="grid" id="looks"></div>
+
+  <h2 id="t-codes"></h2>
+  <p class="muted" id="t-codes-sub"></p>
+  <div id="codes"></div>
+</main>
+
+<div id="bar"><div class="in">
+  <div id="bar-prev"></div>
+  <div>
+    <div class="muted" id="t-yours"></div>
+    <div class="row"><input id="answer" readonly><button class="pick" id="copy"></button><button class="chip" id="clear"></button></div>
+    <div class="muted" id="core"></div>
+    <div id="msg"></div>
+  </div>
+</div></div>
+
+<script>
+const DATA = /*__PICKER_DATA__*/null;
+const RECIPES = /*RECIPES-START*/{
+ "dark-artifact":{"bg":"#0B1020","surface":"#151B2E","text":"#FFFFFF","muted":"#B8C0D9","accent":"#FFC83D","onAccent":"#0B1020","shapes":["#5EEAD4","#151B2E"],"jackets":["#FFC83D","#5EEAD4","#151B2E"],"font":"sans","radius":12,"stroke":{"color":"#B8C0D9","width":2},"fill":true,"effect":"dots"},
+ "minimal-type":{"bg":"#FFFFFF","surface":"#FFFFFF","text":"#111827","muted":"#4B5563","accent":"#2563EB","onAccent":"#FFFFFF","shapes":["#4B5563"],"jackets":["#4B5563","#2563EB","#4B5563"],"font":"sans","radius":0,"stroke":{"color":"#111827","width":2},"fill":true,"effect":"rule"},
+ "swiss-editorial":{"bg":"#F4F1EA","surface":"#F4F1EA","text":"#111111","muted":"#4A4A4A","accent":"#D0021B","onAccent":"#FFFFFF","shapes":["#D0021B"],"jackets":["#4A4A4A","#D0021B","#4A4A4A"],"font":"sans","radius":0,"stroke":{"color":"#111111","width":2},"fill":true,"effect":"redblock"},
+ "bento-grid":{"bg":"#F5F5F7","surface":"#FFFFFF","text":"#1D1D1F","muted":"#6E6E73","accent":"#0066CC","onAccent":"#FFFFFF","shapes":["#FFFFFF"],"jackets":["#0066CC","#6E6E73","#1D1D1F"],"font":"sans","radius":20,"stroke":{"color":"#1D1D1F","width":2},"fill":true,"effect":"tiles"},
+ "aurora-mesh":{"bg":"#0A0A1A","surface":"#0A0A1A","text":"#FFFFFF","muted":"#C4C9E8","accent":"#EC4899","onAccent":"#FFFFFF","shapes":["#7C3AED","#06B6D4","#EC4899"],"jackets":["#7C3AED","#06B6D4","#EC4899"],"font":"sans","radius":14,"stroke":{"color":"#C4C9E8","width":2},"fill":true,"effect":"blobs"},
+ "glass-layers":{"base":"aurora-mesh","bg":"#0A0A1A","surface":"#2A2350","text":"#FFFFFF","muted":"#D6D9F0","accent":"#06B6D4","onAccent":"#0A0A1A","shapes":["#7C3AED","#06B6D4","#EC4899"],"jackets":["#7C3AED","#06B6D4","#EC4899"],"font":"sans","radius":16,"stroke":{"color":"#D6D9F0","width":2},"fill":true,"effect":"glass"},
+ "neo-brutalism":{"bg":"#FFF4D6","surface":"#FDE047","text":"#000000","muted":"#000000","accent":"#FF6B6B","onAccent":"#000000","shapes":["#A3E635","#FDE047","#FF6B6B"],"jackets":["#FF6B6B","#A3E635","#FDE047"],"font":"sans","radius":4,"stroke":{"color":"#000000","width":3.5},"fill":true,"effect":"hardshadow"},
+ "isometric":{"bg":"#EEF2FF","surface":"#FFFFFF","text":"#1E1B4B","muted":"#4338CA","accent":"#4F46E5","onAccent":"#FFFFFF","shapes":["#C7D2FE","#818CF8"],"jackets":["#4F46E5","#818CF8","#4338CA"],"font":"sans","radius":10,"stroke":{"color":"#1E1B4B","width":2.5},"fill":true,"effect":"disc"},
+ "flat-mascot":{"bg":"#FFF7ED","surface":"#FFF7ED","text":"#1C1917","muted":"#57534E","accent":"#C2410C","onAccent":"#FFFFFF","shapes":["#EA580C"],"jackets":["#EA580C","#C2410C","#57534E"],"font":"sans","radius":18,"stroke":{"color":"#1C1917","width":2},"fill":true,"effect":"rounded"},
+ "sketch-notes":{"bg":"#FFFDF7","surface":"#FFFDF7","text":"#1F2937","muted":"#1F2937","accent":"#B91C1C","onAccent":"#FFFFFF","shapes":["#FDE68A"],"jackets":["#FDE68A","#FFFDF7","#FDE68A"],"font":"sans","radius":6,"stroke":{"color":"#1F2937","width":2},"fill":true,"effect":"hachure"},
+ "blueprint":{"bg":"#0B3D91","surface":"#0B3D91","text":"#FFFFFF","muted":"#CFE0FF","accent":"#FFD166","onAccent":"#0B3D91","shapes":["#7FA6E0"],"jackets":["#FFFFFF","#FFFFFF","#FFFFFF"],"font":"mono","radius":0,"stroke":{"color":"#FFFFFF","width":1.5},"fill":false,"effect":"grid"},
+ "terminal-retro":{"bg":"#0C0C0C","surface":"#0C0C0C","text":"#33FF66","muted":"#9CA3AF","accent":"#FFB000","onAccent":"#0C0C0C","shapes":["#33FF66"],"jackets":["#33FF66","#33FF66","#33FF66"],"font":"mono","radius":0,"stroke":{"color":"#33FF66","width":1.8},"fill":false,"effect":"scanlines"}
+}/*RECIPES-END*/;
+const KIT = {"skin":"#F6D5BF","hair":"#3B2A20","trousers":"#2B2D3A","eye":"#1B1B24"}; // character model colours, not style tokens
+const FONTS = {"sans":"'Inter','Segoe UI','Helvetica Neue',Arial,'Liberation Sans','DejaVu Sans',sans-serif",
+  "mono":"ui-monospace,'Cascadia Mono',Consolas,'DejaVu Sans Mono','Liberation Mono',monospace",
+  "serif":"Georgia,'Times New Roman','Liberation Serif','DejaVu Serif',serif"};
+const STR = {
+ en:{title:"Pick the look for your key art",lead:"Each preview is an approximate sample of a core look (palette, type, shapes, characters). Pick a recommended combo, or click 1-3 codes (one per group) to build your own.",
+  how:"Then copy the answer line and paste it into the chat (or just type the codes there). Nothing on this page is sent anywhere.",
+  rec:"Recommended",looks:"The 12 core looks",looksSub:"A code that sets a look is listed under it. Codes from other groups change palette, type, layout or effects on top of it.",
+  codes:"All codes by group",codesSub:"[yes] drawn as written · [approx] drawn as an approximation · not available: use the nearest code.",
+  yours:"Your answer (paste into the chat):",copy:"Copy",copied:"Copied",clear:"Clear",pick:"Pick this",core:"Core look",
+  approxNote:"Preview is approximate; art-designer applies the full rules.",max:"At most 3 codes, one per group.",
+  notAvail:"Not available yet:",current:"current",meta:"Source: {src} · generated {date}",empty:"(nothing picked)"},
+ vi:{title:"Chọn phong cách cho bộ ảnh key art",lead:"Mỗi ảnh mẫu là bản xem trước gần đúng của một look gốc (bảng màu, kiểu chữ, hình khối, nhân vật). Chọn một combo gợi ý, hoặc bấm 1-3 mã (mỗi nhóm một mã) để tự ghép.",
+  how:"Sau đó copy dòng trả lời và dán vào chat (hoặc gõ thẳng mã trong chat). Trang này không gửi gì ra ngoài.",
+  rec:"Gợi ý",looks:"12 look gốc",looksSub:"Mã nào tạo ra look nào thì được liệt kê dưới look đó. Mã ở các nhóm khác thay bảng màu, kiểu chữ, bố cục hoặc hiệu ứng trên nền look đó.",
+  codes:"Tất cả mã theo nhóm",codesSub:"[yes] vẽ đúng như mô tả · [approx] vẽ gần đúng · chưa hỗ trợ: dùng mã gần nhất.",
+  yours:"Câu trả lời của bạn (dán vào chat):",copy:"Copy",copied:"Đã copy",clear:"Xoá",pick:"Chọn combo này",core:"Look gốc",
+  approxNote:"Ảnh mẫu là gần đúng; art-designer áp dụng đầy đủ luật.",max:"Tối đa 3 mã, mỗi nhóm một mã.",
+  notAvail:"Chưa hỗ trợ:",current:"đang dùng",meta:"Nguồn: {src} · tạo lúc {date}",empty:"(chưa chọn)"}
+};
+const T = STR[(DATA && DATA.lang) in STR ? DATA.lang : "en"];
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const byCode = {}; (DATA ? DATA.groups : []).forEach(g => g.codes.forEach(c => { byCode[c.code] = Object.assign({group:g.letter}, c); }));
+const ORDER = "ABCDEFG";
+
+function resolve(codes){
+  const sorted = codes.slice().sort((a,b) => ORDER.indexOf(byCode[a].group) - ORDER.indexOf(byCode[b].group));
+  let core = null; // styles.md Combination rule 2: first "→ id" in group order A..G, else dark-artifact
+  for (const c of sorted) { if (byCode[c].recipe) { core = byCode[c].recipe; break; } }
+  core = core || "dark-artifact";
+  const r = Object.assign({}, RECIPES[core]);
+  for (const c of sorted) {
+    const info = byCode[c];
+    if (info.group === "D" && info.recipe && info.recipe !== core) {
+      const p = RECIPES[info.recipe];
+      ["bg","surface","text","muted","accent","onAccent","shapes","jackets","stroke"].forEach(k => r[k] = p[k]);
+    }
+    if (info.group === "E") {
+      const k = (info.keyword || "").toLowerCase();
+      if (k.includes("mono")) r.font = "mono"; else if (k.includes("serif") && !k.includes("sans")) r.font = "serif";
+    }
+  }
+  return {core, r};
+}
+
+function chibi(x, base, h, jacket, r, shadow){
+  const s = h / 120, sw = r.stroke.width, st = r.stroke.color;
+  const f = col => r.fill ? col : "none";
+  const g = (dx, dy, over) => {
+    const o = over || {};
+    return `<g transform="translate(${x + dx},${base - h + dy}) scale(${s})" stroke="${o.stroke || st}" stroke-width="${sw / s}" stroke-linejoin="round" ${r.effect === "hachure" ? 'stroke-dasharray="7 2"' : ""}>
+      <rect x="-14" y="92" width="11" height="28" rx="4" fill="${o.fill || f(KIT.trousers)}"/>
+      <rect x="3" y="92" width="11" height="28" rx="4" fill="${o.fill || f(KIT.trousers)}"/>
+      <rect x="-22" y="58" width="44" height="40" rx="12" fill="${o.fill || f(jacket)}"/>
+      <rect x="-5" y="72" width="10" height="13" rx="2" fill="${o.fill || f("#FFFFFF")}"/>
+      <circle cx="0" cy="34" r="30" fill="${o.fill || f(KIT.skin)}"/>
+      <path d="M-30 32 Q-28 2 0 4 Q28 2 30 32 Q18 16 0 18 Q-18 16 -30 32Z" fill="${o.fill || f(KIT.hair)}"/>
+      ${o.fill ? "" : `<circle cx="-11" cy="38" r="5.5" fill="${r.fill ? KIT.eye : "none"}"/><circle cx="11" cy="38" r="5.5" fill="${r.fill ? KIT.eye : "none"}"/>
+      ${r.fill ? '<circle cx="-9" cy="36" r="1.8" fill="#FFFFFF" stroke="none"/><circle cx="13" cy="36" r="1.8" fill="#FFFFFF" stroke="none"/>' : ""}
+      <path d="M-5 50 Q0 54 5 50" fill="none"/>`}
+    </g>`;
+  };
+  return (shadow ? g(6, 6, {fill:"#000000", stroke:"#000000"}) : "") + g(0, 0);
+}
+
+function preview(codes, title, sub){
+  const {r} = resolve(codes);
+  const W = 640, H = 320, font = FONTS[r.font] || FONTS.sans, id = "p" + Math.random().toString(36).slice(2, 8);
+  let fx = "";
+  switch (r.effect) {
+    case "dots": for (let y = 20; y < H; y += 22) for (let x = 20; x < W; x += 22) fx += `<circle cx="${x}" cy="${y}" r="1.2" fill="${r.muted}" opacity=".18"/>`; break;
+    case "blobs": case "glass":
+      fx = `<defs><filter id="${id}b" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="40"/></filter></defs>
+        <g filter="url(#${id}b)" opacity=".85"><circle cx="470" cy="80" r="110" fill="${r.shapes[0]}"/><circle cx="600" cy="250" r="100" fill="${r.shapes[1]}"/><circle cx="380" cy="300" r="80" fill="${r.shapes[2]}"/></g>`;
+      if (r.effect === "glass") fx += `<rect x="370" y="40" width="240" height="250" rx="${r.radius}" fill="${r.surface}" opacity=".55" stroke="#FFFFFF" stroke-opacity=".3"/>`;
+      break;
+    case "grid": for (let x = 0; x <= W; x += 32) fx += `<line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="${r.shapes[0]}" stroke-width="1" opacity=".45"/>`;
+      for (let y = 0; y <= H; y += 32) fx += `<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${r.shapes[0]}" stroke-width="1" opacity=".45"/>`; break;
+    case "scanlines": for (let y = 0; y < H; y += 4) fx += `<rect x="0" y="${y}" width="${W}" height="1" fill="${r.text}" opacity=".05"/>`;
+      fx += `<rect x="20" y="20" width="${W - 40}" height="${H - 40}" fill="none" stroke="${r.text}" stroke-width="1" opacity=".6"/>`; break;
+    case "redblock": fx = `<rect x="0" y="0" width="16" height="${H}" fill="${r.accent}"/><line x1="36" y1="64" x2="330" y2="64" stroke="${r.text}" stroke-width="2"/>`; break;
+    case "rule": fx = `<line x1="36" y1="230" x2="160" y2="230" stroke="${r.text}" stroke-width="1"/>`; break;
+    case "tiles": fx = `<rect x="370" y="24" width="246" height="272" rx="${r.radius}" fill="${r.surface}"/><rect x="24" y="214" width="150" height="82" rx="${r.radius}" fill="${r.surface}"/><rect x="188" y="214" width="166" height="82" rx="${r.radius}" fill="${r.surface}"/>`; break;
+    case "disc": fx = `<circle cx="495" cy="178" r="128" fill="${r.shapes[0]}"/>`; break;
+    case "rounded": fx = `<circle cx="495" cy="190" r="125" fill="${r.shapes[0]}" opacity=".18"/>`; break;
+    case "hardshadow": fx = `<rect x="384" y="58" width="230" height="230" rx="${r.radius}" fill="#000000"/><rect x="376" y="50" width="230" height="230" rx="${r.radius}" fill="${r.shapes[0]}" stroke="#000000" stroke-width="3.5"/>`; break;
+    case "hachure": for (let i = 0; i < 18; i++) fx += `<line x1="${400 + i * 12}" y1="290" x2="${440 + i * 12}" y2="250" stroke="${r.text}" stroke-width="1" opacity=".35"/>`;
+      fx += `<rect x="30" y="58" width="${Math.min(300, 15 * (title.length + 1))}" height="30" fill="${r.shapes[0]}" opacity=".9"/>`; break;
+  }
+  const pill = `<rect x="36" y="172" width="150" height="34" rx="${r.radius === 0 ? 0 : 17}" fill="${r.accent}" ${r.effect === "hardshadow" ? 'stroke="#000000" stroke-width="3"' : ""}/>
+    <text x="111" y="194" text-anchor="middle" font-family="${esc(FONTS.mono)}" font-size="13" font-weight="600" fill="${r.onAccent}">get started</text>`;
+  const shadow = r.effect === "hardshadow";
+  const chars = chibi(430, 290, 150, r.jackets[1], r, shadow) + chibi(560, 290, 150, r.jackets[2], r, shadow) + chibi(495, 300, 190, r.jackets[0], r, shadow);
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(codes.join(" + ") || "default")}">
+    <rect width="${W}" height="${H}" fill="${r.bg}"/>${fx}
+    <text x="36" y="${r.effect === "hachure" ? 82 : 92}" font-family="${esc(font)}" font-size="32" font-weight="${r.effect === "hardshadow" ? 800 : 700}" fill="${r.text}">${esc(title)}</text>
+    <text x="36" y="128" font-family="${esc(font)}" font-size="15" fill="${r.muted}">${esc(sub)}</text>
+    <text x="36" y="150" font-family="${esc(font)}" font-size="15" fill="${r.muted}">${esc(codes.join(" + ") || "default")}</text>
+    ${pill}${chars}</svg>`;
+}
+
+let picked = [];
+function setPick(codes){ picked = codes.slice(); render(); }
+function toggle(code){
+  const g = byCode[code].group, i = picked.indexOf(code);
+  document.getElementById("msg").textContent = "";
+  if (i >= 0) picked.splice(i, 1);
+  else {
+    const same = picked.findIndex(c => byCode[c].group === g);
+    if (same >= 0) picked.splice(same, 1);
+    else if (picked.length >= 3) { document.getElementById("msg").textContent = T.max; return; }
+    picked.push(code);
+  }
+  render();
+}
+function render(){
+  const sorted = picked.slice().sort((a,b) => ORDER.indexOf(byCode[a].group) - ORDER.indexOf(byCode[b].group));
+  document.getElementById("answer").value = sorted.join(" + ") || T.empty;
+  const {core} = resolve(sorted);
+  document.getElementById("core").textContent = `${T.core}: ${core} · ${T.approxNote}`;
+  document.getElementById("bar-prev").innerHTML = preview(sorted, DATA.title, DATA.subline);
+  document.querySelectorAll("[data-code]").forEach(b => b.setAttribute("aria-pressed", picked.includes(b.dataset.code) ? "true" : "false"));
+  document.querySelectorAll("[data-combo]").forEach(c => c.classList.toggle("on", c.dataset.combo === sorted.join("+")));
+}
+function codeChip(c){
+  return `<button class="chip" data-code="${esc(c.code)}" title="${esc(c.meaning)}">${esc(c.code)} · ${esc(c.keyword)}<span class="mark">[${esc(c.v1)}]</span></button>`;
+}
+
+function build(){
+  if (!DATA) { document.body.textContent = "No data: generate this page with scripts/style_picker.py."; return; }
+  document.documentElement.lang = DATA.lang || "en";
+  const set = (id, txt) => document.getElementById(id).textContent = txt;
+  set("t-title", T.title); set("t-lead", T.lead); set("t-how", T.how);
+  set("t-meta", T.meta.replace("{src}", DATA.source).replace("{date}", DATA.generated));
+  set("t-rec", T.rec); set("t-looks", T.looks); set("t-looks-sub", T.looksSub);
+  set("t-codes", T.codes); set("t-codes-sub", T.codesSub); set("t-yours", T.yours);
+  set("copy", T.copy); set("clear", T.clear);
+  const cur = (DATA.current || []).join("+");
+  const all = (DATA.recommend || []).slice();
+  if (DATA.current && DATA.current.length && !all.some(x => x.codes.join("+") === cur)) all.push({label: T.current, codes: DATA.current, reason: ""});
+  document.getElementById("rec").innerHTML = all.map((x, i) => `
+    <div class="card" data-combo="${esc(x.codes.join("+"))}">
+      ${preview(x.codes, DATA.title, DATA.subline)}
+      <div class="row"><strong>${esc(x.label || "R" + (i + 1))}</strong>${x.codes.map(c => `<span class="chip static">${esc(c)} · ${esc(byCode[c].keyword)}<span class="mark">[${esc(byCode[c].v1)}]</span></span>`).join("")}${x.codes.join("+") === cur ? `<span class="cur">${T.current}</span>` : ""}</div>
+      ${x.reason ? `<div class="muted">${esc(x.reason)}</div>` : ""}
+      <button class="pick" data-set="${esc(x.codes.join("+"))}">${T.pick}</button>
+    </div>`).join("");
+  document.getElementById("looks").innerHTML = DATA.recipes.map(id => {
+    const codes = Object.values(byCode).filter(c => c.recipe === id && c.group !== "D");
+    const seed = codes.length ? [codes[0].code] : [];
+    return `<div class="card">${preview(seed.length ? seed : [], DATA.title, DATA.subline).replace(/aria-label="[^"]*"/, `aria-label="${esc(id)}"`)}
+      <strong>${esc(id)}</strong><div class="row">${codes.map(codeChip).join("")}</div></div>`;
+  }).join("");
+  document.getElementById("codes").innerHTML = DATA.groups.map(g => `
+    <details ${g.letter <= "D" ? "open" : ""}><summary>${esc(g.letter)} · ${esc(g.title)}</summary>
+      <div class="row" style="margin-top:8px">${g.codes.map(codeChip).join("")}</div>
+      ${g.unavailable.length ? `<div class="no">${T.notAvail} ${g.unavailable.map(u => `${esc(u.keyword)} → ${esc(u.nearest || "?")}`).join(" · ")}</div>` : ""}
+    </details>`).join("");
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-code]"); if (b) { toggle(b.dataset.code); return; }
+    const s = e.target.closest("[data-set]"); if (s) { setPick(s.dataset.set.split("+")); return; }
+  });
+  document.getElementById("clear").onclick = () => setPick([]);
+  document.getElementById("copy").onclick = async () => {
+    const a = document.getElementById("answer");
+    try { await navigator.clipboard.writeText(a.value); } catch (e) { a.select(); try { document.execCommand("copy"); } catch (e2) {} }
+    document.getElementById("copy").textContent = T.copied; setTimeout(() => document.getElementById("copy").textContent = T.copy, 1200);
+  };
+  setPick(DATA.current && DATA.current.length ? DATA.current : (DATA.recommend && DATA.recommend.length ? DATA.recommend[0].codes : []));
+}
+build();
+</script>
+</body>
+</html>

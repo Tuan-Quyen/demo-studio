@@ -8,7 +8,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {checkArt, lintSvg, readPngSize} from '../render.mjs';
+import {checkArt, lintSvg, readPngSize, resolveBrowserExecutable} from '../render.mjs';
 
 const RENDER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'render.mjs');
 
@@ -226,4 +226,39 @@ test('lint rejects DTD entity split of data:image and CSS image-set strings', ()
     '<style>svg{background:cross-fade("a.png",#fff)}</style>',
   ];
   for (const b of bad) assert.ok(lintSvg(b).length > 0, b);
+});
+
+test('placed PNG layer FILE.png@X,Y,W,H: rect inside canvas, no upscale, PNG only', () => {
+  const top = f('place-base.svg', svg(1280, 720));
+  const ch = f('char.png', makePng(200, 300));
+  const c = checkArt(args({layer: [top, `${ch}@64,100,100,150`]}));
+  assert.deepEqual(c.layers[1].place, {x: 64, y: 100, w: 100, h: 150});
+  assert.equal(c.layers[0].place, undefined);
+  assert.throws(() => checkArt(args({layer: [top, `${ch}@1200,100,100,150`]})), /outside/);
+  assert.throws(() => checkArt(args({layer: [top, `${ch}@0,0,400,600`]})), /upscale/);
+  assert.throws(() => checkArt(args({layer: [top, `${ch}@0,0,0,150`]})), /W and H > 0/);
+  assert.throws(() => checkArt(args({layer: [`${top}@0,0,10,10`]})), /layer must be|only a PNG/);
+  const out = path.join(slug, 'art', 'place.png');
+  const r = cli(['--art', '--check-only', '--size', '1280x720', '--layer', top, '--layer', `${ch}@64,100,100,150`, '--out', out]);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout.trim());
+  assert.deepEqual(j.layers[1], {file: ch, kind: 'png', w: 200, h: 300, place: {x: 64, y: 100, w: 100, h: 150}});
+});
+
+test('resolveBrowserExecutable: env, then toolkit.json, else null; a missing file is an error', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-browser-'));
+  const here = path.join(tmp, 'remotion');
+  fs.mkdirSync(here);
+  const exe = path.join(tmp, 'chrome');
+  fs.writeFileSync(exe, 'bin');
+  assert.equal(resolveBrowserExecutable(here, {}), null);
+  fs.writeFileSync(path.join(tmp, 'toolkit.json'), JSON.stringify({features: {remotion: {}}}));
+  assert.equal(resolveBrowserExecutable(here, {}), null);
+  fs.writeFileSync(path.join(tmp, 'toolkit.json'), JSON.stringify({features: {remotion: {browser_executable: exe}}}));
+  assert.equal(resolveBrowserExecutable(here, {}), exe);
+  assert.equal(resolveBrowserExecutable(here, {DEMO_STUDIO_BROWSER: exe}), exe);
+  assert.throws(() => resolveBrowserExecutable(here, {DEMO_STUDIO_BROWSER: path.join(tmp, 'nope')}), /not found/);
+  fs.writeFileSync(path.join(tmp, 'toolkit.json'), JSON.stringify({features: {remotion: {browser_executable: path.join(tmp, 'gone')}}}));
+  assert.throws(() => resolveBrowserExecutable(here, {}), /missing/);
+  fs.rmSync(tmp, {recursive: true, force: true});
 });

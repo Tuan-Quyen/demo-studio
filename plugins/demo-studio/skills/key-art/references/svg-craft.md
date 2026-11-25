@@ -35,7 +35,8 @@ How to write an SVG that passes `render.mjs --art` and looks the same in the PNG
 1. `node .demo/remotion/render.mjs --art --size WxH --layer art/<id>.svg --out art/<id>.png --check-only` prints `{ok:true, mode:"art", w, h, layers}`; exit 2 means fix the SVG.
 2. Run without `--check-only`; `w`/`h` in the JSON come from the PNG IHDR and must equal the size.
 3. View the PNG (squint test), compare text against the SVG (Q7).
-4. For `art/thumb.png` preview: render `art/thumb.svg` alone with `--bg <style bg hex>` (`#0B1020` when `#art.style` is null); never `--bg transparent` (no delivered file uses it).
+4. With `places` (approved character assets): render `--layer art/<id>.svg --layer art/assets/<a>.png@X,Y,W,H` per place, in list order; the engine draws each asset in its rect with the aspect kept and refuses a rect outside the canvas or larger than the asset (exit 2: shrink the rect, never upscale). Leave the rect empty in the SVG: no text, arrow or label under an asset.
+5. For `art/thumb.png` preview: render `art/thumb.svg` alone with `--bg <style bg hex>` (`#0B1020` when `#art.style` is null); never `--bg transparent` (no delivered file uses it).
 
 ## Sources
 Contract: `remotion/render.mjs --art` (README, `motion-fx` CLI section). An SVG used as an image does not run script or load resources (browser behavior, `unverified` in this environment); the lint is the enforced rule, not that behavior.
