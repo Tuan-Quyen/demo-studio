@@ -10,7 +10,7 @@ then runs ``--install``.
     setup_tools.py --options [voice|render] [--json]
     setup_tools.py --plan capture,blur [--json]
     setup_tools.py --install capture,blur [--dry-run] [--json] [--venv PATH]
-    setup_tools.py --check [capture,blur] [--json]
+    setup_tools.py --check [capture,blur] [--json] [--smoke]
     setup_tools.py --python [--json] [--venv PATH]
     setup_tools.py --stage <name> [--platform web|desktop|android|ios] [--choose cap=value,...] [--with f,...] [--json]
     setup_tools.py --stages [--json]
@@ -36,6 +36,16 @@ Feature ``remotion`` (the default render engine) copies the plugin's ``remotion/
 <workspace>/remotion/ and runs ``npm install`` there; the plugin itself never holds node_modules.
 The copy is stamped with a hash of the source (``.sync.json``): after a plugin update ``--check``
 reports it out of date and ``--install remotion`` re-syncs it.
+``--install remotion`` ends with a render smoke test on every OS (a 64x64 PNG through render.mjs
+--art, 90 s limit, the whole node + Chrome process tree is killed on timeout). If Remotion's downloaded
+headless Chrome hangs (observed on macOS 2026-11-25: every render timed out while a plain copy of the
+same files rendered at once; cause not confirmed), the browser is copied to a per-user cache
+(macOS ~/Library/Caches, Windows %LOCALAPPDATA%, Linux $XDG_CACHE_HOME or ~/.cache, then
+demo-studio/chrome-headless-shell/<remotion version>/; env DEMO_STUDIO_BROWSER_CACHE overrides),
+tested again and recorded as ``browser_executable`` in toolkit.json and in <workspace>/remotion/
+.browser.json, which render.mjs reads (so it also works with --workspace). Any other
+failure fails the install with an OS hint (Linux: missing system libraries). ``--check remotion
+--smoke`` runs the test on demand; plain ``--check`` does not launch Chrome.
 Appium is used only by capture-desktop on macOS (Mac2 driver), installed in <workspace>/appium/
 (APPIUM_HOME). capture-android / capture-ios install nothing: they need adb, or xcrun + axe, on
 PATH and are driven by scripts/mobile_driver.py. Env DEMO_STUDIO_OS=win|mac|linux
@@ -255,7 +265,7 @@ CATALOG: dict[str, dict] = {
         "env": None,
         "node": True,
         "size_mb": 550,
-        "size_note": "npm packages + headless Chrome in .demo/remotion/",
+        "size_note": "npm packages + headless Chrome in .demo/remotion/ (+~300 MB in the per-user cache only when the downloaded Chrome hangs in the render test)",
         "agents": ["art-designer", "motion-designer", "render-engineer"],
     },
     "package": {
@@ -349,6 +359,8 @@ class Ctx:
         self.remotion_dir = self.workspace / "remotion"
         self.appium_dir = self.workspace / "appium"
         self.appium_queued = False  # core npm install already scheduled in this run
+        self.browser_exe: str | None = None  # set by ensure_render_works during --install remotion
+        self.smoke = False  # --check --smoke
         sub = "Scripts" if os.name == "nt" else "bin"
         exe = "python.exe" if os.name == "nt" else "python"
         self.vpy = self.venv / sub / exe
@@ -610,6 +622,158 @@ def remotion_installed(ctx: Ctx) -> str | None:
         return None
 
 
+SMOKE_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">'
+             '<rect width="64" height="64" fill="#336699"/></svg>\n')
+SMOKE_TIMEOUT = 90
+
+
+def browser_exe_name(os_name: str | None = None) -> str:
+    return "chrome-headless-shell.exe" if (os_name or current_os()) == "win" else "chrome-headless-shell"
+
+
+def remotion_browser_dir(ctx: Ctx) -> Path | None:
+    """The chrome-headless-shell-<platform> folder Remotion downloaded (mac-arm64, mac-x64, linux64,
+    linux-arm64, win64, ...); a symlinked folder is returned as is."""
+    base = ctx.remotion_dir / "node_modules" / ".remotion" / "chrome-headless-shell"
+    exe = browser_exe_name()
+    hits = sorted(h for h in base.glob(f"*/chrome-headless-shell-*/{exe}") if h.is_file())
+    return hits[0].parent if hits else None
+
+
+def browser_cache_root(os_name: str | None = None, env: dict | None = None, home: Path | None = None) -> Path:
+    """Per-user cache for a copied headless Chrome: macOS ~/Library/Caches, Windows %LOCALAPPDATA%,
+    Linux $XDG_CACHE_HOME or ~/.cache; env DEMO_STUDIO_BROWSER_CACHE overrides."""
+    env = os.environ if env is None else env
+    if env.get("DEMO_STUDIO_BROWSER_CACHE"):
+        return Path(env["DEMO_STUDIO_BROWSER_CACHE"]).expanduser()
+    home = home or Path.home()
+    osn = os_name or current_os()
+    if osn == "mac":
+        base = home / "Library" / "Caches"
+    elif osn == "win":
+        base = Path(env["LOCALAPPDATA"]) if env.get("LOCALAPPDATA") else home / "AppData" / "Local"
+    else:
+        base = Path(env["XDG_CACHE_HOME"]) if env.get("XDG_CACHE_HOME") else home / ".cache"
+    return base / "demo-studio" / "chrome-headless-shell"
+
+
+def copy_browser_out(ctx: Ctx) -> str:
+    """Copy Remotion's headless Chrome to the browser cache (once per remotion version); return the executable."""
+    src = remotion_browser_dir(ctx)
+    if src is None:
+        raise OSError("headless Chrome not found under node_modules/.remotion (remotion browser ensure)")
+    exe = browser_exe_name()
+    dst = browser_cache_root() / (remotion_installed(ctx) or "unknown") / src.name
+    if not (dst / exe).is_file():
+        tmp = dst.with_name(dst.name + ".tmp")
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src.resolve(), tmp, symlinks=True)
+        shutil.rmtree(dst, ignore_errors=True)
+        os.replace(tmp, dst)
+    return str(dst / exe)
+
+
+def ensure_render_works(ctx: Ctx) -> None:
+    """Install step, every OS: smoke-test the downloaded Chrome. A hang (timeout) is retried once with a
+    copy in the per-user browser cache; any other failure is reported with an OS hint. Sets ctx.browser_exe
+    (None = Remotion's default copy works). Raises OSError when nothing renders."""
+    src = remotion_browser_dir(ctx)
+    default = str(src / browser_exe_name()) if src else None
+    first = render_smoke(ctx, default)
+    if first is None:
+        ctx.browser_exe = None
+        write_browser_pin(ctx, None)
+        return
+    if "timed out" not in first:
+        raise OSError(first + smoke_hint())
+    exe = copy_browser_out(ctx)
+    second = render_smoke(ctx, exe)
+    if second is not None:
+        raise OSError(f"{first}; the copy in {browser_cache_root()} also failed: {second}{smoke_hint()}")
+    ctx.browser_exe = exe
+    write_browser_pin(ctx, exe)
+
+
+def write_browser_pin(ctx: Ctx, exe: str | None) -> None:
+    """render.mjs reads the browser from <remotion_dir>/.browser.json (next to itself), so it works with
+    --workspace too, where toolkit.json lives elsewhere. None removes the pin (Remotion's default)."""
+    pin = ctx.remotion_dir / ".browser.json"
+    if exe:
+        pin.write_text(json.dumps({"browser_executable": exe, "written_at": now()}, indent=2) + "\n", encoding="utf-8")
+    elif pin.exists():
+        pin.unlink()
+
+
+def smoke_hint(os_name: str | None = None) -> str:
+    osn = os_name or current_os()
+    if osn == "linux":
+        return (" (Linux: headless Chrome needs system libraries such as libnss3, libatk-bridge2.0-0, "
+                "libgbm1, libasound2; see Remotion's Linux dependencies)")
+    if osn == "win":
+        return " (Windows: antivirus or Controlled Folder Access may block chrome-headless-shell.exe)"
+    return " (macOS: a freshly downloaded Chrome has hung before; re-run --install remotion)"
+
+
+def _run_bounded(cmd: list[str], cwd: str, env: dict, timeout: int) -> tuple[int | None, str]:
+    """Run cmd; on timeout kill its whole process tree (node + headless Chrome), on every OS.
+    Returns (exit code or None on timeout, output)."""
+    kw: dict = {"cwd": cwd, "env": env, "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT,
+                "text": True, "encoding": "utf-8", "errors": "replace"}
+    if os.name == "nt":
+        kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kw["start_new_session"] = True
+    p = subprocess.Popen(cmd, **kw)
+    try:
+        out, _ = p.communicate(timeout=timeout)
+        return p.returncode, out or ""
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
+        else:
+            import signal
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        try:
+            out, _ = p.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            out = ""
+        return None, out or ""
+
+
+def render_smoke(ctx: Ctx, browser: str | None, timeout: int = SMOKE_TIMEOUT) -> str | None:
+    """Render a 64x64 PNG through render.mjs --art. Returns None when it works, else the reason."""
+    node = shutil.which("node")
+    script = ctx.remotion_dir / "render.mjs"
+    if not node or not script.is_file():
+        return "node or render.mjs not found"
+    d = ctx.demo_dir / ".smoke"
+    shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True)
+    svg, png = d / "probe.svg", d / "probe.png"
+    svg.write_text(SMOKE_SVG, encoding="utf-8")
+    env = {**os.environ}
+    if browser:
+        env["DEMO_STUDIO_BROWSER"] = browser
+    try:
+        rc, out = _run_bounded([node, str(script), "--art", "--size", "64x64", "--layer", str(svg), "--out", str(png)],
+                               str(ctx.cwd), env, timeout)
+        if rc is None:
+            return f"render smoke test timed out after {timeout} s (headless Chrome hangs)"
+        if rc != 0 or not png.is_file():
+            tail = " ".join(out.strip().splitlines()[-2:])
+            return f"render smoke test failed (exit {rc}): {tail}"[:400]
+        return None
+    except OSError as e:
+        return f"render smoke test could not start: {e}"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def _pkg_version(pj: Path) -> str | None:
     try:
         return json.loads(pj.read_text(encoding="utf-8")).get("version") or "unknown"
@@ -676,7 +840,20 @@ def feature_states(ctx: Ctx, keys: list[str]) -> dict[str, dict]:
             if not remotion_synced(ctx):
                 return {"status": "missing",
                         "reason": "remotion source out of date (plugin changed); re-run --install remotion"}
-            return {"status": "installed", "reason": f"remotion {ver} in {ctx.remotion_dir}"}
+            browser = record[k].get("browser_executable")
+            if browser and not Path(browser).is_file():
+                return {"status": "missing",
+                        "reason": f"headless Chrome missing at {browser} (cache cleared?); re-run --install remotion"}
+            if ctx.smoke:
+                bad = render_smoke(ctx, browser)
+                if bad:
+                    return {"status": "missing", "reason": bad}
+            res = {"status": "installed", "reason": f"remotion {ver} in {ctx.remotion_dir}"}
+            if browser:
+                res["reason"] += f"; browser {browser}"
+            if ctx.smoke:
+                res["reason"] += "; render smoke test ok"
+            return res
         if not ctx.venv_exists:
             return {"status": "missing", "reason": f"venv not found at {ctx.venv}"}
         absent = [m for m in pos(f, "modules", []) if not mods.get(m)]
@@ -749,6 +926,9 @@ def feature_commands(ctx: Ctx, key: str) -> list[dict]:
                          "cmd": [npm, "install", "--no-audit", "--no-fund"], "cwd": rdir})
             cmds.append({"label": "remotion browser ensure",
                          "cmd": [npx, "--no-install", "remotion", "browser", "ensure"], "cwd": rdir})
+            cmds.append({"label": "render smoke test (a hanging Chrome falls back to a copy in the user cache)",
+                         "cmd": ["node", "render.mjs", "--art", "--size", "64x64", "(smoke)"],
+                         "cwd": None, "fn": lambda: ensure_render_works(ctx)})
     drivers = pos(f, "appium") or []
     if drivers:
         npm = shutil.which("npm") or "npm"
@@ -1185,14 +1365,17 @@ def cmd_install(args, ctx: Ctx, keys: list[str]) -> int:
             results.append(entry)
             continue
         versions = pkg_versions(ctx, req_names(pos(f, "reqs")))
+        extra = {}
         if is_remotion(f):
             versions = {"remotion": remotion_installed(ctx)}
+            if ctx.browser_exe:
+                extra["browser_executable"] = ctx.browser_exe
         elif pos(f, "appium"):
             versions["appium"] = appium_core_version(ctx)
             versions.update({f"driver:{d}": appium_driver_version(ctx, d) for d in pos(f, "appium")})
-        record["features"][k] = {"installed_at": now(), "versions": versions}
+        record["features"][k] = {"installed_at": now(), "versions": versions, **extra}
         write_toolkit(ctx, record)
-        entry.update(status="installed", versions=versions)
+        entry.update(status="installed", versions=versions, **extra)
         results.append(entry)
         say(f"[ok] {k} installed")
 
@@ -1246,11 +1429,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--with", dest="with_", metavar="A,B", help="with --stage: optional features to include in the plan")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--dry-run", action="store_true", help="with --install: print commands only")
+    ap.add_argument("--smoke", action="store_true", help="with --check: also render a 64x64 PNG through remotion (up to 90 s)")
     ap.add_argument("--venv", help="venv directory (default: .demo/.venv under the current directory)")
     ap.add_argument("--workspace", help="workspace root; Remotion and Appium go in <workspace>/remotion and "
                     "<workspace>/appium (default: .demo under the current directory)")
     args = ap.parse_args(argv)
     ctx = Ctx(args.venv, args.workspace)
+    ctx.smoke = args.smoke
     try:
         if args.python:
             return cmd_python(args, ctx)

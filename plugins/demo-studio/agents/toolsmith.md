@@ -20,7 +20,7 @@ Inputs: `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --stage <name>` (wh
 1. Confirm the brief says the user approved. No approval stated: return `needs-input` with the `--plan` output; do nothing else.
 2. Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --plan <features>` and check it matches what was approved (no extra features, sizes as shown). Mismatch: `needs-input`.
 3. Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --install <features>` (add `--dry-run` first if the plan is large).
-4. Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check <features>`. Every approved feature must report ready.
+4. Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/setup_tools.py --check <features>` (add `--smoke` when `remotion` is among them: it renders one test PNG). Every approved feature must report ready. A remotion install that fails its render smoke test is `blocked` with the reason; never move or link the browser by hand.
 5. Feature that needs an API key or an OS the machine lacks (e.g. `ELEVENLABS_API_KEY`, iOS without macOS): return `needs-input`/`blocked` with the exact step the user must do. Never type or request secrets in the chat; tell the user which environment variable to set.
 6. Install failure: show the last error lines, retry once if it looks transient (network), else `blocked`.
 

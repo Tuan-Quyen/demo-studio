@@ -12,6 +12,7 @@ v1 column: `yes` = pure SVG with system fonts; `approx` = SVG approximation (art
 - Then groups A-G in this order, one line per coded row: `code · keyword - meaning [yes]` or `[approx]` (the v1 column). Example: `A6 · glassmorphism - frosted see-through panels [approx]`.
 - Per group, one line for the `no` rows: `Not available yet: grunge [no → A12], punk / zine [no → A12], ...` (keyword, then the nearest coded row).
 - The director may print A-D first and offer "more: E, F, G"; every code stays valid. Plain text only, no images.
+- Visual companion: `scripts/style_picker.py` builds `.demo/artifact_design/key_design_picker.html` from this file (codes, groups, `→ id` per code, the recommended combos) and `../assets/style-picker.html` (preview tokens of `## Core recipes`; every hex there comes from the recipe row, enforced by `test_style_picker.py`). Previews are approximate; the text list stays the contract, the page only helps the user see the looks and builds the same answer line.
 
 ### Answer grammar
 - `R1`-`R3`; or 1-3 codes or keywords (name or code, any case) joined by `+`, commas or spaces; or free text; or a link or image; or `skip` / "you choose".
@@ -40,6 +41,7 @@ Signals come from `brief.md` or the source doc's first sections. If `#art.style`
 | non-technical / consumer / education | B4 + C2 + D2; F4 + C3; A6 + C5 |
 | process / architecture / docs-first repo | B6 + C2; A8 + C10; A28 + F7 |
 | creator / indie / playful tone | A13 + C1; B4 + D4 + C1; A11 + C8 |
+| agent team with one character per role | B3 + C4; B4 + C4 + D15; A14 + B5 + D1 |
 | no signal | A14 + B5 + D1; A1 + C3; F4 + C3 |
 
 The no-signal R1 (A14 + B5 + D1) is the look the user approved on the v3 README art.
@@ -57,11 +59,12 @@ The no-signal R1 (A14 + B5 + D1) is the look the user approved on the v3 README 
 ## Combination rule (1-3 codes → one recipe; art-designer)
 1. One code per group.
 2. Core = the first "→ id" found scanning the picked codes in group order A, B, C, D, E, F, G (in C, the first id named). No "→ id" in any pick: `dark-artifact`. Later picks never change the core; they modify it (steps 3-5).
-3. A picked B code that does not set the core adds its illustration motif to the core (e.g. isometric blocks); its palette and type are dropped.
+3. A picked B code that does not set the core adds its illustration motif to the core (e.g. B3 isometric cards and pill); its palette and type are dropped. Characters are chibi in every recipe (`characters.md`); a B code changes their treatment, never removes them.
 4. Each picked code overrides its own layer of the core: D palette, E font stack, F grid, G effect added; C sets tone only. Recompute text pairs (`color.md`); record fixes in `adjusted`, approximations in `approximated`.
 5. Hint codes inside Hints (e.g. A22 → G9, A19 → D6, A9 → E4) apply only when the user picked no code in that group; an explicit pick in that group wins.
-- Example 1: `A14 + B3`: core `dark-artifact` (A first); B3 adds isometric blocks in dark-artifact colours; type stays sans.
+- Example 1: `A14 + B3`: core `dark-artifact` (A first); B3 adds the isometric cards, pill and dashed-box conventions in dark-artifact colours; characters stay chibi with the dark-artifact treatment; type stays sans.
 - Example 2: `A9 + E6 + D2`: core `swiss-editorial`; A9's hint E4 serif is dropped because E6 mono was picked; D2 light palette replaces the swiss palette.
+- Example 3: `B4 + C4 + D15`: core `flat-mascot` (B4); D15 replaces its palette with the isometric palette, cards and pill; C4 tone only. Same look as `B3 + C4`.
 
 ## Keyword taxonomy
 Src ids resolve in `## Sources`. `S0` is a repo file and is used only by A14 (the project's own approved style); every other row cites an external source.
@@ -107,7 +110,7 @@ Src ids resolve in `## Sources`. `S0` is a repo file and is used only by A14 (th
 |---|---|---|---|---|---|
 | B1 | line art | drawn only with outlines | yes | 2–3 px strokes, no fills, one accent | S5 |
 | B2 | flat illustration | simple filled shapes, no shading | yes | → flat-mascot | S5 |
-| B3 | isometric | little 3D blocks drawn at 30° | yes | → isometric | S18 S5 |
+| B3 | isometric | light indigo cards with chibi role characters | yes | → isometric (no 30° blocks) | S18 S5 |
 | B4 | mascot / character | a recurring friendly figure | yes | → flat-mascot | S5 |
 | B5 | anthropomorphic objects | objects with faces, like robots | yes | → dark-artifact (v3 robots) | S1 |
 | B6 | doodle / hand-drawn | whiteboard sketch look | yes | → sketch-notes | S19 S5 |
@@ -157,6 +160,7 @@ Src ids resolve in `## Sources`. `S0` is a repo file and is used only by A14 (th
 | D12 | black & white | maximum contrast, no colour | yes | `#000000` / `#FFFFFF` 21 | S1 |
 | D13 | brand colours | the product's own colours | yes | only hex stated in the brief (`color.md`) | S9 |
 | D14 | muted / desaturated | greyish calm colours | yes | `#1E293B` on `#F8FAFC` 14.0; `#64748B` shapes | S7 |
+| D15 | indigo light | pale indigo canvas, white cards, one indigo accent | yes | → isometric palette, cards and pill | S18 S7 |
 
 ### E · Typography direction
 | Code | Keyword | Meaning | v1 | Hints | Src |
@@ -209,37 +213,36 @@ Src ids resolve in `## Sources`. `S0` is a repo file and is used only by A14 (th
 ## Core recipes (12)
 Contrast pairs computed with the `color.md` formula (python, 2026-11-24). Text pairs ≥ 4.5:1; "shape only" values never sit under text.
 
-| id | Palette (hex) · text pairs | Type | Shapes / effects | Illustration · mascot |
+| id | Palette (hex) · text pairs | Type | Shapes / effects | Characters (`characters.md`) · mascot |
 |---|---|---|---|---|
-| dark-artifact | bg `#0B1020`, surface `#151B2E`, text `#FFFFFF` 18.9, muted `#B8C0D9`/surface 9.4, accent `#FFC83D` (ink `#0B1020` 12.2), glow `#5EEAD4` 12.8 | sans | radius 10–14 cards, glow, dot pattern, radial bg gradients | line robots per role · yes (v3) |
-| minimal-type | bg `#FFFFFF`, text `#111827` 17.7, muted `#4B5563` 7.6, accent `#2563EB` 5.2 (white on it 5.2) | sans 700, title up to 120 px | none or one thin rule | none · no |
-| swiss-editorial | bg `#F4F1EA`, text `#111111` 16.7, muted `#4A4A4A` 7.9, accent `#D0021B` (white on it 5.7; on bg 5.0) | sans, flush-left | asymmetric 12-col grid, one red block, 2 px rules | none · no |
-| bento-grid | bg `#F5F5F7`, tile `#FFFFFF`, text `#1D1D1F` 16.8 on tile, muted `#6E6E73` 5.1, accent `#0066CC` 5.6 | sans; tile title 28–32 | 4–6 tiles, radius 20, gap 16–24, one large focal tile | icon/diagram per tile · no |
-| aurora-mesh | bg `#0A0A1A`, blobs `#7C3AED` `#06B6D4` `#EC4899` (shape only), text `#FFFFFF` 19.6, muted `#C4C9E8` 12.0 | sans | 2–4 radial gradients + `feGaussianBlur`; calm zone behind text | none · no |
-| glass-layers | aurora bg; panel = blurred bg copy clipped to panel + white 10% + 1 px white 30% stroke; on `#2A2350`: `#FFFFFF` 14.4, `#D6D9F0` 10.3 | sans | `clipPath` + blurred duplicate | none · no |
-| neo-brutalism | bg `#FFF4D6`, ink `#000000` 19.2; fills `#FF6B6B` 7.6, `#A3E635` 13.9, `#FDE047` 15.9 (black text) | sans 800, oversized | 3–4 px black stroke, hard shadow (8,8), radius 0–8 | stickers/arrows · optional |
-| isometric | bg `#EEF2FF`, text `#1E1B4B` 14.3, muted `#4338CA` 7.1, faces `#4F46E5`/`#818CF8`/`#C7D2FE` (white on `#4F46E5` 6.3) | sans | 30° axes, 3 face tones, light top-left | blocks/servers · no |
-| flat-mascot | bg `#FFF7ED`, text `#1C1917` 16.5, muted `#57534E` 7.2, accent `#C2410C` (white on it 5.2); `#EA580C` 3.4 shape only | sans | rounded flat shapes | 1–3 characters · yes |
-| sketch-notes | paper `#FFFDF7`, ink `#1F2937` 14.4, highlight `#FDE68A` (ink on it 11.8), red pen `#B91C1C` 6.4 | sans (text stays straight) | jittered paths with a fixed seed, double strokes, hachure | doodles · optional stick figures |
-| blueprint | bg `#0B3D91`, text `#FFFFFF` 10.0, muted `#CFE0FF` 7.5, accent `#FFD166` 7.0, grid `#7FA6E0` 4.0 (lines only) | mono labels, sans titles | grid pattern, 1.5 px white strokes, dimension arrows | technical diagram · no |
-| terminal-retro | bg `#0C0C0C`, green `#33FF66` 14.6, amber `#FFB000` 10.7, dim `#9CA3AF` 7.7 | mono for all text | 1 px panes, `$` prompt, block cursor, faint scanlines | ASCII-like boxes · no |
+| dark-artifact | bg `#0B1020`, surface `#151B2E`, text `#FFFFFF` 18.9, muted `#B8C0D9`/surface 9.4, accent `#FFC83D` (ink `#0B1020` 12.2), glow `#5EEAD4` 12.8 | sans | radius 10–14 cards, glow, dot pattern, radial bg gradients | chibi characters: 2 px `#B8C0D9` outline, fills from surface + accent, no glow on them · yes |
+| minimal-type | bg `#FFFFFF`, text `#111827` 17.7, muted `#4B5563` 7.6, accent `#2563EB` 5.2 (white on it 5.2) | sans 700, title up to 120 px | none or one thin rule | chibi characters: flat, grey fills, accent on one jacket only · yes |
+| swiss-editorial | bg `#F4F1EA`, text `#111111` 16.7, muted `#4A4A4A` 7.9, accent `#D0021B` (white on it 5.7; on bg 5.0) | sans, flush-left | asymmetric 12-col grid, one red block, 2 px rules | chibi characters on the grid, flush-left group; red only on one jacket · yes |
+| bento-grid | bg `#F5F5F7`, tile `#FFFFFF`, text `#1D1D1F` 16.8 on tile, muted `#6E6E73` 5.1, accent `#0066CC` 5.6 | sans; tile title 28–32 | 4–6 tiles, radius 20, gap 16–24, one large focal tile | chibi characters, one per tile; the focal tile holds the hero group · yes |
+| aurora-mesh | bg `#0A0A1A`, blobs `#7C3AED` `#06B6D4` `#EC4899` (shape only), text `#FFFFFF` 19.6, muted `#C4C9E8` 12.0 | sans | 2–4 radial gradients + `feGaussianBlur`; calm zone behind text | chibi characters on the calm zone, light outline, flat fills · yes |
+| glass-layers | aurora bg; panel = blurred bg copy clipped to panel + white 10% + 1 px white 30% stroke; on `#2A2350`: `#FFFFFF` 14.4, `#D6D9F0` 10.3 | sans | `clipPath` + blurred duplicate | chibi characters in front of the panels, never blurred · yes |
+| neo-brutalism | bg `#FFF4D6`, ink `#000000` 19.2; fills `#FF6B6B` 7.6, `#A3E635` 13.9, `#FDE047` 15.9 (black text) | sans 800, oversized | 3–4 px black stroke, hard shadow (8,8), radius 0–8 | chibi characters: 3–4 px black outline, flat fills, hard shadow · yes |
+| isometric | bg `#EEF2FF`, surface `#FFFFFF` (text 16.0, muted 7.9), text `#1E1B4B` 14.3, muted `#4338CA` 7.1 (also arrows, labels), accent `#4F46E5` 5.6 on bg (white on it 6.3), shapes `#818CF8`/`#C7D2FE`; borders `#818CF8` nodes / `#C7D2FE` cards 2 px (decoration only, 3.0/1.5 on white) | sans; title 40/72 700, subline 24 muted, labels 22 600; mono in the CTA pill | flat front view, no 30° axis or blocks; white cards radius 10, character above the label (pipeline) or left of name + job (roster); one accent pill radius = h/2 (CTA, loop label); dashed card = optional step; dashed accent box radius 14 = parallel group; hero: 3 characters on a `#C7D2FE` disc | chibi characters, the reference model (2–3 px dark outline, cel shading) · yes |
+| flat-mascot | bg `#FFF7ED`, text `#1C1917` 16.5, muted `#57534E` 7.2, accent `#C2410C` (white on it 5.2); `#EA580C` 3.4 shape only | sans | rounded flat shapes | chibi characters, rounded flat shapes · yes |
+| sketch-notes | paper `#FFFDF7`, ink `#1F2937` 14.4, highlight `#FDE68A` (ink on it 11.8), red pen `#B91C1C` 6.4 | sans (text stays straight) | jittered paths with a fixed seed, double strokes, hachure | chibi characters with jittered outlines (fixed seed), hachure shading · yes |
+| blueprint | bg `#0B3D91`, text `#FFFFFF` 10.0, muted `#CFE0FF` 7.5, accent `#FFD166` 7.0, grid `#7FA6E0` 4.0 (lines only) | mono labels, sans titles | grid pattern, 1.5 px white strokes, dimension arrows | chibi characters as 1.5 px white line art, no fills · yes |
+| terminal-retro | bg `#0C0C0C`, green `#33FF66` 14.6, amber `#FFB000` 10.7, dim `#9CA3AF` 7.7 | mono for all text | 1 px panes, `$` prompt, block cursor, faint scanlines | chibi characters as 1.5–2 px phosphor line art, no fills · yes |
 
 ### Do / don't and risks
 | id | Do | Don't | Risks (Q3, Q8, legibility at ~830 px) |
 |---|---|---|---|
 | dark-artifact | one glow colour | glow on text | Q8: roster.png is 1.28 MB today |
-| minimal-type | huge whitespace, one accent | decoration "to fill space" | looks empty in a feed |
-| swiss-editorial | one red block = accent | centred text, illustration | thin rules vanish; use ≥ 2 px |
+| minimal-type | huge whitespace, one accent | decoration "to fill space" beyond the characters | looks empty in a feed |
+| swiss-editorial | one red block = accent | centred text, decoration beside the characters | thin rules vanish; use ≥ 2 px |
 | bento-grid | one focal tile, ≤ 6 tiles | equal tiles | tile text hits 22 px floor; Q5 |
 | aurora-mesh | blobs behind the visual side | text over the brightest blob | Q3 measured on pixels; PNG size |
 | glass-layers | blur a duplicate of the bg | `backdrop-filter`/`blur()` (leak, CLAUDE.md) | lowest contrast; Q8 |
 | neo-brutalism | black text on every fill | coloured text, soft shadows | clashes with trust-first B2B (S15) |
-| isometric | one 30° grid for everything | mixed angles, perspective | labels don't fit faces → beside |
+| isometric | accent only on the CTA or loop | 30° blocks, servers or cubes (user rejected: ugly, not explanatory); accent on node outlines | Q8 grows with character detail; white card on bg is 1.1, so the label names the node |
 | flat-mascot | one character model | many detailed characters | childish for enterprise |
 | sketch-notes | fixed jitter seed (Q7) | random jitter per render | text must stay straight |
 | blueprint | mono labels, white on blue | colour fills | grid competes with text |
 | terminal-retro | one phosphor colour + amber | glow on body text, curvature | mono is wide (0.62 em) |
-
 
 ## Sources
 - S0 · project-own style, A14 only (the approved v3 art; its palette is the default in the key-art skill) · `plugins/demo-studio/skills/key-art/references/color.md` · read 2026-11-24 · repo file
@@ -273,3 +276,4 @@ Contrast pairs computed with the `color.md` formula (python, 2026-11-24). Text p
 - S28 · Wikipedia, Blueprint · https://en.wikipedia.org/wiki/Blueprint · accessed 2026-11-24 · search summary
 - S29 · shadcn.io, Hero Two Columns · https://www.shadcn.io/blocks/hero-two-columns · accessed 2026-11-24 · search summary
 - Trend sources are mostly vendor blogs (opinion); hex values and recipes are project decisions.
+- Chibi characters in every style (`characters.md`; user decisions 2026-11-25: they replace isometric 30° blocks and apply to all recipes). The isometric recipe's surface, accent, borders, type sizes, pill and dashed-card rules, and D15, come from a user-approved README art set (B4 + C4 on the isometric palette, gate GA 2026-11-25); contrast pairs recomputed with the `color.md` formula on 2026-11-25.

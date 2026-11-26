@@ -40,11 +40,11 @@ node .demo/remotion/render.mjs --project .demo/<slug>/project.json --ratio 16x9|
      [--from-ms A --to-ms B]   # preview range (motion-designer)
      [--still MS]              # one PNG frame (blur / effect check)
      [--props-only]            # print the normalized props, no render
-node .demo/remotion/render.mjs --art --size WxH --layer <file.svg|png> [--layer ...] --out <file>.png
+node .demo/remotion/render.mjs --art --size WxH --layer <file.svg|png>[@X,Y,W,H] [--layer ...] --out <file>.png
      [--bg #RRGGBB|transparent]   # default #0B1020
      [--check-only]               # size, paths, SVG lint, PNG header; prints JSON, no render
 ```
-  `--art` (raster mode) draws the layers bottom to top into ONE PNG (key art, thumbnail; rules in `key-art`). It needs no `project.json` and is refused with `--project`, `--still` or `--ratio`; `--size` is `WxH` in the allowed range; every layer and `--out` must sit inside the first layer's `.demo/<slug>/` folder; `--check-only` loads no Remotion. Exit 2 = bad data (size, path, SVG lint), 1 = render failed.
+  `--art` (raster mode) draws the layers bottom to top into ONE PNG (key art, thumbnail; rules in `key-art`). It needs no `project.json` and is refused with `--project`, `--still` or `--ratio`; `--size` is `WxH` in the allowed range; every layer and `--out` must sit inside the first layer's `.demo/<slug>/` folder; a layer covers the canvas, except a PNG written `FILE.png@X,Y,W,H`, drawn in that rect with its aspect kept (approved character assets, `key-art` P2; rect inside the canvas and no larger than the PNG, else exit 2); `--check-only` loads no Remotion. Exit 2 = bad data (size, path, SVG lint, placement), 1 = render failed.
   It reads `#timeline`, `#events.clips`, `#blur`, `#motion`, `#captions` (cues only with `--burn-in`), maps blur times to the final timeline (`media-specs` Spaces and time), applies blur on the source frame before zoom/reframe, and encodes per `media-specs` Encode (H.264 CRF 18, yuv420p, AAC 192k 48 kHz, fps = lowest clip fps) in one pass. stdout: one JSON line (`renderer`, `remotion` version, `w`, `h`, `fps`, `duration_s`); exit 0 ok, 1 render failed, 2 bad arguments or project data. Effects are drawn from their `params` exactly as in the `#motion` schema; unknown types are ignored, so only write the listed types.
 
 ## Safe areas (keep text, callouts, captions inside; fractions of width/height)

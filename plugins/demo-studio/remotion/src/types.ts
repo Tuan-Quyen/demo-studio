@@ -55,7 +55,8 @@ export type DemoProps = {
 };
 
 // Props of the `art` composition (render.mjs --art): layers drawn bottom to top over one canvas.
-export type ArtLayer = {src: string; kind: 'svg' | 'png'}; // src relative to the public dir (.demo/<slug>/)
+// src relative to the public dir (.demo/<slug>/); place = a PNG drawn in that rect (px), else full canvas.
+export type ArtLayer = {src: string; kind: 'svg' | 'png'; place?: {x: number; y: number; w: number; h: number}};
 
 export type ArtProps = {
   width: number;

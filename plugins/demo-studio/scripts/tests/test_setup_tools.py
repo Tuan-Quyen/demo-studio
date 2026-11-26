@@ -336,3 +336,144 @@ class Stages(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class BrowserFallback(unittest.TestCase):
+    """--install remotion smoke-tests Chrome; on macOS a hanging download is replaced by a cached copy."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = setup_tools.Path(os.path.realpath(self._tmp.name))
+        ws = self.root / "proj" / ".demo"
+        self.ctx = setup_tools.Ctx(None, str(ws))
+        self.ctx.demo_dir, self.ctx.toolkit = ws, ws / "toolkit.json"  # never touch the cwd's .demo
+        rem = ws / "remotion" / "node_modules"
+        (rem / "remotion").mkdir(parents=True)
+        (rem / "remotion" / "package.json").write_text('{"version": "4.0.541"}')
+        self.chrome = rem / ".remotion" / "chrome-headless-shell" / "mac-arm64" / "chrome-headless-shell-mac-arm64"
+        self.chrome.mkdir(parents=True)
+        (self.chrome / "chrome-headless-shell").write_text("bin")
+        (self.chrome / "icudtl.dat").write_text("icu")
+        self.cache = self.root / "cache"
+        for k, v in (("DEMO_STUDIO_OS", "mac"), ("DEMO_STUDIO_BROWSER_CACHE", str(self.cache))):
+            old = os.environ.get(k)
+            os.environ[k] = v
+            self.addCleanup(lambda k=k, old=old: os.environ.pop(k, None) if old is None else os.environ.__setitem__(k, old))
+        self.calls = []
+        self._smoke = setup_tools.render_smoke
+        self.addCleanup(setattr, setup_tools, "render_smoke", self._smoke)
+
+    def fake_smoke(self, results):
+        def smoke(ctx, browser, timeout=90):
+            self.calls.append(browser)
+            return results.pop(0)
+        setup_tools.render_smoke = smoke
+
+    def test_default_chrome_works_no_copy(self):
+        pin = self.ctx.remotion_dir / ".browser.json"
+        pin.write_text('{"browser_executable": "/old"}')
+        self.fake_smoke([None])
+        setup_tools.ensure_render_works(self.ctx)
+        self.assertIsNone(self.ctx.browser_exe)
+        self.assertFalse(pin.exists())  # stale pin removed
+        self.assertEqual(self.calls, [str(self.chrome / "chrome-headless-shell")])
+        self.assertFalse(self.cache.exists())
+
+    def test_hang_on_mac_falls_back_to_cache_copy(self):
+        self.fake_smoke(["render smoke test timed out after 90 s", None])
+        setup_tools.ensure_render_works(self.ctx)
+        want = self.cache / "4.0.541" / "chrome-headless-shell-mac-arm64" / "chrome-headless-shell"
+        self.assertEqual(self.ctx.browser_exe, str(want))
+        self.assertTrue((want.parent / "icudtl.dat").is_file())
+        pin = json.loads((self.ctx.remotion_dir / ".browser.json").read_text())
+        self.assertEqual(pin["browser_executable"], str(want))  # render.mjs reads it, any --workspace
+        self.assertEqual(self.calls[1], str(want))
+
+    def test_copy_reused_and_symlink_followed(self):
+        outside = self.root / "elsewhere" / "chrome-headless-shell-mac-arm64"
+        outside.parent.mkdir()
+        os.rename(self.chrome, outside)
+        os.symlink(outside, self.chrome)
+        exe = setup_tools.copy_browser_out(self.ctx)
+        self.assertTrue(setup_tools.Path(exe).is_file())
+        setup_tools.Path(exe).with_name("marker").write_text("kept")
+        self.assertEqual(setup_tools.copy_browser_out(self.ctx), exe)
+        self.assertTrue(setup_tools.Path(exe).with_name("marker").is_file())
+
+    def test_both_fail_raises(self):
+        self.fake_smoke(["timed out", "timed out again"])
+        with self.assertRaises(OSError):
+            setup_tools.ensure_render_works(self.ctx)
+
+    def test_non_hang_failure_no_copy_with_os_hint(self):
+        for osn, word in (("linux", "libnss3"), ("win", "Windows"), ("mac", "macOS")):
+            os.environ["DEMO_STUDIO_OS"] = osn
+            self.fake_smoke(["render smoke test failed (exit 1): boom"])
+            if osn == "win":  # Windows looks for the .exe
+                (self.chrome / "chrome-headless-shell.exe").write_text("bin")
+            with self.assertRaises(OSError) as cm:
+                setup_tools.ensure_render_works(self.ctx)
+            self.assertIn(word, str(cm.exception))
+        self.assertFalse(self.cache.exists())
+
+    def test_hang_falls_back_on_every_os(self):
+        (self.chrome / "chrome-headless-shell.exe").write_text("bin")
+        for osn, exe in (("linux", "chrome-headless-shell"), ("win", "chrome-headless-shell.exe")):
+            os.environ["DEMO_STUDIO_OS"] = osn
+            self.fake_smoke(["render smoke test timed out after 90 s (headless Chrome hangs)", None])
+            setup_tools.ensure_render_works(self.ctx)
+            self.assertEqual(setup_tools.Path(self.ctx.browser_exe).name, exe)
+            self.assertTrue(setup_tools.Path(self.ctx.browser_exe).is_file())
+
+    def test_cache_root_per_os(self):
+        home = setup_tools.Path("/h")
+        root = setup_tools.browser_cache_root
+        tail = ("demo-studio", "chrome-headless-shell")
+        self.assertEqual(root("mac", {}, home), home.joinpath("Library", "Caches", *tail))
+        self.assertEqual(root("win", {"LOCALAPPDATA": "/la"}, home), setup_tools.Path("/la").joinpath(*tail))
+        self.assertEqual(root("win", {}, home), home.joinpath("AppData", "Local", *tail))
+        self.assertEqual(root("linux", {"XDG_CACHE_HOME": "/xc"}, home), setup_tools.Path("/xc").joinpath(*tail))
+        self.assertEqual(root("linux", {}, home), home.joinpath(".cache", *tail))
+        self.assertEqual(root("linux", {"DEMO_STUDIO_BROWSER_CACHE": "/o"}, home), setup_tools.Path("/o"))
+
+    def test_finds_platform_folders(self):
+        base = self.chrome.parent.parent
+        os.environ["DEMO_STUDIO_OS"] = "win"
+        self.assertIsNone(setup_tools.remotion_browser_dir(self.ctx))  # no .exe yet
+        w = base / "win64" / "chrome-headless-shell-win64"
+        w.mkdir(parents=True)
+        (w / "chrome-headless-shell.exe").write_text("bin")
+        self.assertEqual(setup_tools.remotion_browser_dir(self.ctx), w)
+        os.environ["DEMO_STUDIO_OS"] = "linux"
+        self.assertEqual(setup_tools.remotion_browser_dir(self.ctx), self.chrome)
+
+    def test_bounded_run_kills_on_timeout(self):
+        import time
+        t = time.time()
+        rc, _ = setup_tools._run_bounded([sys.executable, "-c", "import time; time.sleep(30)"],
+                                         str(self.root), dict(os.environ), 1)
+        self.assertIsNone(rc)
+        self.assertLess(time.time() - t, 15)
+        rc, out = setup_tools._run_bounded([sys.executable, "-c", "print('hi')"], str(self.root), dict(os.environ), 20)
+        self.assertEqual((rc, out.strip()), (0, "hi"))
+
+    def test_install_has_smoke_step(self):
+        labels = [c["label"] for c in setup_tools.feature_commands(self.ctx, "remotion")]
+        self.assertTrue(any(l.startswith("render smoke test") for l in labels))
+
+    def test_recorded_browser_gone_is_missing(self):
+        (self.ctx.demo_dir).mkdir(parents=True, exist_ok=True)
+        self.ctx.toolkit.write_text(json.dumps({"schema": 1, "features": {"remotion": {
+            "versions": {"remotion": "4.0.541"}, "browser_executable": str(self.root / "gone")}}}))
+        self._old_synced = setup_tools.remotion_synced
+        setup_tools.remotion_synced = lambda ctx: True
+        self.addCleanup(setattr, setup_tools, "remotion_synced", self._old_synced)
+        st = setup_tools.feature_states(self.ctx, ["remotion"])["remotion"]
+        if st["status"] != "blocked":  # node may be missing on the test machine
+            self.assertEqual(st["status"], "missing")
+            self.assertIn("headless Chrome missing", st["reason"])
+
+    def test_smoke_reports_missing_script(self):
+        self.assertEqual(self._smoke(self.ctx, None), "node or render.mjs not found")

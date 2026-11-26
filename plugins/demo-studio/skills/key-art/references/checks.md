@@ -9,7 +9,7 @@ No text smaller than **16 px native** in any video art (title, end, thumbnail, v
 | ID | Check | Fails when |
 |---|---|---|
 | P1 | No real personal data in any text, `<title>`, `<desc>` or attribute | an email, phone number, personal name, account/order ID, amount, token/key, local path, internal URL, or URL with a query appears, unless it is the product's own public name/URL from the source doc; also any `SENSITIVE` entry of `app-map.md` and `privacy.blur` terms (video runs) |
-| P2 | No raster image or logo in any art SVG (v1) | an `<image>` element or any `data:image/*` exists (a hit is a blocker for art-designer, never an accepted logo) |
+| P2 | No raster image or logo in any art SVG; the only raster in an art PNG is an approved character asset (`#art.assets`, placed by `places`) | an `<image>` element or any `data:image/*` exists in an SVG (a blocker, never an accepted logo); a placed PNG is not in `#art.assets`, its sha256 differs, or `assets.approved` is missing; with `assets.sheet`: `art/assets/sheet.png` sha256 differs from `sheet.sha256`, or `art_assets.py split` re-run on it (same roles and `sheet.flags`, into a temp dir) gives a different sha256 for any file; the sheet itself is placed; an asset shows a logo, screenshot, photo, or readable text (P1 applies to it) |
 | P3 | Delivered `media/thumb.png`: blurred frame leaks nothing | a `sensitive` box in the frame is not blurred at rendered strength, or a crop edge shows unblurred pixels next to a blur; the frame came from a render pass that applies `#blur` |
 | P4 | Nothing over a blurred region | text, arrow or shape overlaps the thumbnail window area or a blurred region |
 | P5 | SVG is inert | `<script`, `on*=`, `<foreignObject>`, external `href`/`url(`/`@import` (the `--art` lint rejects these, E13; the audit is defence in depth) |
@@ -24,10 +24,10 @@ Method without OCR: read SVG text nodes and attributes from the file; view each 
 | Q4 | Minimum text rule above | any text smaller than the floor for its image |
 | Q5 | No clipped, overflowing or overlapping text; no tofu glyphs | any glyph cut by the canvas or a box, two text blocks overlap, or a missing-glyph box appears |
 | Q6 | Text and key marks inside the safe areas (`composition.md`); thumbnail badge keep-out empty | anything outside the margins or in the badge area |
-| Q7 | SVG and PNG show the same text and layout (E6) | different wording, wrapping, or a shift of more than the 10% width slack |
+| Q7 | SVG and PNG show the same text and layout (E6); placed assets appear only in the PNG, at their `places` rect | different wording, wrapping, or a shift of more than the 10% width slack; a placed asset off its rect or over text |
 | Q8 | File budgets (`formats.md`) | `media/thumb.png` > 2 MB, or `social`/`hero` PNG > 1 MB |
 | Q9 | Spelling | any on-art string misspelled in its language (source spelling of names and terms kept as written) |
-| Q10 | Style conformance to the resolved recipe (`styles.md`); applies only when `#art.style` is not null, else n/a | an item's background or accent family is not the `core` recipe + D code + `custom` (after the `adjusted` entries); its font stack is not the E code's (or the recipe's); the F code's grid is not used; the G code's effect is missing; or items of one run disagree on palette or type. An `approximated` entry is not a finding; a key-art rule (Q1-Q9, P1-P5) beats the style |
+| Q10 | Style conformance to the resolved recipe (`styles.md`); applies only when `#art.style` is not null, else n/a | an item's background or accent family is not the `core` recipe + D code + `custom` (after the `adjusted` entries); its font stack is not the E code's (or the recipe's); its characters are missing, off the `characters.md` model or smaller than its sizes, or not in the recipe treatment; the F code's grid is not used; the G code's effect is missing; or items of one run disagree on palette or type. An `approximated` entry is not a finding; a key-art rule (Q1-Q9, P1-P5) beats the style |
 
 ## Which file gets which check (KART-AC24)
 | File | Checks | Not |

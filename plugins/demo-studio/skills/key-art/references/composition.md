@@ -27,7 +27,7 @@ Applies to every image id in `formats.md`. Checks that enforce it: Q5, Q6 (`chec
 | Hero 1280x640 | 64 px sides, 56 px top/bottom; 12 columns, gutter 24; text cols 1-7, visual cols 8-12 |
 | Social 1200x630 | 60 px margins; all text inside the central 1000x480 (platform crops); one column, left-aligned |
 | Pipeline 1280x720 | 64 px sides; heading band 0-120 px; content 136-680 px |
-| Roster 1280x1600 | 64 px sides; heading band 0-120 px; content 136-1536 px (bottom margin = side margin 64 px); 2 columns of 466 px at x 64-530 and 750-1216, row pitch 160 |
+| Roster 1280x1600 | 64 px sides; heading band 0-120 px; content 136-1536 px (bottom margin = side margin 64 px); up to 14 roles: 2 columns of 466 px at x 64-530 and 750-1216, row pitch 160; 15 or more roles: 3 columns of 368 px at x 64-432, 456-824 and 848-1216, row pitch 202 (7 rows hold 21; user decision 2026-11-25, 19-agent roster) |
 Video margins mirror the `motion-fx` Safe areas table; if they ever differ, `motion-fx` wins for video cards.
 
 ## Diagram rules (pipeline, roster)

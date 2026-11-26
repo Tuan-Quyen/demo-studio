@@ -20,7 +20,7 @@ Files are `art/<id>.svg` + `art/<id>.png`. A ratio missing from `formats` gets n
 ## Size rules
 - SVG `width` and `height` equal the id's size; the PNG IHDR read back by `render.mjs --art` equals it too (Q2).
 - GitHub social preview: 1280x640 recommended, 640x320 minimum, PNG/JPG/GIF, under 1 MB. The `social` id (1200x630) is the open-graph size for other platforms; upload by the user, not by the team. The `hero` (1280x640) is the GitHub-recommended size.
-- File budgets: delivered `media/thumb.png` <= 2 MB; `social` and `hero` PNGs <= 1 MB (GitHub's limit); typographic PNGs normally land far below. Over budget -> simplify the SVG (fewer shapes) and re-render; if still over, `needs-input` (Q8). PNG has no quality knob.
+- File budgets: delivered `media/thumb.png` <= 2 MB; `social` and `hero` PNGs <= 1 MB (GitHub's limit); typographic PNGs normally land far below. Over budget -> simplify the SVG (fewer shapes) or shrink the `places` rects of character assets, and re-render; if still over, `needs-input` (Q8). PNG has no quality knob.
 
 ## Thumbnail layer model
 | File | What | Transparency |
